@@ -307,11 +307,18 @@ class App {
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
+        // Prioritization Maps
+        const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
+        const tagOrder = {
+            'Exif SubIF': ['Exposure Time', 'F-Number', 'ISO Speed Rating', 'Focal Length', 'Lens Model', 'Exposure Bias Value', 'Metering Mode', 'White Balance', 'Flash', 'Date/Time Original'],
+            'Exif IFD0': ['Model', 'Make', 'Software', 'Orientation'],
+            'Sony Maker': ['Focus Mode', 'Image Stabilisation', 'Lens Model', 'Color Temperature', 'Quality'],
+            'File Info': ['Created', 'Size', 'ID']
+        };
         this.metadataEl.innerHTML = 'Loading...';
         try {
             const res = await fetch(`/api/metadata/${id}`);
             const meta = await res.json();
-            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
             const groups = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -319,9 +326,40 @@ class App {
                     groups[k] = [];
                 groups[k].push(m);
             });
-            for (const k in groups) {
+            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
+            // Add File Info manually
+            groups['File Info'] = [
+                { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
+                { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
+                { directory: 'File Info', tag: 'ID', value: id }
+            ];
+            // Sort groups
+            const sortedGroups = Object.keys(groups).sort((a, b) => {
+                let ia = groupOrder.indexOf(a);
+                let ib = groupOrder.indexOf(b);
+                if (ia === -1)
+                    ia = 999;
+                if (ib === -1)
+                    ib = 999;
+                return ia - ib;
+            });
+            for (const k of sortedGroups) {
+                const items = groups[k];
+                // Sort items within group
+                const priorities = tagOrder[k] || [];
+                items.sort((a, b) => {
+                    let ia = priorities.indexOf(a.tag);
+                    let ib = priorities.indexOf(b.tag);
+                    if (ia === -1)
+                        ia = 999;
+                    if (ib === -1)
+                        ib = 999;
+                    if (ia !== ib)
+                        return ia - ib;
+                    return a.tag.localeCompare(b.tag);
+                });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
-                groups[k].forEach(m => {
+                items.forEach(m => {
                     html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span></div>`;
                 });
                 html += `</div>`;
@@ -461,9 +499,24 @@ class App {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
-        this.ws.onopen = () => { this.isConnected = true; this.processPending(); };
-        this.ws.onclose = () => { this.isConnected = false; setTimeout(() => this.connectWs(), 2000); };
+        this.ws.onopen = () => {
+            this.isConnected = true;
+            this.updateStatus(true);
+            this.processPending();
+        };
+        this.ws.onclose = () => {
+            this.isConnected = false;
+            this.updateStatus(false);
+            setTimeout(() => this.connectWs(), 2000);
+        };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
+    }
+    updateStatus(connected) {
+        const el = document.getElementById('connection-status');
+        if (el) {
+            el.innerText = connected ? 'Connected' : 'Disconnected';
+            el.style.color = connected ? '#0f0' : '#f00';
+        }
     }
     handleBinaryMessage(buffer) {
         const view = new DataView(buffer);
