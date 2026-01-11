@@ -11,6 +11,7 @@ class App {
         this.photoMap = new Map();
         this.selectedId = null;
         this.selectedRootId = null;
+        this.filterStarred = false;
         this.isLoupeMode = false;
         // Components
         this.libraryEl = null;
@@ -39,15 +40,18 @@ class App {
                 }]
         };
         this.layout = new GoldenLayout(config, '#layout-container');
-        this.layout.registerComponent('library', (container) => {
-            this.libraryEl = document.createElement('div');
-            this.libraryEl.className = 'tree-view gl-component';
-            container.getElement().append(this.libraryEl);
+        const self = this;
+        this.layout.registerComponent('library', function (container, state) {
+            self.libraryEl = document.createElement('div');
+            self.libraryEl.className = 'tree-view gl-component';
+            container.getElement().append(self.libraryEl);
+            if (self.photos.length > 0)
+                self.loadData();
         });
-        this.layout.registerComponent('workspace', (container) => {
-            this.workspaceEl = document.createElement('div');
-            this.workspaceEl.className = 'gl-component';
-            this.workspaceEl.innerHTML = `
+        this.layout.registerComponent('workspace', function (container, state) {
+            self.workspaceEl = document.createElement('div');
+            self.workspaceEl.className = 'gl-component';
+            self.workspaceEl.innerHTML = `
                 <div id="grid-view" class="grid-view">Loading...</div>
                 <div id="loupe-view" class="loupe-view" style="display:none;">
                     <div class="preview-area">
@@ -57,29 +61,29 @@ class App {
                     <div id="filmstrip" class="filmstrip"></div>
                 </div>
             `;
-            container.getElement().append(this.workspaceEl);
-            // Cache elements
-            this.gridView = this.workspaceEl.querySelector('#grid-view');
-            this.loupeView = this.workspaceEl.querySelector('#loupe-view');
-            this.filmstrip = this.workspaceEl.querySelector('#filmstrip');
-            this.mainPreview = this.workspaceEl.querySelector('#main-preview');
-            this.previewSpinner = this.workspaceEl.querySelector('#preview-spinner');
-            // Keyboard
+            container.getElement().append(self.workspaceEl);
+            self.gridView = self.workspaceEl.querySelector('#grid-view');
+            self.loupeView = self.workspaceEl.querySelector('#loupe-view');
+            self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
+            self.mainPreview = self.workspaceEl.querySelector('#main-preview');
+            self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
             container.getElement().get(0).addEventListener('keydown', (e) => {
                 if (e.key.toLowerCase() === 'g')
-                    this.enterGridMode();
+                    self.enterGridMode();
+                if (e.key.toLowerCase() === 'p')
+                    self.toggleStar(self.selectedId);
             });
-            // Focus for keyboard events
-            this.workspaceEl.tabIndex = 0;
+            self.workspaceEl.tabIndex = 0;
+            if (self.photos.length > 0)
+                self.renderGrid();
         });
-        this.layout.registerComponent('metadata', (container) => {
-            this.metadataEl = document.createElement('div');
-            this.metadataEl.className = 'metadata-panel gl-component';
-            this.metadataEl.innerHTML = '<div style="color:#666;text-align:center;margin-top:20px;">Select a photo</div>';
-            container.getElement().append(this.metadataEl);
+        this.layout.registerComponent('metadata', function (container, state) {
+            self.metadataEl = document.createElement('div');
+            self.metadataEl.className = 'metadata-panel gl-component';
+            self.metadataEl.innerHTML = '<div style="color:#666;text-align:center;margin-top:20px;">Select a photo</div>';
+            container.getElement().append(self.metadataEl);
         });
         this.layout.init();
-        // Handle resize
         window.addEventListener('resize', () => this.layout.updateSize());
     }
     async loadData() {
@@ -103,23 +107,33 @@ class App {
         if (!this.libraryEl)
             return;
         this.libraryEl.innerHTML = '';
-        // Build Tree
+        // Starred Node
+        const starredBtn = document.createElement('div');
+        starredBtn.className = 'tree-item';
+        starredBtn.innerText = '★ Starred';
+        starredBtn.onclick = () => this.filterByRoot(null, starredBtn, true);
+        this.libraryEl.appendChild(starredBtn);
+        // All Photos
+        const allBtn = document.createElement('div');
+        allBtn.className = 'tree-item selected';
+        allBtn.innerText = 'All Photos';
+        allBtn.onclick = () => this.filterByRoot(null, allBtn, false);
+        this.libraryEl.appendChild(allBtn);
+        // Directory Tree
         const map = new Map();
         roots.forEach(r => map.set(r.id, { node: r, children: [] }));
         const tree = [];
         roots.forEach(r => {
-            if (r.parentId && map.has(r.parentId)) {
+            if (r.parentId && map.has(r.parentId))
                 map.get(r.parentId).children.push(map.get(r.id));
-            }
-            else {
+            else
                 tree.push(map.get(r.id));
-            }
         });
         const renderNode = (item, container) => {
             const el = document.createElement('div');
             el.className = 'tree-item';
             el.innerText = item.node.name;
-            el.onclick = () => this.filterByRoot(item.node.id, el);
+            el.onclick = () => this.filterByRoot(item.node.id, el, false);
             container.appendChild(el);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
@@ -128,29 +142,29 @@ class App {
                 container.appendChild(childContainer);
             }
         };
-        const allBtn = document.createElement('div');
-        allBtn.className = 'tree-item selected';
-        allBtn.innerText = 'All Photos';
-        allBtn.onclick = () => this.filterByRoot(null, allBtn);
-        this.libraryEl.appendChild(allBtn);
         tree.forEach(t => renderNode(t, this.libraryEl));
     }
-    filterByRoot(rootId, el) {
+    filterByRoot(rootId, el, starredOnly) {
         var _a;
-        // UI
         const current = (_a = this.libraryEl) === null || _a === void 0 ? void 0 : _a.querySelector('.selected');
         if (current)
             current.classList.remove('selected');
         el.classList.add('selected');
         this.selectedRootId = rootId;
+        this.filterStarred = starredOnly;
         this.renderGrid();
         if (this.isLoupeMode)
             this.renderFilmstrip();
     }
     getFilteredPhotos() {
-        if (!this.selectedRootId)
-            return this.photos;
-        return this.photos.filter(p => p.rootPathId === this.selectedRootId);
+        let list = this.photos;
+        if (this.filterStarred) {
+            list = list.filter(p => p.isStarred);
+        }
+        else if (this.selectedRootId) {
+            list = list.filter(p => p.rootPathId === this.selectedRootId);
+        }
+        return list;
     }
     // --- Workspace ---
     renderGrid() {
@@ -172,7 +186,6 @@ class App {
             const card = this.createCard(p, 'filmstrip');
             this.filmstrip.appendChild(card);
         });
-        // Scroll selection into view
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el)
@@ -194,7 +207,18 @@ class App {
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
-            info.innerText = p.fileName;
+            const nameSpan = document.createElement('span');
+            nameSpan.innerText = p.fileName;
+            const starBtn = document.createElement('span');
+            starBtn.className = `star-btn ${p.isStarred ? 'starred' : ''}`;
+            starBtn.innerHTML = '★';
+            starBtn.title = 'Toggle Star';
+            starBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.toggleStar(p.id);
+            };
+            info.appendChild(nameSpan);
+            info.appendChild(starBtn);
             card.appendChild(info);
             card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
         }
@@ -207,6 +231,7 @@ class App {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     this.requestImage(id, size).then(blob => {
+                        img.onload = () => { var _a; return (_a = img.parentElement) === null || _a === void 0 ? void 0 : _a.classList.add('loaded'); };
                         img.src = URL.createObjectURL(blob);
                     });
                     observer.disconnect();
@@ -219,7 +244,6 @@ class App {
         var _a, _b;
         if (this.selectedId === id)
             return;
-        // Update UI selection classes
         const oldSel = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll('.card.selected');
         oldSel === null || oldSel === void 0 ? void 0 : oldSel.forEach(e => e.classList.remove('selected'));
         this.selectedId = id;
@@ -270,7 +294,7 @@ class App {
         try {
             const res = await fetch(`/api/metadata/${id}`);
             const meta = await res.json();
-            let html = `<h2>${photo.fileName}</h2>`;
+            let html = `<h2>${photo.fileName} ${photo.isStarred ? '★' : ''}</h2>`;
             const groups = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -289,6 +313,33 @@ class App {
         }
         catch (_a) {
             this.metadataEl.innerHTML = 'Error';
+        }
+    }
+    async toggleStar(id) {
+        var _a;
+        if (!id)
+            return;
+        const photo = this.photoMap.get(id);
+        if (!photo)
+            return;
+        photo.isStarred = !photo.isStarred;
+        // Optimistic UI update
+        const stars = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .star-btn`);
+        stars === null || stars === void 0 ? void 0 : stars.forEach(s => {
+            if (photo.isStarred)
+                s.classList.add('starred');
+            else
+                s.classList.remove('starred');
+        });
+        // Refresh metadata panel if selected
+        if (this.selectedId === id)
+            this.loadMetadata(id);
+        try {
+            await fetch(`/api/star/${id}?isStarred=${photo.isStarred}`, { method: 'POST' });
+        }
+        catch (e) {
+            console.error('Failed to save star status');
+            photo.isStarred = !photo.isStarred; // Revert
         }
     }
     // --- Networking ---

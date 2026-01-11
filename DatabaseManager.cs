@@ -37,6 +37,7 @@ namespace PhotoLibrary
                     Size INTEGER,
                     CreatedAt TEXT,
                     ModifiedAt TEXT,
+                    IsStarred INTEGER DEFAULT 0,
                     FOREIGN KEY(RootPathId) REFERENCES RootPaths(Id),
                     UNIQUE(RootPathId, FileName)
                 );
@@ -52,6 +53,18 @@ namespace PhotoLibrary
                 CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);
             ";
             command.ExecuteNonQuery();
+
+            // Migration: Ensure IsStarred exists for existing DBs
+            try
+            {
+                var migrationCmd = connection.CreateCommand();
+                migrationCmd.CommandText = "ALTER TABLE FileEntry ADD COLUMN IsStarred INTEGER DEFAULT 0";
+                migrationCmd.ExecuteNonQuery();
+            }
+            catch (SqliteException) 
+            {
+                // Column likely exists
+            }
         }
 
         // Creates a top-level root (ParentId IS NULL)
@@ -120,9 +133,10 @@ namespace PhotoLibrary
             var command = connection.CreateCommand();
             command.Transaction = transaction;
 
+            // Preserve IsStarred on conflict
             command.CommandText = @"
-                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
-                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
+                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt, IsStarred)
+                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt, 0)
                 ON CONFLICT(RootPathId, FileName) DO UPDATE SET
                     Size = excluded.Size,
                     CreatedAt = excluded.CreatedAt,
@@ -198,7 +212,7 @@ namespace PhotoLibrary
             connection.Open();
             
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt FROM FileEntry ORDER BY CreatedAt DESC LIMIT 1000"; // Limit for perf
+            command.CommandText = "SELECT Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt, IsStarred FROM FileEntry ORDER BY CreatedAt DESC LIMIT 1000";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -210,10 +224,33 @@ namespace PhotoLibrary
                     FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
                     Size = reader.GetInt64(3),
                     CreatedAt = DateTime.Parse(reader.GetString(4)),
-                    ModifiedAt = DateTime.Parse(reader.GetString(5))
+                    ModifiedAt = DateTime.Parse(reader.GetString(5)),
+                    IsStarred = !reader.IsDBNull(6) && reader.GetInt32(6) == 1
                 });
             }
             return entries;
+        }
+
+        public IEnumerable<RootPathEntry> GetAllRootPaths()
+        {
+            var items = new List<RootPathEntry>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(new RootPathEntry
+                {
+                    Id = reader.GetString(0),
+                    ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    Name = reader.GetString(2)
+                });
+            }
+            return items;
         }
 
         public IEnumerable<MetadataItem> GetMetadata(string fileId)
@@ -239,26 +276,16 @@ namespace PhotoLibrary
             return items;
         }
 
-        public IEnumerable<RootPathEntry> GetAllRootPaths()
+        public void SetStar(string fileId, bool isStarred)
         {
-            var items = new List<RootPathEntry>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                items.Add(new RootPathEntry
-                {
-                    Id = reader.GetString(0),
-                    ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Name = reader.GetString(2)
-                });
-            }
-            return items;
+            command.CommandText = "UPDATE FileEntry SET IsStarred = $IsStarred WHERE Id = $Id";
+            command.Parameters.AddWithValue("$Id", fileId);
+            command.Parameters.AddWithValue("$IsStarred", isStarred ? 1 : 0);
+            command.ExecuteNonQuery();
         }
     }
 }

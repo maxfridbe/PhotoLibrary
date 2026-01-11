@@ -44,6 +44,13 @@ namespace PhotoLibrary
                 return Results.Ok(roots);
             });
 
+            // API: Set Star
+            app.MapPost("/api/star/{id}", (string id, bool isStarred, DatabaseManager db) =>
+            {
+                db.SetStar(id, isStarred);
+                return Results.Ok();
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {

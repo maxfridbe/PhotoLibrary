@@ -2,7 +2,7 @@
 declare var GoldenLayout: any;
 declare var $: any;
 
-interface Photo { id: string; fileName: string; createdAt: string; rootPathId: string; }
+interface Photo { id: string; fileName: string; createdAt: string; rootPathId: string; isStarred: boolean; }
 interface MetadataItem { directory: string; tag: string; value: string; }
 interface RootPath { id: string; parentId: string | null; name: string; }
 interface ImageRequest { requestId: number; fileId: string; size: number; }
@@ -20,6 +20,7 @@ class App {
     private photoMap: Map<string, Photo> = new Map();
     private selectedId: string | null = null;
     private selectedRootId: string | null = null;
+    private filterStarred: boolean = false;
     private isLoupeMode = false;
 
     // Components
@@ -61,16 +62,7 @@ class App {
             self.libraryEl = document.createElement('div');
             self.libraryEl.className = 'tree-view gl-component';
             container.getElement().append(self.libraryEl);
-            
-            // Re-render if data is already loaded
-            if (self.photos.length > 0) {
-                // We need to fetch/render again or just trigger a render from the main app
-                // For now, let's just let the main app render push into this element
-                // But wait, the main app's renderLibrary uses 'this.libraryEl'. 
-                // Since we just assigned it, we should be good for future renders.
-                // If data is already there, trigger render.
-                self.loadData(); // Re-trigger load/render to populate this new element
-            }
+            if (self.photos.length > 0) self.loadData();
         });
 
         this.layout.registerComponent('workspace', function(container: any, state: any) {
@@ -96,6 +88,7 @@ class App {
 
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => {
                 if (e.key.toLowerCase() === 'g') self.enterGridMode();
+                if (e.key.toLowerCase() === 'p') self.toggleStar(self.selectedId);
             });
             self.workspaceEl.tabIndex = 0;
             
@@ -110,8 +103,6 @@ class App {
         });
 
         this.layout.init();
-        
-        // Handle resize
         window.addEventListener('resize', () => this.layout.updateSize());
     }
 
@@ -138,24 +129,34 @@ class App {
         if (!this.libraryEl) return;
         this.libraryEl.innerHTML = '';
 
-        // Build Tree
+        // Starred Node
+        const starredBtn = document.createElement('div');
+        starredBtn.className = 'tree-item';
+        starredBtn.innerText = '★ Starred';
+        starredBtn.onclick = () => this.filterByRoot(null, starredBtn, true);
+        this.libraryEl.appendChild(starredBtn);
+
+        // All Photos
+        const allBtn = document.createElement('div');
+        allBtn.className = 'tree-item selected';
+        allBtn.innerText = 'All Photos';
+        allBtn.onclick = () => this.filterByRoot(null, allBtn, false);
+        this.libraryEl.appendChild(allBtn);
+
+        // Directory Tree
         const map = new Map<string, { node: RootPath, children: any[] }>();
         roots.forEach(r => map.set(r.id, { node: r, children: [] }));
-        
         const tree: any[] = [];
         roots.forEach(r => {
-            if (r.parentId && map.has(r.parentId)) {
-                map.get(r.parentId)!.children.push(map.get(r.id));
-            } else {
-                tree.push(map.get(r.id));
-            }
+            if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id));
+            else tree.push(map.get(r.id));
         });
 
         const renderNode = (item: any, container: HTMLElement) => {
             const el = document.createElement('div');
             el.className = 'tree-item';
             el.innerText = item.node.name;
-            el.onclick = () => this.filterByRoot(item.node.id, el);
+            el.onclick = () => this.filterByRoot(item.node.id, el, false);
             container.appendChild(el);
 
             if (item.children.length > 0) {
@@ -166,29 +167,28 @@ class App {
             }
         };
 
-        const allBtn = document.createElement('div');
-        allBtn.className = 'tree-item selected';
-        allBtn.innerText = 'All Photos';
-        allBtn.onclick = () => this.filterByRoot(null, allBtn);
-        this.libraryEl.appendChild(allBtn);
-
         tree.forEach(t => renderNode(t, this.libraryEl!));
     }
 
-    filterByRoot(rootId: string | null, el: HTMLElement) {
-        // UI
+    filterByRoot(rootId: string | null, el: HTMLElement, starredOnly: boolean) {
         const current = this.libraryEl?.querySelector('.selected');
         if (current) current.classList.remove('selected');
         el.classList.add('selected');
 
         this.selectedRootId = rootId;
+        this.filterStarred = starredOnly;
         this.renderGrid();
         if (this.isLoupeMode) this.renderFilmstrip();
     }
 
     getFilteredPhotos() {
-        if (!this.selectedRootId) return this.photos;
-        return this.photos.filter(p => p.rootPathId === this.selectedRootId);
+        let list = this.photos;
+        if (this.filterStarred) {
+            list = list.filter(p => p.isStarred);
+        } else if (this.selectedRootId) {
+            list = list.filter(p => p.rootPathId === this.selectedRootId);
+        }
+        return list;
     }
 
     // --- Workspace ---
@@ -196,7 +196,6 @@ class App {
         if (!this.gridView) return;
         this.gridView.innerHTML = '';
         const photos = this.getFilteredPhotos();
-
         photos.forEach(p => {
             const card = this.createCard(p, 'grid');
             this.gridView!.appendChild(card);
@@ -207,13 +206,10 @@ class App {
         if (!this.filmstrip) return;
         this.filmstrip.innerHTML = '';
         const photos = this.getFilteredPhotos();
-
         photos.forEach(p => {
             const card = this.createCard(p, 'filmstrip');
             this.filmstrip!.appendChild(card);
         });
-        
-        // Scroll selection into view
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el) el.scrollIntoView({ behavior: 'auto', inline: 'center' });
@@ -237,8 +233,23 @@ class App {
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
-            info.innerText = p.fileName;
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.innerText = p.fileName;
+            
+            const starBtn = document.createElement('span');
+            starBtn.className = `star-btn ${p.isStarred ? 'starred' : ''}`;
+            starBtn.innerHTML = '★';
+            starBtn.title = 'Toggle Star';
+            starBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.toggleStar(p.id);
+            };
+
+            info.appendChild(nameSpan);
+            info.appendChild(starBtn);
             card.appendChild(info);
+            
             card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
         }
 
@@ -265,7 +276,6 @@ class App {
     selectPhoto(id: string) {
         if (this.selectedId === id) return;
         
-        // Update UI selection classes
         const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
         oldSel?.forEach(e => e.classList.remove('selected'));
         this.selectedId = id;
@@ -319,7 +329,7 @@ class App {
             const res = await fetch(`/api/metadata/${id}`);
             const meta: MetadataItem[] = await res.json();
             
-            let html = `<h2>${photo.fileName}</h2>`;
+            let html = `<h2>${photo.fileName} ${photo.isStarred ? '★' : ''}</h2>`;
             const groups: {[k:string]: MetadataItem[]} = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -337,6 +347,31 @@ class App {
             this.metadataEl.innerHTML = html;
         } catch {
             this.metadataEl.innerHTML = 'Error';
+        }
+    }
+
+    async toggleStar(id: string | null) {
+        if (!id) return;
+        const photo = this.photoMap.get(id);
+        if (!photo) return;
+
+        photo.isStarred = !photo.isStarred;
+        
+        // Optimistic UI update
+        const stars = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .star-btn`);
+        stars?.forEach(s => {
+            if (photo.isStarred) s.classList.add('starred');
+            else s.classList.remove('starred');
+        });
+        
+        // Refresh metadata panel if selected
+        if (this.selectedId === id) this.loadMetadata(id);
+
+        try {
+            await fetch(`/api/star/${id}?isStarred=${photo.isStarred}`, { method: 'POST' });
+        } catch (e) {
+            console.error('Failed to save star status');
+            photo.isStarred = !photo.isStarred; // Revert
         }
     }
 
