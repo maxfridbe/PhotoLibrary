@@ -106,6 +106,17 @@
     </style>
 </head>
 <body>
+    <div class="lr-header">
+        <div class="lr-logo">Photo<b>Library</b></div>
+        <div class="lr-nav">
+            <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
+            <div class="lr-nav-item" id="nav-loupe" onclick="if(app.selectedId) app.enterLoupeMode(app.selectedId)">LOUPE</div>
+        </div>
+        <div class="lr-status">
+            <span id="connection-status">Disconnected</span>
+        </div>
+    </div>
+
     <div id="layout-container" style="width: 100%; height: calc(100% - 40px);"></div>
 
     <div class="context-menu" id="context-menu"></div>
