@@ -241,6 +241,7 @@ class App {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     this.requestImage(id, size).then(blob => {
+                        img.onload = () => img.parentElement?.classList.add('loaded');
                         img.src = URL.createObjectURL(blob);
                     });
                     observer.disconnect();
