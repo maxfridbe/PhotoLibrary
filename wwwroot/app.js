@@ -1,17 +1,13 @@
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
+import { server } from './serverOperations.js';
 class App {
     constructor() {
-        this.ws = null;
-        this.requestMap = new Map();
-        this.nextRequestId = 1;
-        this.isConnected = false;
-        this.pendingRequests = [];
         this.photos = [];
         this.photoMap = new Map();
         this.roots = [];
         this.userCollections = [];
-        this.stats = { pickedCount: 0, ratingCounts: [0, 0, 0, 0, 0] };
+        this.stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0, 0, 0, 0, 0] };
         this.totalPhotos = 0;
         this.selectedId = null;
         this.selectedRootId = null;
@@ -27,8 +23,6 @@ class App {
         this.visibleRange = { start: 0, end: 0 };
         this.isLoadingChunk = new Set();
         this.isLoupeMode = false;
-        this.reconnectAttempts = 0;
-        this.maxReconnectDelay = 256000;
         this.libraryEl = null;
         this.workspaceEl = null;
         this.metadataEl = null;
@@ -40,7 +34,6 @@ class App {
         this.mainPreview = null;
         this.previewSpinner = null;
         this.initLayout();
-        this.connectWs();
         this.loadData();
         this.setupGlobalKeyboard();
         this.setupContextMenu();
@@ -62,21 +55,55 @@ class App {
             }
         });
         hub.sub('photo.updated', (data) => {
-            this.photoMap.set(data.id, data.photo);
-            const idx = this.photos.findIndex(p => p?.id === data.id);
-            if (idx !== -1)
-                this.photos[idx] = data.photo;
-            this.updatePhotoCardUI(data.photo);
-            if (this.selectedId === data.id)
-                this.loadMetadata(data.id);
+            this.handlePhotoUpdate(data.photo);
         });
-        hub.subPattern('photo.picked.*', () => this.refreshStatsAndLibrary());
-        hub.subPattern('photo.starred.*', () => this.refreshStatsAndLibrary());
+        hub.subPattern('photo.picked.*', () => this.refreshStatsOnly());
+        hub.subPattern('photo.starred.*', () => this.refreshStatsOnly());
         hub.sub('search.triggered', (data) => this.searchPhotos(data.tag, data.value));
         hub.sub('shortcuts.show', () => document.getElementById('shortcuts-modal')?.classList.add('active'));
         hub.sub('ui.layout.changed', () => this.updateVirtualGrid());
         hub.sub('connection.changed', (data) => this.updateStatusUI(data.connected, data.connecting));
         hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
+    }
+    handlePhotoUpdate(photo) {
+        this.photoMap.set(photo.id, photo);
+        const idx = this.photos.findIndex(p => p?.id === photo.id);
+        let stillPasses = true;
+        if (this.filterType === 'picked' && !photo.isPicked)
+            stillPasses = false;
+        else if (this.filterType === 'rating' && photo.rating !== this.filterRating)
+            stillPasses = false;
+        else if (this.selectedRootId && photo.rootPathId !== this.selectedRootId)
+            stillPasses = false;
+        if (stillPasses) {
+            if (idx !== -1)
+                this.photos[idx] = photo;
+            this.updatePhotoCardUI(photo);
+        }
+        else {
+            if (idx !== -1) {
+                this.photos.splice(idx, 1);
+                this.totalPhotos--;
+                this.renderGrid();
+                if (this.isLoupeMode)
+                    this.renderFilmstrip();
+                if (this.selectedId === photo.id) {
+                    const nextId = this.photos[idx]?.id || this.photos[idx - 1]?.id || null;
+                    if (nextId) {
+                        const nextPhoto = this.photoMap.get(nextId);
+                        if (nextPhoto)
+                            hub.pub('photo.selected', { id: nextId, photo: nextPhoto });
+                    }
+                    else {
+                        this.selectedId = null;
+                        if (this.metadataEl)
+                            this.metadataEl.innerHTML = '';
+                    }
+                }
+            }
+        }
+        if (this.selectedId === photo.id)
+            this.loadMetadata(photo.id);
     }
     showNotification(message, type) {
         const container = document.getElementById('notifications');
@@ -89,7 +116,7 @@ class App {
         el.style.fontSize = '0.9em';
         el.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
         el.style.background = type === 'error' ? '#d32f2f' : (type === 'success' ? '#388e3c' : '#1976d2');
-        el.innerText = message;
+        el.textContent = message;
         container.appendChild(el);
         setTimeout(() => {
             el.style.opacity = '0';
@@ -101,22 +128,46 @@ class App {
         const el = document.getElementById('connection-status');
         if (el) {
             if (connecting) {
-                el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
+                el.innerHTML = '';
+                const s = document.createElement('span');
+                s.className = 'spinner';
+                s.style.display = 'inline-block';
+                s.style.width = '10px';
+                s.style.height = '10px';
+                s.style.verticalAlign = 'middle';
+                s.style.marginRight = '5px';
+                el.appendChild(s);
+                el.appendChild(document.createTextNode(' Connecting...'));
                 el.style.color = '#aaa';
             }
             else if (connected) {
-                el.innerText = 'Connected';
+                el.textContent = 'Connected';
                 el.style.color = '#0f0';
             }
             else {
-                el.innerText = 'Disconnected';
+                el.textContent = 'Disconnected';
                 el.style.color = '#f00';
             }
         }
     }
-    async refreshStatsAndLibrary() {
+    async refreshStatsOnly() {
         this.stats = await Api.api_stats({});
-        this.renderLibrary();
+        this.updateSidebarCountsOnly();
+    }
+    updateSidebarCountsOnly() {
+        if (!this.libraryEl)
+            return;
+        const allPhotosCountEl = this.libraryEl.querySelector('.tree-item[data-type="all"] .count');
+        if (allPhotosCountEl)
+            allPhotosCountEl.textContent = this.stats.totalCount.toString();
+        const pickedCountEl = this.libraryEl.querySelector('.tree-item[data-type="picked"] .count');
+        if (pickedCountEl)
+            pickedCountEl.textContent = this.stats.pickedCount.toString();
+        for (let i = 1; i <= 5; i++) {
+            const countEl = this.libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
+            if (countEl)
+                countEl.textContent = this.stats.ratingCounts[i - 1].toString();
+        }
     }
     async loadData() {
         try {
@@ -179,33 +230,70 @@ class App {
             self.workspaceEl = document.createElement('div');
             self.workspaceEl.className = 'gl-component';
             self.workspaceEl.style.overflow = 'hidden';
-            self.workspaceEl.innerHTML = `
-                <div id="grid-header" class="grid-header">
-                    <span id="header-text">All Photos</span>
-                    <span id="header-count">0 items</span>
-                </div>
-                <div id="grid-container" style="flex:1; overflow-y:auto; position:relative;">
-                    <div id="scroll-sentinel" style="position:absolute; top:0; left:0; right:0; height:0; pointer-events:none;"></div>
-                    <div id="grid-view" class="grid-view" style="position:absolute; top:0; left:0; right:0;"></div>
-                </div>
-                <div id="loupe-view" class="loupe-view" style="display:none; height:100%;">
-                    <div class="preview-area">
-                        <div class="spinner center-spinner" id="preview-spinner"></div>
-                        <img id="main-preview" src="" alt="">
-                    </div>
-                    <div id="filmstrip" class="filmstrip"></div>
-                </div>
-            `;
+            const header = document.createElement('div');
+            header.id = 'grid-header';
+            header.className = 'grid-header';
+            const headerText = document.createElement('span');
+            headerText.id = 'header-text';
+            headerText.textContent = 'All Photos';
+            const headerCount = document.createElement('span');
+            headerCount.id = 'header-count';
+            headerCount.textContent = '0 items';
+            header.appendChild(headerText);
+            header.appendChild(headerCount);
+            self.workspaceEl.appendChild(header);
+            const gridContainer = document.createElement('div');
+            gridContainer.id = 'grid-container';
+            gridContainer.style.flex = '1';
+            gridContainer.style.overflowY = 'auto';
+            gridContainer.style.position = 'relative';
+            const sentinel = document.createElement('div');
+            sentinel.id = 'scroll-sentinel';
+            sentinel.style.position = 'absolute';
+            sentinel.style.top = '0';
+            sentinel.style.left = '0';
+            sentinel.style.right = '0';
+            sentinel.style.height = '0';
+            sentinel.style.pointerEvents = 'none';
+            const gridView = document.createElement('div');
+            gridView.id = 'grid-view';
+            gridView.className = 'grid-view';
+            gridView.style.position = 'absolute';
+            gridView.style.top = '0';
+            gridView.style.left = '0';
+            gridView.style.right = '0';
+            gridContainer.appendChild(sentinel);
+            gridContainer.appendChild(gridView);
+            self.workspaceEl.appendChild(gridContainer);
+            const loupeView = document.createElement('div');
+            loupeView.id = 'loupe-view';
+            loupeView.className = 'loupe-view';
+            loupeView.style.display = 'none';
+            loupeView.style.height = '100%';
+            const previewArea = document.createElement('div');
+            previewArea.className = 'preview-area';
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner center-spinner';
+            spinner.id = 'preview-spinner';
+            const img = document.createElement('img');
+            img.id = 'main-preview';
+            previewArea.appendChild(spinner);
+            previewArea.appendChild(img);
+            const filmstrip = document.createElement('div');
+            filmstrip.id = 'filmstrip';
+            filmstrip.className = 'filmstrip';
+            loupeView.appendChild(previewArea);
+            loupeView.appendChild(filmstrip);
+            self.workspaceEl.appendChild(loupeView);
             container.getElement().append(self.workspaceEl);
-            self.gridHeader = self.workspaceEl.querySelector('#grid-header');
-            self.gridView = self.workspaceEl.querySelector('#grid-view');
-            self.scrollSentinel = self.workspaceEl.querySelector('#scroll-sentinel');
-            self.loupeView = self.workspaceEl.querySelector('#loupe-view');
-            self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
-            self.mainPreview = self.workspaceEl.querySelector('#main-preview');
-            self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
-            const gridScroll = self.workspaceEl.querySelector('#grid-container');
-            gridScroll.onscroll = () => self.updateVirtualGrid();
+            self.gridHeader = header;
+            self.gridView = gridView;
+            self.scrollSentinel = sentinel;
+            self.loupeView = loupeView;
+            self.filmstrip = filmstrip;
+            self.mainPreview = img;
+            self.previewSpinner = spinner;
+            gridContainer.onscroll = () => self.updateVirtualGrid();
             container.getElement().get(0).addEventListener('keydown', (e) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0)
@@ -253,7 +341,7 @@ class App {
                 this.gridHeader.style.display = 'flex';
             document.getElementById('nav-loupe')?.classList.remove('active');
             document.getElementById('nav-grid')?.classList.add('active');
-            this.updateVirtualGrid();
+            this.updateVirtualGrid(true);
         }
     }
     updatePhotoCardUI(photo) {
@@ -269,7 +357,7 @@ class App {
             const stars = card.querySelector('.stars');
             if (stars) {
                 const el = stars;
-                el.innerText = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
+                el.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
                 if (photo.rating > 0)
                     el.classList.add('has-rating');
                 else
@@ -277,7 +365,7 @@ class App {
             }
         });
     }
-    updateVirtualGrid() {
+    updateVirtualGrid(force = false) {
         if (!this.gridView || !this.workspaceEl || this.isLoupeMode)
             return;
         const gridContainer = this.gridView.parentElement;
@@ -291,7 +379,7 @@ class App {
         const startRow = Math.floor(scrollTop / this.rowHeight);
         const endIndex = Math.min(this.totalPhotos, Math.ceil((scrollTop + viewHeight) / this.rowHeight + 1) * this.cols);
         const startIndex = Math.max(0, startRow * this.cols);
-        if (startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
+        if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.renderVisiblePhotos();
         }
@@ -311,7 +399,12 @@ class App {
                 const placeholder = document.createElement('div');
                 placeholder.className = 'card placeholder';
                 placeholder.style.height = (this.rowHeight - 10) + 'px';
-                placeholder.innerHTML = '<div class="img-container"><div class="spinner"></div></div>';
+                const cont = document.createElement('div');
+                cont.className = 'img-container';
+                const spin = document.createElement('div');
+                spin.className = 'spinner';
+                cont.appendChild(spin);
+                placeholder.appendChild(cont);
                 this.gridView.appendChild(placeholder);
             }
         }
@@ -348,10 +441,13 @@ class App {
         if (!this.libraryEl)
             return;
         this.libraryEl.innerHTML = '';
-        const searchHeader = document.createElement('div');
-        searchHeader.className = 'tree-section-header';
-        searchHeader.innerText = 'Search';
-        this.libraryEl.appendChild(searchHeader);
+        const createSection = (title) => {
+            const el = document.createElement('div');
+            el.className = 'tree-section-header';
+            el.textContent = title;
+            return el;
+        };
+        this.libraryEl.appendChild(createSection('Search'));
         const searchBox = document.createElement('div');
         searchBox.className = 'search-box';
         const searchInput = document.createElement('input');
@@ -362,26 +458,20 @@ class App {
         searchBox.appendChild(searchInput);
         this.libraryEl.appendChild(searchBox);
         if (this.filterType === 'search')
-            this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
-        const collHeader = document.createElement('div');
-        collHeader.className = 'tree-section-header';
-        collHeader.innerText = 'Collections';
-        this.libraryEl.appendChild(collHeader);
-        this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        const pEl = this.addTreeItem(this.libraryEl, '\u2691 Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+            this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true, 'search');
+        this.libraryEl.appendChild(createSection('Collections'));
+        this.addTreeItem(this.libraryEl, 'All Photos', this.stats.totalCount, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId, 'all');
+        const pEl = this.addTreeItem(this.libraryEl, '\u2691 Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked', 'picked');
         pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
         this.userCollections.forEach(c => {
-            const el = this.addTreeItem(this.libraryEl, '\uD83D\uDCC1 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            const el = this.addTreeItem(this.libraryEl, '\uD83D\uDCC1 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id, 'collection-' + c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
         for (let i = 5; i >= 1; i--) {
             const count = this.stats.ratingCounts[i - 1];
-            this.addTreeItem(this.libraryEl, '\u2605'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+            this.addTreeItem(this.libraryEl, '\u2605'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i, 'rating-' + i);
         }
-        const folderHeader = document.createElement('div');
-        folderHeader.className = 'tree-section-header';
-        folderHeader.innerText = 'Folders';
-        this.libraryEl.appendChild(folderHeader);
+        this.libraryEl.appendChild(createSection('Folders'));
         const treeContainer = document.createElement('div');
         this.libraryEl.appendChild(treeContainer);
         const map = new Map();
@@ -392,7 +482,7 @@ class App {
         else
             tree.push(map.get(r.id)); });
         const renderNode = (item, container) => {
-            this.addTreeItem(container, item.node.name, 0, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
+            this.addTreeItem(container, item.node.name, 0, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id, 'folder-' + item.node.id);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
                 childContainer.className = 'tree-children';
@@ -402,10 +492,17 @@ class App {
         };
         tree.forEach(t => renderNode(t, treeContainer));
     }
-    addTreeItem(container, text, count, onClick, isSelected) {
+    addTreeItem(container, text, count, onClick, isSelected, typeAttr) {
         const el = document.createElement('div');
         el.className = 'tree-item' + (isSelected ? ' selected' : '');
-        el.innerHTML = `<span>${text}</span><span class="count">${count > 0 ? count : ''}</span>`;
+        el.dataset.type = typeAttr;
+        const s = document.createElement('span');
+        s.textContent = text;
+        const c = document.createElement('span');
+        c.className = 'count';
+        c.textContent = count > 0 ? count.toString() : '';
+        el.appendChild(s);
+        el.appendChild(c);
         el.onclick = onClick;
         container.appendChild(el);
         return el;
@@ -429,20 +526,19 @@ class App {
     showPickedContextMenu(e) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = '';
-        const clear = document.createElement('div');
-        clear.className = 'context-menu-item';
-        clear.innerText = 'Clear All Picked';
-        clear.onclick = () => this.clearAllPicked();
-        menu.appendChild(clear);
-        const divider = document.createElement('div');
-        divider.className = 'context-menu-divider';
-        menu.appendChild(divider);
-        const storeNew = document.createElement('div');
-        storeNew.className = 'context-menu-item';
-        storeNew.innerText = 'Store to new collection...';
-        storeNew.onclick = () => this.storePickedToCollection(null);
-        menu.appendChild(storeNew);
-        this.userCollections.forEach(c => { const item = document.createElement('div'); item.className = 'context-menu-item'; item.innerText = `Store to '${c.name}'`; item.onclick = () => this.storePickedToCollection(c.id); menu.appendChild(item); });
+        const addItem = (text, cb) => {
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = cb;
+            menu.appendChild(el);
+        };
+        addItem('Clear All Picked', () => this.clearAllPicked());
+        const d = document.createElement('div');
+        d.className = 'context-menu-divider';
+        menu.appendChild(d);
+        addItem('Store to new collection...', () => this.storePickedToCollection(null));
+        this.userCollections.forEach(c => addItem(`Store to '${c.name}'`, () => this.storePickedToCollection(c.id)));
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
@@ -450,11 +546,11 @@ class App {
     showCollectionContextMenu(e, c) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = '';
-        const del = document.createElement('div');
-        del.className = 'context-menu-item';
-        del.innerText = 'Remove Collection';
-        del.onclick = () => this.deleteCollection(c.id);
-        menu.appendChild(del);
+        const el = document.createElement('div');
+        el.className = 'context-menu-item';
+        el.textContent = 'Remove Collection';
+        el.onclick = () => this.deleteCollection(c.id);
+        menu.appendChild(el);
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
@@ -493,7 +589,7 @@ class App {
     }
     getFilteredPhotos() { return this.photos.filter(p => p !== null); }
     renderGrid() {
-        this.updateVirtualGrid();
+        this.updateVirtualGrid(true);
         let headerText = "All Photos";
         if (this.filterType === 'picked')
             headerText = "Collection: Picked";
@@ -510,8 +606,17 @@ class App {
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
         if (this.gridHeader) {
-            this.gridHeader.querySelector('#header-text').innerHTML = `Showing <b>${headerText}</b>`;
-            this.gridHeader.querySelector('#header-count').innerText = `${this.totalPhotos} items`;
+            const headerTextEl = this.gridHeader.querySelector('#header-text');
+            if (headerTextEl) {
+                headerTextEl.innerHTML = '';
+                headerTextEl.appendChild(document.createTextNode('Showing '));
+                const b = document.createElement('b');
+                b.textContent = headerText;
+                headerTextEl.appendChild(b);
+            }
+            const headerCountEl = this.gridHeader.querySelector('#header-count');
+            if (headerCountEl)
+                headerCountEl.textContent = `${this.totalPhotos} items`;
         }
     }
     renderFilmstrip() {
@@ -541,12 +646,24 @@ class App {
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
-            const starText = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
-            const pickClass = p.isPicked ? 'picked' : '';
-            info.innerHTML = `
-                <div class="info-top"><span>${p.fileName}</span><span class="pick-btn ${pickClass}" onclick="event.stopPropagation(); app.togglePick('${p.id}')">⚑</span></div>
-                <div class="info-bottom"><span class="stars ${p.rating > 0 ? 'has-rating' : ''}">` + starText + `</span></div>
-            `;
+            const top = document.createElement('div');
+            top.className = 'info-top';
+            const name = document.createElement('span');
+            name.textContent = p.fileName || '';
+            const pick = document.createElement('span');
+            pick.className = 'pick-btn' + (p.isPicked ? ' picked' : '');
+            pick.textContent = '\u2691';
+            pick.onclick = (e) => { e.stopPropagation(); server.togglePick(p); };
+            top.appendChild(name);
+            top.appendChild(pick);
+            const bottom = document.createElement('div');
+            bottom.className = 'info-bottom';
+            const stars = document.createElement('span');
+            stars.className = 'stars' + (p.rating > 0 ? ' has-rating' : '');
+            stars.textContent = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
+            bottom.appendChild(stars);
+            info.appendChild(top);
+            info.appendChild(bottom);
             card.appendChild(info);
             card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
         }
@@ -558,7 +675,7 @@ class App {
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    this.requestImage(id, size).then(blob => {
+                    server.requestImage(id, size).then(blob => {
                         img.onload = () => img.parentElement?.classList.add('loaded');
                         img.src = URL.createObjectURL(blob);
                     });
@@ -614,23 +731,25 @@ class App {
             const index = this.photos.findIndex(p => p?.id === this.selectedId);
             if (index !== -1) {
                 const row = Math.floor(index / this.cols);
-                const cont = this.gridView.parentElement;
+                const cont = this.gridView?.parentElement;
                 if (cont)
                     cont.scrollTop = row * this.rowHeight - (cont.clientHeight / 2) + (this.rowHeight / 2);
             }
         }
-        this.updateVirtualGrid();
+        this.updateVirtualGrid(true);
     }
     loadMainPreview(id) {
         if (!this.mainPreview)
             return;
         this.mainPreview.style.display = 'none';
-        this.previewSpinner.style.display = 'block';
-        this.requestImage(id, 1024).then(blob => {
+        if (this.previewSpinner)
+            this.previewSpinner.style.display = 'block';
+        server.requestImage(id, 1024).then(blob => {
             if (this.selectedId === id) {
                 this.mainPreview.src = URL.createObjectURL(blob);
                 this.mainPreview.style.display = 'block';
-                this.previewSpinner.style.display = 'none';
+                if (this.previewSpinner)
+                    this.previewSpinner.style.display = 'none';
             }
         });
     }
@@ -642,7 +761,7 @@ class App {
             return;
         const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
-        this.metadataEl.innerHTML = 'Loading...';
+        this.metadataEl.innerHTML = '';
         try {
             const meta = await Api.api_metadata({ id });
             const groups = {};
@@ -669,68 +788,44 @@ class App {
             });
             const pickText = photo.isPicked ? '\u2691' : '';
             const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
-            let html = `<h2>${photo.fileName} ${pickText} ${starsText}</h2>`;
+            const title = document.createElement('h2');
+            title.textContent = `${photo.fileName} ${pickText} ${starsText}`;
+            this.metadataEl.appendChild(title);
             for (const k of sortedGroupKeys) {
                 const items = groups[k];
                 items.sort((a, b) => { let ia = priorityTags.indexOf(a.tag); let ib = priorityTags.indexOf(b.tag); if (ia === -1)
                     ia = 999; if (ib === -1)
                     ib = 999; if (ia !== ib)
                     return ia - ib; return a.tag.localeCompare(b.tag); });
-                html += `<div class="meta-group"><h3>${k}</h3>`;
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'meta-group';
+                const h3 = document.createElement('h3');
+                h3.textContent = k;
+                groupDiv.appendChild(h3);
                 items.forEach(m => {
-                    const tagEsc = m.tag.replace(/'/g, "\'");
-                    const valEsc = m.value.replace(/'/g, "\'");
-                    html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span><span class="meta-search-btn" title="Search" onclick="hub.pub('search.triggered', { tag: '${tagEsc}', value: '${valEsc}' })">�\uDD0D</span></div>`;
+                    const row = document.createElement('div');
+                    row.className = 'meta-row';
+                    const key = document.createElement('span');
+                    key.className = 'meta-key';
+                    key.textContent = m.tag || '';
+                    const val = document.createElement('span');
+                    val.className = 'meta-val';
+                    val.textContent = m.value || '';
+                    const search = document.createElement('span');
+                    search.className = 'meta-search-btn';
+                    search.textContent = '\uD83D\uDD0D';
+                    search.title = 'Search';
+                    search.onclick = () => hub.pub('search.triggered', { tag: m.tag, value: m.value });
+                    row.appendChild(key);
+                    row.appendChild(val);
+                    row.appendChild(search);
+                    groupDiv.appendChild(row);
                 });
-                html += `</div>`;
+                this.metadataEl.appendChild(groupDiv);
             }
-            this.metadataEl.innerHTML = html;
         }
         catch {
-            this.metadataEl.innerHTML = 'Error';
-        }
-    }
-    async togglePick(id) {
-        if (!id)
-            return;
-        const photo = this.photoMap.get(id);
-        if (!photo)
-            return;
-        photo.isPicked = !photo.isPicked;
-        if (photo.isPicked)
-            hub.pub('photo.picked.added', { id });
-        else
-            hub.pub('photo.picked.removed', { id });
-        hub.pub('photo.updated', { id, photo });
-        try {
-            await Api.api_pick({ id, isPicked: photo.isPicked });
-        }
-        catch {
-            photo.isPicked = !photo.isPicked;
-            hub.pub('photo.updated', { id, photo });
-        }
-    }
-    async setRating(id, rating) {
-        if (!id)
-            return;
-        const photo = this.photoMap.get(id);
-        if (!photo)
-            return;
-        const prev = photo.rating;
-        photo.rating = rating;
-        if (prev === 0 && rating > 0)
-            hub.pub('photo.starred.added', { id, rating });
-        else if (prev > 0 && rating === 0)
-            hub.pub('photo.starred.removed', { id, previousRating: prev });
-        else
-            hub.pub('photo.starred.changed', { id, rating, previousRating: prev });
-        hub.pub('photo.updated', { id, photo });
-        try {
-            await Api.api_rate({ id, rating });
-        }
-        catch {
-            photo.rating = prev;
-            hub.pub('photo.updated', { id, photo });
+            this.metadataEl.textContent = 'Error';
         }
     }
     handleKey(e) {
@@ -741,10 +836,20 @@ class App {
             if (this.selectedId)
                 hub.pub('view.mode.changed', { mode: 'loupe', id: this.selectedId });
         }
-        if (key === 'p')
-            this.togglePick(this.selectedId);
-        if (key >= '0' && key <= '5')
-            this.setRating(this.selectedId, parseInt(key));
+        if (key === 'p') {
+            if (this.selectedId) {
+                const p = this.photoMap.get(this.selectedId);
+                if (p)
+                    server.togglePick(p);
+            }
+        }
+        if (key >= '0' && key <= '5') {
+            if (this.selectedId) {
+                const p = this.photoMap.get(this.selectedId);
+                if (p)
+                    server.setRating(p, parseInt(key));
+            }
+        }
         if (key === '?' || key === '/') {
             if (key === '?' || (key === '/' && e.shiftKey)) {
                 e.preventDefault();
@@ -790,43 +895,8 @@ class App {
             return; if (e.key === '?' || (e.key === '/' && e.shiftKey))
             hub.pub('shortcuts.show', {}); });
     }
-    connectWs() {
-        const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
-        this.ws.binaryType = 'arraybuffer';
-        this.ws.onopen = () => { this.isConnected = true; hub.pub('connection.changed', { connected: true, connecting: false }); this.processPending(); };
-        this.ws.onclose = () => {
-            this.isConnected = false;
-            hub.pub('connection.changed', { connected: false, connecting: false });
-            const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
-            this.reconnectAttempts++;
-            setTimeout(() => { hub.pub('connection.changed', { connected: false, connecting: true }); this.connectWs(); }, delay);
-        };
-        this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
-    }
-    handleBinaryMessage(buffer) {
-        const view = new DataView(buffer);
-        const reqId = view.getInt32(0, true);
-        const data = buffer.slice(4);
-        if (this.requestMap.has(reqId)) {
-            this.requestMap.get(reqId)(new Blob([data], { type: 'image/jpeg' }));
-            this.requestMap.delete(reqId);
-        }
-    }
-    requestImage(fileId, size) {
-        return new Promise(resolve => {
-            const requestId = this.nextRequestId++;
-            this.requestMap.set(requestId, resolve);
-            const payload = { requestId, fileId, size };
-            if (this.isConnected && this.ws)
-                this.ws.send(JSON.stringify(payload));
-            else
-                this.pendingRequests.push(payload);
-        });
-    }
-    processPending() { while (this.pendingRequests.length && this.isConnected) {
-        this.ws?.send(JSON.stringify(this.pendingRequests.shift()));
-    } }
 }
 const app = new App();
 window.app = app;
+hub.pub('ui.layout.changed', {});
+hub.pub('connection.changed', { connected: false, connecting: true });

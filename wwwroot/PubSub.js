@@ -13,6 +13,7 @@ class PubSub {
         this.subs.get(pattern).push(cb);
     }
     pub(event, data) {
+        console.log(`[PubSub] PUB: ${event}`, data);
         this.trigger(event, data);
         for (const key of this.subs.keys()) {
             if (key.endsWith('.*')) {

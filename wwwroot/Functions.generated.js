@@ -1,6 +1,9 @@
 async function post(url, data = {}) {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    return await res.json();
+    if (!res.ok)
+        throw new Error(`API Error: ${res.statusText}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
 }
 export async function api_photos(data) {
     return await post('/api/photos', data);

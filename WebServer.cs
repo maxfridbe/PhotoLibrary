@@ -29,7 +29,7 @@ namespace PhotoLibrary
             var app = builder.Build();
             app.UseWebSockets();
 
-            // --- API Endpoints (All POST with JSON bodies) ---
+            // --- API Endpoints ---
 
             app.MapPost("/api/photos", async (HttpContext context, DatabaseManager db) =>
             {
@@ -58,7 +58,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<PickRequest>();
                 if (req == null) return Results.BadRequest();
                 db.SetPicked(req.id, req.isPicked);
-                return Results.Ok();
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/rate", async (HttpContext context, DatabaseManager db) =>
@@ -66,7 +66,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<RateRequest>();
                 if (req == null) return Results.BadRequest();
                 db.SetRating(req.id, req.rating);
-                return Results.Ok();
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/search", async (HttpContext context, DatabaseManager db) =>
@@ -96,7 +96,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<IdRequest>();
                 if (req == null) return Results.BadRequest();
                 db.DeleteCollection(req.id);
-                return Results.Ok();
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/collections/add-files", async (HttpContext context, DatabaseManager db) =>
@@ -104,7 +104,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<CollectionAddRequest>();
                 if (req == null) return Results.BadRequest();
                 db.AddFilesToCollection(req.collectionId, req.fileIds);
-                return Results.Ok();
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/collections/get-files", async (HttpContext context, DatabaseManager db) =>
@@ -118,7 +118,7 @@ namespace PhotoLibrary
             app.MapPost("/api/picked/clear", (DatabaseManager db) =>
             {
                 db.ClearPicked();
-                return Results.Ok();
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/picked/ids", (DatabaseManager db) =>

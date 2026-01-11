@@ -44,6 +44,7 @@ namespace PhotoLibrary
 
     public class StatsResponse
     {
+        public int TotalCount { get; set; }
         public int PickedCount { get; set; }
         public int[] RatingCounts { get; set; } = new int[5];
     }

@@ -84,9 +84,15 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var stats = new StatsResponse();
+            
+            var totalCmd = connection.CreateCommand();
+            totalCmd.CommandText = "SELECT COUNT(*) FROM FileEntry";
+            stats.TotalCount = Convert.ToInt32(totalCmd.ExecuteScalar());
+
             var pickedCmd = connection.CreateCommand();
             pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
             stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
+            
             var ratingCmd = connection.CreateCommand();
             ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
             using var reader = ratingCmd.ExecuteReader();

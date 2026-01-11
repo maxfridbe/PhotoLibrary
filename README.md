@@ -1,27 +1,29 @@
 # PhotoLibrary
 
-A high-performance C# CLI application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. It is specifically optimized for slow network drives (CIFS/SMB) and large photo libraries.
+A high-performance C# application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. Specifically optimized for slow network drives (CIFS/SMB) and massive libraries.
 
 ## Features
 
 -   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
--   **Web Interface (viewer)**:
-    -   **Grid View**: Fast thumbnail grid with lazy loading.
-    -   **Loupe View**: High-resolution preview with a filmstrip for quick navigation.
-    -   **Metadata Sidebar**: Resizable panel showing detailed Exif, XMP, and system metadata.
-    -   **WebSocket Delivery**: Uses a custom binary WebSocket protocol for ultra-efficient image streaming.
--   **Preview System**: 
-    -   Generates resized JPG previews stored in a separate SQLite database.
-    -   **Sidecar Optimization**: When processing RAW files (e.g., .ARW), it automatically uses sibling JPGs as the source to save bandwidth.
--   **Hierarchical Path Normalization**: Stores folder structures in a `RootPaths` table, treating the scan target's parent as a "Base Root" for easy library relocation.
--   **Smart Filtering**: Automatically ignores "Unknown tags" and non-essential metadata.
+-   **High-Performance Web Interface**:
+    -   **Virtualized Grid**: Custom rendering engine that supports hundreds of thousands of images by only rendering what's visible.
+    -   **Loupe View**: High-resolution preview with a reactive filmstrip for quick navigation.
+    -   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
+    -   **WebSocket Streaming**: Binary protocol for ultra-fast, low-overhead image delivery.
+-   **Organization & Culling**:
+    -   **Star Ratings**: Rate photos 1-5 with instant sidebar count updates.
+    -   **Flags/Picks**: Flag photos for selection (`⚑`).
+    -   **User Collections**: Create custom collections and group flagged images effortlessly.
+-   **Architecture**:
+    -   **Reactive PubSub Hub**: Decoupled UI components using a pattern-matching event system.
+    -   **Type-Safe API**: TypeScript models and functions automatically generated from C# DTOs via a Roslyn-based source generator.
+    -   **Optimistic UI**: Immediate local feedback for ratings and flags, with background synchronization and error reversal.
 
 ## Usage
 
 ### Prerequisites
 - .NET 8.0 SDK
 - TypeScript (`tsc`) for web asset compilation (handled automatically during `dotnet build`)
-- `sqlite3` for manual database inspection
 
 ### Commands
 ```bash
@@ -35,23 +37,26 @@ A high-performance C# CLI application designed to scan photo directories, index 
 -   `--previewdb <path>`: Path to the previews SQLite database.
 -   `--longedge <pixels>`: Target size for previews (e.g., `--longedge 1024 --longedge 300`).
 -   `--host <port>`: Starts the web viewer on the specified port.
--   `--testone`: Stop after processing the first file found (debugging).
 
-### UI Controls
--   **Single Click**: Select a photo and load metadata into the sidebar.
--   **Double Click**: Enter **Loupe View** (full-page preview).
--   **'G' Key**: Return to **Grid View**.
--   **Sidebar Resizer**: Drag the left edge of the metadata panel to resize.
+### Shortcuts
+-   **'G'**: Grid View
+-   **'L'**: Loupe View (requires a selected image)
+-   **'P'**: Toggle Flag (Pick)
+-   **'1' - '5'**: Set Star Rating
+-   **'0'**: Clear Star Rating
+-   **'?'**: Show Shortcuts Dialog
+-   **Arrows**: Navigate Grid/Filmstrip
 
 ### Helper Scripts
--   `./run.sh`: Wrapper for `dotnet run`.
--   `./test.sh`: Generates a 10-file test set from your library and dumps database tables.
--   `./testhost.sh`: Quickly launches the web viewer (port 8080) using test data.
--   `./publish.sh`: Creates a self-contained, single-file Linux-x64 executable in `./dist`.
+-   `./test.sh`: Generates a test set and dumps database tables.
+-   `./testhost.sh`: Launches the web viewer (port 8080) using test data.
+-   `./publish.sh`: Creates a self-contained, single-file executable in `./dist`.
 
 ## Database Schema
 
 -   **RootPaths**: Recursive folder hierarchy.
--   **FileEntry**: Core file records (references `RootPaths`).
--   **Metadata**: Key-Value pairs for all extracted photo data.
--   **Previews**: Binary JPG blobs indexed by `FileId` and `LongEdge` size.
+-   **FileEntry**: Core file records.
+-   **Metadata**: Key-Value pairs for all photo data (Exif, XMP, etc.).
+-   **PickedImages / ImageRatings**: User culling data.
+-   **UserCollections / CollectionFiles**: Custom user grouping logic.
+-   **Previews**: Binary JPG blobs stored in a separate `previews.db`.

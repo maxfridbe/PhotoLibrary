@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-11T14:20:02.8077726-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-11T14:53:21.3879163-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -37,6 +37,7 @@ export interface CollectionResponse {
 }
 
 export interface StatsResponse {
+    totalCount: number;
     pickedCount: number;
     ratingCounts: number[];
 }

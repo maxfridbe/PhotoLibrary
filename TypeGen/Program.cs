@@ -87,7 +87,9 @@ namespace TypeGen
             sb.AppendLine();
             sb.AppendLine("async function post<T>(url: string, data: any = {}): Promise<T> {");
             sb.AppendLine("    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });");
-            sb.AppendLine("    return await res.json();");
+            sb.AppendLine("    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);");
+            sb.AppendLine("    const text = await res.text();");
+            sb.AppendLine("    return text ? JSON.parse(text) : {} as T;");
             sb.AppendLine("}");
             sb.AppendLine();
 
