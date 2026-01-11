@@ -6,6 +6,7 @@ interface Photo { id: string; fileName: string; createdAt: string; rootPathId: s
 interface MetadataItem { directory: string; tag: string; value: string; }
 interface RootPath { id: string; parentId: string | null; name: string; }
 interface Collection { id: string; name: string; count: number; }
+interface Stats { pickedCount: number; ratingCounts: number[]; }
 interface ImageRequest { requestId: number; fileId: string; size: number; }
 
 class App {
@@ -21,6 +22,7 @@ class App {
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
     public userCollections: Collection[] = [];
+    public stats: Stats = { pickedCount: 0, ratingCounts: [0,0,0,0,0] };
     public totalPhotos = 0;
     
     public selectedId: string | null = null;
@@ -150,12 +152,14 @@ class App {
 
     async loadData() {
         try {
-            const [roots, colls] = await Promise.all([
+            const [roots, colls, stats] = await Promise.all([
                 this.post('/api/directories'),
-                this.post('/api/collections/list')
+                this.post('/api/collections/list'),
+                this.post('/api/stats')
             ]);
             this.roots = roots;
             this.userCollections = colls;
+            this.stats = stats;
             await this.refreshPhotos();
         } catch (e) { console.error("Load failed", e); }
     }
@@ -171,8 +175,13 @@ class App {
         if (this.filterType === 'collection') params.specificIds = this.collectionFiles;
         if (this.filterType === 'search') params.specificIds = this.searchResultIds;
 
-        const data = await this.post('/api/photos', params);
+        const [data, stats] = await Promise.all([
+            this.post('/api/photos', params),
+            this.post('/api/stats')
+        ]);
+        
         this.totalPhotos = data.total;
+        this.stats = stats;
         this.photos = new Array(this.totalPhotos).fill(null);
         data.photos.forEach((p: Photo, i: number) => {
             this.photos[i] = p;
@@ -278,17 +287,18 @@ class App {
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
         this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        const pickedCount = this.photos.filter(p => p?.isPicked).length; 
-        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        
+        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
         pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
         this.userCollections.forEach(c => {
             const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
         for (let i = 5; i >= 1; i--) {
-            const count = this.photos.filter(p => p && p.rating === i).length;
+            const count = this.stats.ratingCounts[i-1];
             this.addTreeItem(this.libraryEl, '★'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
         }
+
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';

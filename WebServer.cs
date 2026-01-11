@@ -127,6 +127,11 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetPickedIds());
             });
 
+            app.MapPost("/api/stats", (DatabaseManager db) =>
+            {
+                return Results.Ok(db.GetGlobalStats());
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {

@@ -443,5 +443,34 @@ namespace PhotoLibrary
             while (reader.Read()) ids.Add(reader.GetString(0));
             return ids;
         }
+
+        public StatsResponse GetGlobalStats()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var stats = new StatsResponse();
+
+            var pickedCmd = connection.CreateCommand();
+            pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
+            stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
+
+            var ratingCmd = connection.CreateCommand();
+            ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
+            using var reader = ratingCmd.ExecuteReader();
+            while (reader.Read())
+            {
+                int r = reader.GetInt32(0);
+                int count = reader.GetInt32(1);
+                if (r >= 1 && r <= 5) stats.RatingCounts[r - 1] = count;
+            }
+
+            return stats;
+        }
+
+        public class StatsResponse
+        {
+            public int PickedCount { get; set; }
+            public int[] RatingCounts { get; set; } = new int[5]; // 1, 2, 3, 4, 5
+        }
     }
 }
