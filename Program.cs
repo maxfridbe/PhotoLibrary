@@ -11,7 +11,7 @@ namespace PhotoLibrary
     {
         static async Task<int> Main(string[] args)
         {
-            var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata");
+            var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
 
             var libraryOption = new Option<string>(
                 name: "--library",
@@ -20,8 +20,8 @@ namespace PhotoLibrary
 
             var updateMdOption = new Option<string>(
                 name: "--updatemd",
-                description: "Directory to scan and update metadata for")
-            { IsRequired = true };
+                description: "Directory to scan and update metadata for");
+            // Made optional because we might just want to host
 
             var testOneOption = new Option<bool>(
                 name: "--testone",
@@ -40,55 +40,69 @@ namespace PhotoLibrary
                 description: "Long edge size for previews (can be specified multiple times)")
             { AllowMultipleArgumentsPerToken = true };
 
+            var hostOption = new Option<int?>(
+                name: "--host",
+                description: "Port to host the web viewer on (e.g., 8080)");
+
             rootCommand.AddOption(libraryOption);
             rootCommand.AddOption(updateMdOption);
             rootCommand.AddOption(testOneOption);
             rootCommand.AddOption(updatePreviewsOption);
             rootCommand.AddOption(previewDbOption);
             rootCommand.AddOption(longEdgeOption);
+            rootCommand.AddOption(hostOption);
 
-            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges) =>
+            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
             {
-                RunScan(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges);
-            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption);
+                Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
+            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption);
 
             return await rootCommand.InvokeAsync(args);
         }
 
-        static void RunScan(string libraryPath, string scanDir, bool testOne, bool updatePreviews, string previewDb, int[] longEdges)
+        static void Run(string libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
         {
             try
             {
-                // Resolve paths
                 libraryPath = ResolvePath(libraryPath);
-                scanDir = ResolvePath(scanDir);
                 if (!string.IsNullOrEmpty(previewDb))
                 {
                     previewDb = ResolvePath(previewDb);
                 }
 
-                Console.WriteLine($"Library: {libraryPath}");
-                Console.WriteLine($"Scanning: {scanDir}");
-                if (testOne) Console.WriteLine("Test One Mode: Active");
-                if (updatePreviews)
+                // CLI/Scanning Mode
+                if (!string.IsNullOrEmpty(scanDir))
                 {
-                    Console.WriteLine("Update Previews: Active");
-                    Console.WriteLine($"Preview DB: {previewDb}");
-                    Console.WriteLine($"Sizes: {string.Join(", ", longEdges)}");
+                    scanDir = ResolvePath(scanDir);
+                    Console.WriteLine($"Library: {libraryPath}");
+                    Console.WriteLine($"Scanning: {scanDir}");
+                    
+                    var dbManager = new DatabaseManager(libraryPath);
+                    dbManager.Initialize();
+
+                    PreviewManager? previewManager = null;
+                    if (updatePreviews && !string.IsNullOrEmpty(previewDb))
+                    {
+                        previewManager = new PreviewManager(previewDb);
+                        previewManager.Initialize();
+                    }
+
+                    var scanner = new ImageScanner(dbManager, previewManager, longEdges);
+                    scanner.Scan(scanDir, testOne);
                 }
 
-                var dbManager = new DatabaseManager(libraryPath);
-                dbManager.Initialize();
-
-                PreviewManager? previewManager = null;
-                if (updatePreviews && !string.IsNullOrEmpty(previewDb))
+                // Hosting Mode
+                if (hostPort.HasValue)
                 {
-                    previewManager = new PreviewManager(previewDb);
-                    previewManager.Initialize();
-                }
+                    if (string.IsNullOrEmpty(previewDb))
+                    {
+                        Console.WriteLine("Error: --previewdb is required for hosting mode.");
+                        return;
+                    }
 
-                var scanner = new ImageScanner(dbManager, previewManager, longEdges);
-                scanner.Scan(scanDir, testOne);
+                    Console.WriteLine($"Starting Web Server on port {hostPort.Value}...");
+                    WebServer.Start(hostPort.Value, libraryPath, previewDb);
+                }
             }
             catch (Exception ex)
             {

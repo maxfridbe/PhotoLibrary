@@ -30,6 +30,7 @@ A C# CLI application designed to scan photo directories and index metadata into 
 - `--updatepreviews`: (Optional) Enable preview generation.
 - `--previewdb <path>`: (Required if `--updatepreviews` is used) Path to the SQLite database for storing previews.
 - `--longedge <pixels>`: (Required if `--updatepreviews` is used) The target size for the long edge of the preview. Can be specified multiple times for different sizes (e.g., `--longedge 1024 --longedge 300`).
+- `--host <port>`: (Optional) Starts a web server on the specified port to view the library (e.g., `--host 8080`). Requires `--library` and `--previewdb`.
 
 ### Example
 Scan a directory, extract metadata, and generate 1024px and 300px previews:
@@ -41,6 +42,15 @@ Scan a directory, extract metadata, and generate 1024px and 300px previews:
   --previewdb previews.db \
   --longedge 1024 \
   --longedge 300
+```
+
+### Hosting the Viewer
+Start the web viewer on port 8080:
+```bash
+./run.sh \
+  --library raid.db \
+  --previewdb previews.db \
+  --host 8080
 ```
 
 ### Helper Scripts

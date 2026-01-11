@@ -190,5 +190,30 @@ namespace PhotoLibrary
 
             transaction.Commit();
         }
+
+        public IEnumerable<FileEntry> GetAllPhotos()
+        {
+            var entries = new List<FileEntry>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt FROM FileEntry ORDER BY CreatedAt DESC LIMIT 1000"; // Limit for perf
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                entries.Add(new FileEntry
+                {
+                    Id = reader.GetString(0),
+                    RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Size = reader.GetInt64(3),
+                    CreatedAt = DateTime.Parse(reader.GetString(4)),
+                    ModifiedAt = DateTime.Parse(reader.GetString(5))
+                });
+            }
+            return entries;
+        }
     }
 }

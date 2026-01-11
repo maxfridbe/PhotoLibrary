@@ -63,5 +63,18 @@ namespace PhotoLibrary
             command.ExecuteNonQuery();
             transaction.Commit();
         }
+
+        public byte[]? GetPreviewData(string fileId, int longEdge)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Data FROM Previews WHERE FileId = $FileId AND LongEdge = $LongEdge";
+            command.Parameters.AddWithValue("$FileId", fileId);
+            command.Parameters.AddWithValue("$LongEdge", longEdge);
+
+            return command.ExecuteScalar() as byte[];
+        }
     }
 }
