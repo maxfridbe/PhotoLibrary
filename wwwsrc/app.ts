@@ -14,6 +14,8 @@ class App {
     private nextRequestId = 1;
     private isConnected = false;
     private pendingRequests: ImageRequest[] = [];
+    private reconnectAttempts = 0;
+    private readonly maxReconnectDelay = 256000; // 256s
 
     // State
     private photos: Photo[] = [];
@@ -556,24 +558,42 @@ class App {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
+        
+        this.updateStatus(false, true); // Show Connecting spinner
+
         this.ws.onopen = () => { 
             this.isConnected = true; 
+            this.reconnectAttempts = 0;
             this.updateStatus(true);
             this.processPending(); 
         };
+        
         this.ws.onclose = () => { 
             this.isConnected = false; 
             this.updateStatus(false);
-            setTimeout(() => this.connectWs(), 2000); 
+            
+            const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
+            console.log(`WS Closed. Reconnecting in ${delay/1000}s...`);
+            this.reconnectAttempts++;
+            
+            setTimeout(() => this.connectWs(), delay); 
         };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
     }
 
-    updateStatus(connected: boolean) {
+    updateStatus(connected: boolean, connecting: boolean = false) {
         const el = document.getElementById('connection-status');
         if (el) {
-            el.innerText = connected ? 'Connected' : 'Disconnected';
-            el.style.color = connected ? '#0f0' : '#f00';
+            if (connecting) {
+                el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
+                el.style.color = '#aaa';
+            } else if (connected) {
+                el.innerText = 'Connected';
+                el.style.color = '#0f0';
+            } else {
+                el.innerText = 'Disconnected';
+                el.style.color = '#f00';
+            }
         }
     }
 
