@@ -14,11 +14,17 @@ namespace PhotoLibrary
     {
         public static void Start(int port, string libraryPath, string previewPath)
         {
+            var dbManager = new DatabaseManager(libraryPath);
+            dbManager.Initialize();
+
+            var previewManager = new PreviewManager(previewPath);
+            previewManager.Initialize();
+
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseUrls($"http://*:{port}");
 
-            builder.Services.AddSingleton(new DatabaseManager(libraryPath));
-            builder.Services.AddSingleton(new PreviewManager(previewPath));
+            builder.Services.AddSingleton(dbManager);
+            builder.Services.AddSingleton(previewManager);
 
             var app = builder.Build();
             app.UseWebSockets();
