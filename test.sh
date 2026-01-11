@@ -15,19 +15,29 @@ if [ ! -f "$TEST_DIR/MAX01109.JPG" ]; then
 fi
 
 # Run with --testone AND --updatepreviews
-# We use --testone so it only processes the first file it finds (could be ARW or JPG).
-# If it finds ARW first, it should use the JPG sidecar for preview.
 echo "Running test with --testone and --updatepreviews..."
 ./run.sh --library test.db --updatemd "$TEST_DIR" --testone --updatepreviews --previewdb previews.db --longedge 1024 --longedge 300
 
 # Check if db was created
 if [ -f "test.db" ]; then
     echo "Success: Main Database created."
+    
+    echo "=========================================="
+    echo "Dumping Table: RootPaths"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM RootPaths;"
+
+    echo ""
+    echo "=========================================="
+    echo "Dumping Table: FileEntry"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM FileEntry;"
 else
     echo "Failure: Main Database not created."
 fi
 
 if [ -f "previews.db" ]; then
+    echo ""
     echo "Success: Preview Database created."
     echo "=========================================="
     echo "Dumping Table: Previews (Schema & Stats)"
