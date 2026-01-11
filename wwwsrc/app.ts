@@ -226,7 +226,7 @@ class PhotoApp {
         this.viewModeLabel.innerText = "Loupe View (Press 'G' for Grid)";
         
         this.selectPhoto(id);
-        // Ensure main preview loads (selectPhoto calls it if mode is set)
+        this.loadMainPreview(id); // Ensure main preview loads (selectPhoto calls it if mode is set, but might return early)
     }
 
     enterGridMode() {
