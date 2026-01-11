@@ -14,8 +14,6 @@ class App {
     private nextRequestId = 1;
     private isConnected = false;
     private pendingRequests: ImageRequest[] = [];
-    private reconnectAttempts = 0;
-    private readonly maxReconnectDelay = 256000; // 256s
 
     // State
     private photos: Photo[] = [];
@@ -23,9 +21,13 @@ class App {
     private roots: RootPath[] = [];
     public selectedId: string | null = null;
     private selectedRootId: string | null = null;
-    private filterType: 'all' | 'picked' | 'rating' = 'all';
+    private filterType: 'all' | 'picked' | 'rating' | 'search' = 'all';
     private filterRating: number = 0;
+    private searchResultIds: string[] = [];
+    private searchTitle: string = '';
     private isLoupeMode = false;
+    private reconnectAttempts = 0;
+    private readonly maxReconnectDelay = 256000;
 
     // Components
     private libraryEl: HTMLElement | null = null;
@@ -130,6 +132,31 @@ class App {
         if (!this.libraryEl) return;
         this.libraryEl.innerHTML = '';
 
+        // Search Section
+        const searchHeader = document.createElement('div');
+        searchHeader.className = 'tree-section-header';
+        searchHeader.innerText = 'Search';
+        this.libraryEl.appendChild(searchHeader);
+
+        const searchBox = document.createElement('div');
+        searchBox.className = 'search-box';
+        const searchInput = document.createElement('input');
+        searchInput.className = 'search-input';
+        searchInput.placeholder = 'Tag search...';
+        searchInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                // Basic text search on filename for now or similar
+                this.searchPhotos('FileName', searchInput.value);
+            }
+        };
+        searchBox.appendChild(searchInput);
+        this.libraryEl.appendChild(searchBox);
+
+        if (this.filterType === 'search') {
+            this.addTreeItem(this.libraryEl, '🔍 ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
+        }
+
+        // Collections Section
         const collHeader = document.createElement('div');
         collHeader.className = 'tree-section-header';
         collHeader.innerText = 'Collections';
@@ -141,6 +168,7 @@ class App {
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
 
+        // Folders Section
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -179,7 +207,7 @@ class App {
         return el;
     }
 
-    setFilter(type: 'all' | 'picked' | 'rating', rating: number = 0, rootId: string | null = null) {
+    setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null) {
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
@@ -192,8 +220,21 @@ class App {
         let list = this.photos;
         if (this.filterType === 'picked') list = list.filter(p => p.isPicked);
         else if (this.filterType === 'rating') list = list.filter(p => p.rating >= this.filterRating);
+        else if (this.filterType === 'search') list = list.filter(p => this.searchResultIds.includes(p.id));
+        
         if (this.selectedRootId) list = list.filter(p => p.rootPathId === this.selectedRootId);
         return list;
+    }
+
+    async searchPhotos(tag: string, value: string) {
+        try {
+            const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
+            this.searchResultIds = await res.json();
+            this.searchTitle = `${tag}: ${value}`;
+            this.setFilter('search');
+        } catch (e) {
+            console.error("Search failed", e);
+        }
     }
 
     // --- Workspace ---
@@ -205,6 +246,7 @@ class App {
         let headerText = "All Photos";
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
+        else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
         else if (this.selectedRootId) {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
@@ -290,10 +332,8 @@ class App {
         this.gridView!.style.display = 'none';
         this.gridHeader!.style.display = 'none';
         this.loupeView!.style.display = 'flex';
-        
         document.getElementById('nav-grid')?.classList.remove('active');
         document.getElementById('nav-loupe')?.classList.add('active');
-
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
@@ -304,10 +344,8 @@ class App {
         this.loupeView!.style.display = 'none';
         this.gridView!.style.display = 'grid';
         this.gridHeader!.style.display = 'flex';
-
         document.getElementById('nav-loupe')?.classList.remove('active');
         document.getElementById('nav-grid')?.classList.add('active');
-
         if (this.selectedId) {
             const el = this.gridView?.querySelector(`.card[data-id="${this.selectedId}"]`);
             el?.scrollIntoView({ behavior: 'auto', block: 'center' });
@@ -327,243 +365,76 @@ class App {
         });
     }
 
-            async loadMetadata(id: string) {
-
-                if (!this.metadataEl) return;
-
-                const photo = this.photoMap.get(id);
-
-                if (!photo) return;
-
-        
-
-                        // Centralized Photographer Priority List
-
-        
-
-                        const priorityTags = [
-
-        
-
-                            // 1. THE BIG THREE (Exposure)
-
-        
-
-                            'Exposure Time', 'Shutter Speed Value',
-
-        
-
-                            'F-Number', 'Aperture Value', 'Max Aperture Value',
-
-        
-
-                            'ISO Speed Rating', 'ISO',
-
-        
-
-                            
-
-        
-
-                            // 2. OPTICS & GEAR
-
-        
-
-                            'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
-
-        
-
-                            
-
-        
-
-                            // 3. SHOOTING STATE
-
-        
-
-                            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 
-
-        
-
-                            'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 
-
-        
-
-                            'Color Temperature', 'Quality',
-
-        
-
-                            
-
-        
-
-                            // 4. FILE SPECS
-
-        
-
-                            'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height',
-
-        
-
-                            'Software', 'Orientation',
-
-        
-
-                            
-
-        
-
-                            // 5. SYSTEM
-
-        
-
-                            'ID'
-
-        
-
-                        ];
-
-        
-
-                // Group Priority (calculated based on highest priority tag in the group)
-
-                const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
-
-        
-
-                this.metadataEl.innerHTML = 'Loading...';
-
-                try {
-
-                    const res = await fetch(`/api/metadata/${id}`);
-
-                    const meta: MetadataItem[] = await res.json();
-
-                    
-
-                    const groups: {[k:string]: MetadataItem[]} = {};
-
-                    meta.forEach(m => {
-
-                        const k = m.directory || 'Unknown';
-
-                        if (!groups[k]) groups[k] = [];
-
-                        groups[k].push(m);
-
-                    });
-
-        
-
-                    // Add File Info manually
-
-                    groups['File Info'] = [
-
-                        { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
-
-                        { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
-
-                        { directory: 'File Info', tag: 'ID', value: id }
-
-                    ];
-
-        
-
-                    // Sort groups: Based on groupOrder, then by existence of priority tags
-
-                    const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
-
-                        // Check if any tags in group A are in priority list
-
-                        const getMinPriority = (g: string) => {
-
-                            const tags = groups[g].map(i => i.tag);
-
-                            const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
-
-                            return priorities.length > 0 ? Math.min(...priorities) : 999;
-
-                        };
-
-        
-
-                        const pa = getMinPriority(a);
-
-                        const pb = getMinPriority(b);
-
-        
-
-                        if (pa !== pb) return pa - pb;
-
-        
-
-                        // Fallback to explicit groupOrder
-
-                        let ia = groupOrder.indexOf(a);
-
-                        let ib = groupOrder.indexOf(b);
-
-                        if (ia === -1) ia = 999;
-
-                        if (ib === -1) ib = 999;
-
-                        return ia - ib;
-
-                    });
-
-        
-
-                    let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
-
-        
-
-                    for (const k of sortedGroupKeys) {
-
-                        const items = groups[k];
-
-                        
-
-                        // Sort items within group strictly by priorityTags index
-
-                        items.sort((a, b) => {
-
-                            let ia = priorityTags.indexOf(a.tag);
-
-                            let ib = priorityTags.indexOf(b.tag);
-
-                            
-
-                            if (ia === -1) ia = 999;
-
-                            if (ib === -1) ib = 999;
-
-                            
-
-                            if (ia !== ib) return ia - ib;
-
-                            return a.tag.localeCompare(b.tag);
-
-                        });
-
-        
-
-                        html += `<div class="meta-group"><h3>${k}</h3>`;
-
-                        items.forEach(m => {
-
-                            html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span></div>`;
-
-                        });
-
-                        html += `</div>`;
-
-                    }
-
-                    this.metadataEl.innerHTML = html;
-
-                } catch { this.metadataEl.innerHTML = 'Error'; }
-
+    async loadMetadata(id: string) {
+        if (!this.metadataEl) return;
+        const photo = this.photoMap.get(id);
+        if (!photo) return;
+
+        const priorityTags = [
+            'Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value',
+            'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
+            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 
+            'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 
+            'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'
+        ];
+        const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
+
+        this.metadataEl.innerHTML = 'Loading...';
+        try {
+            const res = await fetch(`/api/metadata/${id}`);
+            const meta: MetadataItem[] = await res.json();
+            const groups: {[k:string]: MetadataItem[]} = {};
+            meta.forEach(m => {
+                const k = m.directory || 'Unknown';
+                if (!groups[k]) groups[k] = [];
+                groups[k].push(m);
+            });
+            groups['File Info'] = [
+                { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
+                { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
+                { directory: 'File Info', tag: 'ID', value: id }
+            ];
+
+            const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+                const getMinPriority = (g: string) => {
+                    const tags = groups[g].map(i => i.tag);
+                    const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
+                    return priorities.length > 0 ? Math.min(...priorities) : 999;
+                };
+                const pa = getMinPriority(a);
+                const pb = getMinPriority(b);
+                if (pa !== pb) return pa - pb;
+                let ia = groupOrder.indexOf(a);
+                let ib = groupOrder.indexOf(b);
+                if (ia === -1) ia = 999;
+                if (ib === -1) ib = 999;
+                return ia - ib;
+            });
+
+            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
+            for (const k of sortedGroupKeys) {
+                const items = groups[k];
+                items.sort((a, b) => {
+                    let ia = priorityTags.indexOf(a.tag);
+                    let ib = priorityTags.indexOf(b.tag);
+                    if (ia === -1) ia = 999;
+                    if (ib === -1) ib = 999;
+                    if (ia !== ib) return ia - ib;
+                    return a.tag.localeCompare(b.tag);
+                });
+                html += `<div class="meta-group"><h3>${k}</h3>`;
+                items.forEach(m => {
+                    html += `<div class="meta-row">
+                        <span class="meta-key">${m.tag}</span>
+                        <span class="meta-val">${m.value}</span>
+                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${m.tag.replace(/'/g, "\'")}', '${m.value.replace(/'/g, "\'")}')">🔍</span>
+                    </div>`;
+                });
+                html += `</div>`;
             }
+            this.metadataEl.innerHTML = html;
+        } catch { this.metadataEl.innerHTML = 'Error'; }
+    }
 
     async togglePick(id: string | null) {
         if (!id) return;
@@ -593,7 +464,6 @@ class App {
         try { await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' }); } catch { console.error('Failed to set rating'); }
     }
 
-    // --- Navigation ---
     private handleKey(e: KeyboardEvent) {
         const key = e.key.toLowerCase();
         if (key === 'g') this.enterGridMode();
@@ -601,12 +471,8 @@ class App {
         if (key === 'p') this.togglePick(this.selectedId);
         if (key >= '0' && key <= '5') this.setRating(this.selectedId, parseInt(key));
         if (key === '?' || key === '/') {
-            if (key === '?' || (key === '/' && e.shiftKey)) {
-                e.preventDefault();
-                this.showShortcuts();
-            }
+            if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); this.showShortcuts(); }
         }
-        
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
             e.preventDefault();
             this.navigate(e.key);
@@ -616,46 +482,29 @@ class App {
     private navigate(key: string) {
         const photos = this.getFilteredPhotos();
         if (photos.length === 0) return;
-        
         let index = this.selectedId ? photos.findIndex(p => p.id === this.selectedId) : -1;
-        
         if (key === 'ArrowRight') index++;
         else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
-            if (this.isLoupeMode) {
-                if (key === 'ArrowDown') index++; else index--;
-            } else {
-                // Grid navigation (complex as columns change)
+            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; } else {
                 const grid = this.gridView!;
                 const cards = grid.children;
                 if (cards.length === 0) return;
-                
-                // Estimate columns
                 const containerWidth = grid.clientWidth;
-                const cardWidth = (cards[0] as HTMLElement).offsetWidth + 10; // 10 is gap
+                const cardWidth = (cards[0] as HTMLElement).offsetWidth + 10;
                 const cols = Math.max(1, Math.floor(containerWidth / cardWidth));
-                
-                if (key === 'ArrowDown') index += cols;
-                else index -= cols;
+                if (key === 'ArrowDown') index += cols; else index -= cols;
             }
         }
-
-        if (index >= 0 && index < photos.length) {
-            this.selectPhoto(photos[index].id);
-        }
+        if (index >= 0 && index < photos.length) this.selectPhoto(photos[index].id);
     }
 
-    private showShortcuts() {
-        document.getElementById('shortcuts-modal')?.classList.add('active');
-    }
+    private showShortcuts() { document.getElementById('shortcuts-modal')?.classList.add('active'); }
 
     private setupGlobalKeyboard() {
         document.addEventListener('keydown', (e) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            // Only handle if not already handled by a component or to trigger global ones
-            if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
-                this.showShortcuts();
-            }
+            if (e.key === '?' || (e.key === '/' && e.shiftKey)) this.showShortcuts();
         });
     }
 
@@ -664,24 +513,10 @@ class App {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
-        
-        this.updateStatus(false, true); // Show Connecting spinner
-
-        this.ws.onopen = () => { 
-            this.isConnected = true; 
-            this.reconnectAttempts = 0;
-            this.updateStatus(true);
-            this.processPending(); 
-        };
-        
-        this.ws.onclose = () => { 
-            this.isConnected = false; 
-            this.updateStatus(false);
-            
+        this.ws.onopen = () => { this.isConnected = true; this.updateStatus(true); this.processPending(); };
+        this.ws.onclose = () => { this.isConnected = false; this.updateStatus(false);
             const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
-            console.log(`WS Closed. Reconnecting in ${delay/1000}s...`);
             this.reconnectAttempts++;
-            
             setTimeout(() => this.connectWs(), delay); 
         };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
@@ -693,13 +528,7 @@ class App {
             if (connecting) {
                 el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
                 el.style.color = '#aaa';
-            } else if (connected) {
-                el.innerText = 'Connected';
-                el.style.color = '#0f0';
-            } else {
-                el.innerText = 'Disconnected';
-                el.style.color = '#f00';
-            }
+            } else if (connected) { el.innerText = 'Connected'; el.style.color = '#0f0'; } else { el.innerText = 'Disconnected'; el.style.color = '#f00'; }
         }
     }
 

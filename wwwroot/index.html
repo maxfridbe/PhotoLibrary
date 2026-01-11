@@ -45,6 +45,20 @@
         .tree-item.selected .count { color: #ddd; }
         .tree-children { margin-left: 10px; border-left: 1px solid #333; }
 
+        /* Search Section */
+        .search-box { padding: 10px; border-bottom: 1px solid #333; }
+        .search-input { width: 100%; background: #111; border: 1px solid #444; color: #eee; padding: 5px 8px; border-radius: 4px; box-sizing: border-box; font-size: 0.9em; }
+        .search-input:focus { border-color: #0078d7; outline: none; }
+        .search-results-list { max-height: 200px; overflow-y: auto; }
+
+        /* Metadata Search Magnifier */
+        .meta-row { display: flex; font-size: 0.85em; padding: 2px 0; border-bottom: 1px solid #333; align-items: center; position: relative; }
+        .meta-row:hover .meta-search-btn { opacity: 1; }
+        .meta-search-btn { opacity: 0; cursor: pointer; color: #0078d7; padding: 0 5px; font-size: 1.1em; transition: opacity 0.2s; position: absolute; right: 0; background: #252526; height: 100%; display: flex; align-items: center; }
+        .meta-search-btn:hover { color: #fff; }
+
+        /* Utilities */
+
         /* Metadata */
         .metadata-panel { padding: 15px; overflow-y: auto; }
         .meta-group { margin-bottom: 15px; }

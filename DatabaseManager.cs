@@ -320,5 +320,24 @@ namespace PhotoLibrary
             command.Parameters.AddWithValue("$Id", fileId);
             command.ExecuteNonQuery();
         }
+
+        public IEnumerable<string> SearchMetadata(string tag, string value)
+        {
+            var ids = new List<string>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT DISTINCT FileId FROM Metadata WHERE Tag = $Tag AND Value = $Value";
+            command.Parameters.AddWithValue("$Tag", tag);
+            command.Parameters.AddWithValue("$Value", value);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                ids.Add(reader.GetString(0));
+            }
+            return ids;
+        }
     }
 }

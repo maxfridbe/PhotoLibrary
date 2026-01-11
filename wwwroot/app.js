@@ -14,7 +14,11 @@ class App {
         this.selectedRootId = null;
         this.filterType = 'all';
         this.filterRating = 0;
+        this.searchResultIds = [];
+        this.searchTitle = '';
         this.isLoupeMode = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectDelay = 256000;
         // Components
         this.libraryEl = null;
         this.workspaceEl = null;
@@ -110,6 +114,28 @@ class App {
         if (!this.libraryEl)
             return;
         this.libraryEl.innerHTML = '';
+        // Search Section
+        const searchHeader = document.createElement('div');
+        searchHeader.className = 'tree-section-header';
+        searchHeader.innerText = 'Search';
+        this.libraryEl.appendChild(searchHeader);
+        const searchBox = document.createElement('div');
+        searchBox.className = 'search-box';
+        const searchInput = document.createElement('input');
+        searchInput.className = 'search-input';
+        searchInput.placeholder = 'Tag search...';
+        searchInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                // Basic text search on filename for now or similar
+                this.searchPhotos('FileName', searchInput.value);
+            }
+        };
+        searchBox.appendChild(searchInput);
+        this.libraryEl.appendChild(searchBox);
+        if (this.filterType === 'search') {
+            this.addTreeItem(this.libraryEl, '🔍 ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
+        }
+        // Collections Section
         const collHeader = document.createElement('div');
         collHeader.className = 'tree-section-header';
         collHeader.innerText = 'Collections';
@@ -119,6 +145,7 @@ class App {
         this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
+        // Folders Section
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -169,9 +196,22 @@ class App {
             list = list.filter(p => p.isPicked);
         else if (this.filterType === 'rating')
             list = list.filter(p => p.rating >= this.filterRating);
+        else if (this.filterType === 'search')
+            list = list.filter(p => this.searchResultIds.includes(p.id));
         if (this.selectedRootId)
             list = list.filter(p => p.rootPathId === this.selectedRootId);
         return list;
+    }
+    async searchPhotos(tag, value) {
+        try {
+            const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
+            this.searchResultIds = await res.json();
+            this.searchTitle = `${tag}: ${value}`;
+            this.setFilter('search');
+        }
+        catch (e) {
+            console.error("Search failed", e);
+        }
     }
     // --- Workspace ---
     renderGrid() {
@@ -184,6 +224,8 @@ class App {
             headerText = "Collection: Picked";
         else if (this.filterType === 'rating')
             headerText = "Collection: Starred";
+        else if (this.filterType === 'search')
+            headerText = "Search: " + this.searchTitle;
         else if (this.selectedRootId) {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
@@ -307,14 +349,14 @@ class App {
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
-        // Prioritization Maps
+        const priorityTags = [
+            'Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value',
+            'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
+            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation',
+            'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size',
+            'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'
+        ];
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
-        const tagOrder = {
-            'Exif SubIF': ['Exposure Time', 'F-Number', 'ISO Speed Rating', 'Focal Length', 'Lens Model', 'Exposure Bias Value', 'Metering Mode', 'White Balance', 'Flash', 'Date/Time Original'],
-            'Exif IFD0': ['Model', 'Make', 'Software', 'Orientation'],
-            'Sony Maker': ['Focus Mode', 'Image Stabilisation', 'Lens Model', 'Color Temperature', 'Quality'],
-            'File Info': ['Created', 'Size', 'ID']
-        };
         this.metadataEl.innerHTML = 'Loading...';
         try {
             const res = await fetch(`/api/metadata/${id}`);
@@ -326,15 +368,21 @@ class App {
                     groups[k] = [];
                 groups[k].push(m);
             });
-            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
-            // Add File Info manually
             groups['File Info'] = [
                 { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
                 { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
                 { directory: 'File Info', tag: 'ID', value: id }
             ];
-            // Sort groups
-            const sortedGroups = Object.keys(groups).sort((a, b) => {
+            const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+                const getMinPriority = (g) => {
+                    const tags = groups[g].map(i => i.tag);
+                    const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
+                    return priorities.length > 0 ? Math.min(...priorities) : 999;
+                };
+                const pa = getMinPriority(a);
+                const pb = getMinPriority(b);
+                if (pa !== pb)
+                    return pa - pb;
                 let ia = groupOrder.indexOf(a);
                 let ib = groupOrder.indexOf(b);
                 if (ia === -1)
@@ -343,13 +391,12 @@ class App {
                     ib = 999;
                 return ia - ib;
             });
-            for (const k of sortedGroups) {
+            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
+            for (const k of sortedGroupKeys) {
                 const items = groups[k];
-                // Sort items within group
-                const priorities = tagOrder[k] || [];
                 items.sort((a, b) => {
-                    let ia = priorities.indexOf(a.tag);
-                    let ib = priorities.indexOf(b.tag);
+                    let ia = priorityTags.indexOf(a.tag);
+                    let ib = priorityTags.indexOf(b.tag);
                     if (ia === -1)
                         ia = 999;
                     if (ib === -1)
@@ -360,7 +407,11 @@ class App {
                 });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
-                    html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span></div>`;
+                    html += `<div class="meta-row">
+                        <span class="meta-key">${m.tag}</span>
+                        <span class="meta-val">${m.value}</span>
+                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${m.tag.replace(/'/g, "\'")}', '${m.value.replace(/'/g, "\'")}')">🔍</span>
+                    </div>`;
                 });
                 html += `</div>`;
             }
@@ -420,7 +471,6 @@ class App {
             console.error('Failed to set rating');
         }
     }
-    // --- Navigation ---
     handleKey(e) {
         const key = e.key.toLowerCase();
         if (key === 'g')
@@ -461,14 +511,12 @@ class App {
                     index--;
             }
             else {
-                // Grid navigation (complex as columns change)
                 const grid = this.gridView;
                 const cards = grid.children;
                 if (cards.length === 0)
                     return;
-                // Estimate columns
                 const containerWidth = grid.clientWidth;
-                const cardWidth = cards[0].offsetWidth + 10; // 10 is gap
+                const cardWidth = cards[0].offsetWidth + 10;
                 const cols = Math.max(1, Math.floor(containerWidth / cardWidth));
                 if (key === 'ArrowDown')
                     index += cols;
@@ -476,22 +524,16 @@ class App {
                     index -= cols;
             }
         }
-        if (index >= 0 && index < photos.length) {
+        if (index >= 0 && index < photos.length)
             this.selectPhoto(photos[index].id);
-        }
     }
-    showShortcuts() {
-        var _a;
-        (_a = document.getElementById('shortcuts-modal')) === null || _a === void 0 ? void 0 : _a.classList.add('active');
-    }
+    showShortcuts() { var _a; (_a = document.getElementById('shortcuts-modal')) === null || _a === void 0 ? void 0 : _a.classList.add('active'); }
     setupGlobalKeyboard() {
         document.addEventListener('keydown', (e) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
                 return;
-            // Only handle if not already handled by a component or to trigger global ones
-            if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+            if (e.key === '?' || (e.key === '/' && e.shiftKey))
                 this.showShortcuts();
-            }
         });
     }
     // --- Networking ---
@@ -499,23 +541,31 @@ class App {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
-        this.ws.onopen = () => {
-            this.isConnected = true;
-            this.updateStatus(true);
-            this.processPending();
-        };
+        this.ws.onopen = () => { this.isConnected = true; this.updateStatus(true); this.processPending(); };
         this.ws.onclose = () => {
             this.isConnected = false;
             this.updateStatus(false);
-            setTimeout(() => this.connectWs(), 2000);
+            const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
+            this.reconnectAttempts++;
+            setTimeout(() => this.connectWs(), delay);
         };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
     }
-    updateStatus(connected) {
+    updateStatus(connected, connecting = false) {
         const el = document.getElementById('connection-status');
         if (el) {
-            el.innerText = connected ? 'Connected' : 'Disconnected';
-            el.style.color = connected ? '#0f0' : '#f00';
+            if (connecting) {
+                el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
+                el.style.color = '#aaa';
+            }
+            else if (connected) {
+                el.innerText = 'Connected';
+                el.style.color = '#0f0';
+            }
+            else {
+                el.innerText = 'Disconnected';
+                el.style.color = '#f00';
+            }
         }
     }
     handleBinaryMessage(buffer) {

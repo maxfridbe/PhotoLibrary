@@ -64,6 +64,13 @@ namespace PhotoLibrary
                 return Results.Ok();
             });
 
+            // API: Search
+            app.MapGet("/api/search", (string tag, string value, DatabaseManager db) =>
+            {
+                var fileIds = db.SearchMetadata(tag, value);
+                return Results.Ok(fileIds);
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {
