@@ -45,7 +45,7 @@ namespace PhotoLibrary
                     Value TEXT,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
                 );",
-                @"CREATE TABLE IF NOT EXISTS PickedImages (
+                @"CREATE TABLE IF NOT EXISTS images_picked (
                     FileId TEXT PRIMARY KEY,
                     PickedAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
@@ -90,7 +90,7 @@ namespace PhotoLibrary
             stats.TotalCount = Convert.ToInt32(totalCmd.ExecuteScalar());
 
             var pickedCmd = connection.CreateCommand();
-            pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
+            pickedCmd.CommandText = "SELECT COUNT(*) FROM images_picked";
             stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
             
             var ratingCmd = connection.CreateCommand();
@@ -111,7 +111,7 @@ namespace PhotoLibrary
             connection.Open();
             
             var whereClauses = new List<string>();
-            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id)");
+            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM images_picked p WHERE p.FileId = f.Id)");
             if (rating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating = $Rating)");
             if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
             if (specificIds != null && specificIds.Length > 0) 
@@ -122,7 +122,7 @@ namespace PhotoLibrary
             var command = connection.CreateCommand();
             command.CommandText = $@"
                 SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
-                       CASE WHEN (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                       CASE WHEN (SELECT 1 FROM images_picked p WHERE p.FileId = f.Id) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
                        COALESCE((SELECT r.Rating FROM ImageRatings r WHERE r.FileId = f.Id), 0) as Rating
                 FROM FileEntry f
                 {where}
@@ -241,7 +241,7 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM PickedImages";
+            command.CommandText = "DELETE FROM images_picked";
             command.ExecuteNonQuery();
         }
 
@@ -251,7 +251,7 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT FileId FROM PickedImages";
+            command.CommandText = "SELECT FileId FROM images_picked";
             using var reader = command.ExecuteReader();
             while (reader.Read()) list.Add(reader.GetString(0));
             return list;
@@ -393,8 +393,8 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
-            if (isPicked) command.CommandText = "INSERT OR IGNORE INTO PickedImages (FileId) VALUES ($Id)";
-            else command.CommandText = "DELETE FROM PickedImages WHERE FileId = $Id";
+            if (isPicked) command.CommandText = "INSERT OR IGNORE INTO images_picked (FileId) VALUES ($Id)";
+            else command.CommandText = "DELETE FROM images_picked WHERE FileId = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
             command.ExecuteNonQuery();
         }
