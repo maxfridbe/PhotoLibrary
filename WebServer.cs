@@ -74,7 +74,7 @@ namespace PhotoLibrary
             // API: Collections
             app.MapGet("/api/collections", (DatabaseManager db) =>
             {
-                var list = db.GetCollections().Select(c => new { id = c.Id, name = c.Name });
+                var list = db.GetCollections().Select(c => new { id = c.Id, name = c.Name, count = c.Count });
                 return Results.Ok(list);
             });
 

@@ -149,9 +149,8 @@ class App {
         pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
         // User Collections
         this.userCollections.forEach(c => {
-            const el = this.addTreeItem(this.libraryEl, '📁 ' + c.name, 0, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            const el = this.addTreeItem(this.libraryEl, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
-            // Note: counts for collections could be loaded but keeping it simple for now
         });
         // Stars (1+)
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
@@ -290,7 +289,6 @@ class App {
                 return;
             const res = await fetch(`/api/collections?name=${encodeURIComponent(name)}`, { method: 'POST' });
             const coll = await res.json();
-            this.userCollections.push(coll);
             id = coll.id;
         }
         await fetch(`/api/collections/${id}/add`, {
@@ -298,17 +296,21 @@ class App {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(pickedIds)
         });
-        this.renderLibrary();
+        await this.refreshCollections();
     }
     async deleteCollection(id) {
         if (!confirm('Are you sure you want to remove this collection?'))
             return;
         await fetch(`/api/collections/${id}`, { method: 'DELETE' });
-        this.userCollections = this.userCollections.filter(c => c.id !== id);
         if (this.selectedCollectionId === id)
             this.setFilter('all');
         else
-            this.renderLibrary();
+            await this.refreshCollections();
+    }
+    async refreshCollections() {
+        const res = await fetch('/api/collections');
+        this.userCollections = await res.json();
+        this.renderLibrary();
     }
     // --- Core Logic ---
     async searchPhotos(tag, value) {

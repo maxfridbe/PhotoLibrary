@@ -131,15 +131,20 @@ namespace PhotoLibrary
             transaction.Commit();
         }
 
-        public IEnumerable<(string Id, string Name)> GetCollections()
+        public IEnumerable<(string Id, string Name, int Count)> GetCollections()
         {
-            var list = new List<(string, string)>();
+            var list = new List<(string, string, int)>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, Name FROM UserCollections ORDER BY Name";
+            command.CommandText = @"
+                SELECT c.Id, c.Name, COUNT(cf.FileId) 
+                FROM UserCollections c 
+                LEFT JOIN CollectionFiles cf ON c.Id = cf.CollectionId 
+                GROUP BY c.Id, c.Name 
+                ORDER BY c.Name";
             using var reader = command.ExecuteReader();
-            while (reader.Read()) list.Add((reader.GetString(0), reader.GetString(1)));
+            while (reader.Read()) list.Add((reader.GetString(0), reader.GetString(1), reader.GetInt32(2)));
             return list;
         }
 
