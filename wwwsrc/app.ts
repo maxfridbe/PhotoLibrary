@@ -327,137 +327,243 @@ class App {
         });
     }
 
-        async loadMetadata(id: string) {
+            async loadMetadata(id: string) {
 
-            if (!this.metadataEl) return;
+                if (!this.metadataEl) return;
 
-            const photo = this.photoMap.get(id);
+                const photo = this.photoMap.get(id);
 
-            if (!photo) return;
+                if (!photo) return;
 
-    
+        
 
-            // Prioritization Maps
+                        // Centralized Photographer Priority List
 
-            const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
+        
 
-            const tagOrder: { [key: string]: string[] } = {
+                        const priorityTags = [
 
-                'Exif SubIF': ['Exposure Time', 'F-Number', 'ISO Speed Rating', 'Focal Length', 'Lens Model', 'Exposure Bias Value', 'Metering Mode', 'White Balance', 'Flash', 'Date/Time Original'],
+        
 
-                'Exif IFD0': ['Model', 'Make', 'Software', 'Orientation'],
+                            // 1. THE BIG THREE (Exposure)
 
-                'Sony Maker': ['Focus Mode', 'Image Stabilisation', 'Lens Model', 'Color Temperature', 'Quality'],
+        
 
-                'File Info': ['Created', 'Size', 'ID']
+                            'Exposure Time', 'Shutter Speed Value',
 
-            };
+        
 
-    
+                            'F-Number', 'Aperture Value', 'Max Aperture Value',
 
-            this.metadataEl.innerHTML = 'Loading...';
+        
 
-            try {
+                            'ISO Speed Rating', 'ISO',
 
-                const res = await fetch(`/api/metadata/${id}`);
+        
 
-                const meta: MetadataItem[] = await res.json();
+                            
 
-                
+        
 
-                const groups: {[k:string]: MetadataItem[]} = {};
+                            // 2. OPTICS & GEAR
 
-                meta.forEach(m => {
+        
 
-                    const k = m.directory || 'Unknown';
+                            'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
 
-                    if (!groups[k]) groups[k] = [];
+        
 
-                    groups[k].push(m);
+                            
 
-                });
+        
 
-    
+                            // 3. SHOOTING STATE
 
-                let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
+        
 
-                
+                            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 
 
-                // Add File Info manually
+        
 
-                groups['File Info'] = [
+                            'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 
 
-                    { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
+        
 
-                    { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
+                            'Color Temperature', 'Quality',
 
-                    { directory: 'File Info', tag: 'ID', value: id }
+        
 
-                ];
+                            
 
-    
+        
 
-                // Sort groups
+                            // 4. FILE SPECS
 
-                const sortedGroups = Object.keys(groups).sort((a, b) => {
+        
 
-                    let ia = groupOrder.indexOf(a);
+                            'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height',
 
-                    let ib = groupOrder.indexOf(b);
+        
 
-                    if (ia === -1) ia = 999;
+                            'Software', 'Orientation',
 
-                    if (ib === -1) ib = 999;
+        
 
-                    return ia - ib;
+                            
 
-                });
+        
 
-    
+                            // 5. SYSTEM
 
-                for (const k of sortedGroups) {
+        
 
-                    const items = groups[k];
+                            'ID'
 
-                    // Sort items within group
+        
 
-                    const priorities = tagOrder[k] || [];
+                        ];
 
-                    items.sort((a, b) => {
+        
 
-                        let ia = priorities.indexOf(a.tag);
+                // Group Priority (calculated based on highest priority tag in the group)
 
-                        let ib = priorities.indexOf(b.tag);
+                const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
+
+        
+
+                this.metadataEl.innerHTML = 'Loading...';
+
+                try {
+
+                    const res = await fetch(`/api/metadata/${id}`);
+
+                    const meta: MetadataItem[] = await res.json();
+
+                    
+
+                    const groups: {[k:string]: MetadataItem[]} = {};
+
+                    meta.forEach(m => {
+
+                        const k = m.directory || 'Unknown';
+
+                        if (!groups[k]) groups[k] = [];
+
+                        groups[k].push(m);
+
+                    });
+
+        
+
+                    // Add File Info manually
+
+                    groups['File Info'] = [
+
+                        { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
+
+                        { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
+
+                        { directory: 'File Info', tag: 'ID', value: id }
+
+                    ];
+
+        
+
+                    // Sort groups: Based on groupOrder, then by existence of priority tags
+
+                    const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+
+                        // Check if any tags in group A are in priority list
+
+                        const getMinPriority = (g: string) => {
+
+                            const tags = groups[g].map(i => i.tag);
+
+                            const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
+
+                            return priorities.length > 0 ? Math.min(...priorities) : 999;
+
+                        };
+
+        
+
+                        const pa = getMinPriority(a);
+
+                        const pb = getMinPriority(b);
+
+        
+
+                        if (pa !== pb) return pa - pb;
+
+        
+
+                        // Fallback to explicit groupOrder
+
+                        let ia = groupOrder.indexOf(a);
+
+                        let ib = groupOrder.indexOf(b);
 
                         if (ia === -1) ia = 999;
 
                         if (ib === -1) ib = 999;
 
-                        if (ia !== ib) return ia - ib;
-
-                        return a.tag.localeCompare(b.tag);
+                        return ia - ib;
 
                     });
 
-    
+        
 
-                    html += `<div class="meta-group"><h3>${k}</h3>`;
+                    let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
 
-                    items.forEach(m => {
+        
 
-                        html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span></div>`;
+                    for (const k of sortedGroupKeys) {
 
-                    });
+                        const items = groups[k];
 
-                    html += `</div>`;
+                        
 
-                }
+                        // Sort items within group strictly by priorityTags index
 
-                this.metadataEl.innerHTML = html;
+                        items.sort((a, b) => {
 
-            } catch { this.metadataEl.innerHTML = 'Error'; }
+                            let ia = priorityTags.indexOf(a.tag);
 
-        }
+                            let ib = priorityTags.indexOf(b.tag);
+
+                            
+
+                            if (ia === -1) ia = 999;
+
+                            if (ib === -1) ib = 999;
+
+                            
+
+                            if (ia !== ib) return ia - ib;
+
+                            return a.tag.localeCompare(b.tag);
+
+                        });
+
+        
+
+                        html += `<div class="meta-group"><h3>${k}</h3>`;
+
+                        items.forEach(m => {
+
+                            html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span></div>`;
+
+                        });
+
+                        html += `</div>`;
+
+                    }
+
+                    this.metadataEl.innerHTML = html;
+
+                } catch { this.metadataEl.innerHTML = 'Error'; }
+
+            }
 
     async togglePick(id: string | null) {
         if (!id) return;
