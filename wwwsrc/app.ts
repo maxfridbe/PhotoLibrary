@@ -9,7 +9,7 @@ interface Collection { id: string; name: string; count: number; }
 interface ImageRequest { requestId: number; fileId: string; size: number; }
 
 class App {
-    private layout: any;
+    public layout: any;
     private ws: WebSocket | null = null;
     private requestMap: Map<number, (blob: Blob) => void> = new Map();
     private nextRequestId = 1;
@@ -17,46 +17,46 @@ class App {
     private pendingRequests: ImageRequest[] = [];
 
     // State
-    private photos: (Photo | null)[] = []; // Array with holes for virtualization
+    public photos: (Photo | null)[] = []; 
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
-    private userCollections: Collection[] = [];
-    private totalPhotos = 0;
+    public userCollections: Collection[] = [];
+    public totalPhotos = 0;
     
     public selectedId: string | null = null;
-    private selectedRootId: string | null = null;
-    private selectedCollectionId: string | null = null;
-    private filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
-    private filterRating: number = 0;
+    public selectedRootId: string | null = null;
+    public selectedCollectionId: string | null = null;
+    public filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
+    public filterRating: number = 0;
     
-    private searchResultIds: string[] = [];
-    private searchTitle: string = '';
-    private collectionFiles: string[] = [];
+    public searchResultIds: string[] = [];
+    public searchTitle: string = '';
+    public collectionFiles: string[] = [];
 
     // Virtual Grid config
-    private readonly rowHeight = 230; // 220px card + 10px gap
-    private readonly minCardWidth = 210; // 200px + 10px gap
+    private readonly rowHeight = 230; 
+    private readonly minCardWidth = 210; 
     private cols = 1;
     private visibleRange = { start: 0, end: 0 };
     private isLoadingChunk = new Set<number>();
 
-    private isLoupeMode = false;
+    public isLoupeMode = false;
     private reconnectAttempts = 0;
     private readonly maxReconnectDelay = 256000;
 
     // Components
-    private libraryEl: HTMLElement | null = null;
-    private workspaceEl: HTMLElement | null = null;
-    private metadataEl: HTMLElement | null = null;
+    public libraryEl: HTMLElement | null = null;
+    public workspaceEl: HTMLElement | null = null;
+    public metadataEl: HTMLElement | null = null;
 
     // Workspace Elements
-    private gridHeader: HTMLElement | null = null;
-    private gridView: HTMLElement | null = null;
-    private scrollSentinel: HTMLElement | null = null;
-    private loupeView: HTMLElement | null = null;
-    private filmstrip: HTMLElement | null = null;
-    private mainPreview: HTMLImageElement | null = null;
-    private previewSpinner: HTMLElement | null = null;
+    public gridHeader: HTMLElement | null = null;
+    public gridView: HTMLElement | null = null;
+    public scrollSentinel: HTMLElement | null = null;
+    public loupeView: HTMLElement | null = null;
+    public filmstrip: HTMLElement | null = null;
+    public mainPreview: HTMLImageElement | null = null;
+    public previewSpinner: HTMLElement | null = null;
 
     constructor() {
         this.initLayout();
@@ -64,6 +64,16 @@ class App {
         this.loadData();
         this.setupGlobalKeyboard();
         this.setupContextMenu();
+    }
+
+    // Helper for all API calls
+    public async post(url: string, data: any = {}) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await res.json();
     }
 
     initLayout() {
@@ -111,7 +121,6 @@ class App {
                 </div>
             `;
             container.getElement().append(self.workspaceEl);
-            
             self.gridHeader = self.workspaceEl.querySelector('#grid-header');
             self.gridView = self.workspaceEl.querySelector('#grid-view');
             self.scrollSentinel = self.workspaceEl.querySelector('#scroll-sentinel');
@@ -119,10 +128,8 @@ class App {
             self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
             self.mainPreview = self.workspaceEl.querySelector('#main-preview') as HTMLImageElement;
             self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
-
             const gridScroll = self.workspaceEl.querySelector('#grid-container') as HTMLElement;
             gridScroll.onscroll = () => self.updateVirtualGrid();
-
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
@@ -143,12 +150,12 @@ class App {
 
     async loadData() {
         try {
-            const [rootsRes, collsRes] = await Promise.all([
-                fetch('/api/directories'),
-                fetch('/api/collections')
+            const [roots, colls] = await Promise.all([
+                this.post('/api/directories'),
+                this.post('/api/collections/list')
             ]);
-            this.roots = await rootsRes.json();
-            this.userCollections = await collsRes.json();
+            this.roots = roots;
+            this.userCollections = colls;
             await this.refreshPhotos();
         } catch (e) { console.error("Load failed", e); }
     }
@@ -157,47 +164,39 @@ class App {
         this.photos = [];
         this.isLoadingChunk.clear();
         
-        let url = `/api/photos?limit=100&offset=0`;
-        if (this.filterType === 'picked') url += '&pickedOnly=true';
-        if (this.filterType === 'rating') url += `&rating=${this.filterRating}`;
-        if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
+        const params: any = { limit: 100, offset: 0 };
+        if (this.filterType === 'picked') params.pickedOnly = true;
+        if (this.filterType === 'rating') params.rating = this.filterRating;
+        if (this.selectedRootId) params.rootId = this.selectedRootId;
+        if (this.filterType === 'collection') params.specificIds = this.collectionFiles;
+        if (this.filterType === 'search') params.specificIds = this.searchResultIds;
 
-        const res = await fetch(url);
-        const data = await res.json();
-        
+        const data = await this.post('/api/photos', params);
         this.totalPhotos = data.total;
         this.photos = new Array(this.totalPhotos).fill(null);
-        
         data.photos.forEach((p: Photo, i: number) => {
             this.photos[i] = p;
             this.photoMap.set(p.id, p);
         });
-
         this.renderLibrary();
         this.renderGrid();
     }
 
     // --- Virtual Grid ---
     updateVirtualGrid() {
-        if (!this.gridView || !this.workspaceEl || this.isLoupeMode) return; 
-        
+        if (!this.gridView || !this.workspaceEl || this.isLoupeMode) return;
         const gridContainer = this.gridView.parentElement as HTMLElement;
         const containerWidth = gridContainer.clientWidth - 20;
         this.cols = Math.max(1, Math.floor(containerWidth / this.minCardWidth));
-        
         const rowCount = Math.ceil(this.totalPhotos / this.cols);
         const totalHeight = rowCount * this.rowHeight;
         this.scrollSentinel!.style.height = totalHeight + 'px';
-
         const scrollTop = gridContainer.scrollTop;
         const viewHeight = gridContainer.clientHeight;
-        
         const startRow = Math.floor(scrollTop / this.rowHeight);
         const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight);
-        
         const startIndex = Math.max(0, startRow * this.cols);
         const endIndex = Math.min(this.totalPhotos, (endRow + 1) * this.cols);
-
         if (startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.renderVisiblePhotos();
@@ -210,12 +209,10 @@ class App {
         this.gridView.innerHTML = '';
         const startRow = Math.floor(this.visibleRange.start / this.cols);
         this.gridView.style.transform = `translateY(${startRow * this.rowHeight}px)`;
-
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
-            if (photo) {
-                this.gridView.appendChild(this.createCard(photo, 'grid'));
-            } else {
+            if (photo) this.gridView.appendChild(this.createCard(photo, 'grid'));
+            else {
                 const placeholder = document.createElement('div');
                 placeholder.className = 'card placeholder';
                 placeholder.style.height = (this.rowHeight - 10) + 'px';
@@ -240,12 +237,13 @@ class App {
     async loadChunk(offset: number, limit: number) {
         this.isLoadingChunk.add(offset);
         try {
-            let url = `/api/photos?limit=${limit}&offset=${offset}`;
-            if (this.filterType === 'picked') url += '&pickedOnly=true';
-            if (this.filterType === 'rating') url += `&rating=${this.filterRating}`;
-            if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
-            const res = await fetch(url);
-            const data = await res.json();
+            const params: any = { limit, offset };
+            if (this.filterType === 'picked') params.pickedOnly = true;
+            if (this.filterType === 'rating') params.rating = this.filterRating;
+            if (this.selectedRootId) params.rootId = this.selectedRootId;
+            if (this.filterType === 'collection') params.specificIds = this.collectionFiles;
+            if (this.filterType === 'search') params.specificIds = this.searchResultIds;
+            const data = await this.post('/api/photos', params);
             data.photos.forEach((p: Photo, i: number) => {
                 this.photos[offset + i] = p;
                 this.photoMap.set(p.id, p);
@@ -280,22 +278,18 @@ class App {
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
         this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-                const pickedCount = this.photos.filter(p => p?.isPicked).length; 
-                const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
-                pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
-        
-                this.userCollections.forEach(c => {
-                    const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
-                    el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
-                });
-        
-                // Individual Ratings
-                for (let i = 5; i >= 1; i--) {
-                    const count = this.photos.filter(p => p && p.rating === i).length;
-                    this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
-                }
-        
-                const folderHeader = document.createElement('div');
+        const pickedCount = this.photos.filter(p => p?.isPicked).length; 
+        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
+        this.userCollections.forEach(c => {
+            const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
+        });
+        for (let i = 5; i >= 1; i--) {
+            const count = this.photos.filter(p => p && p.rating === i).length;
+            this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+        }
+        const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
         this.libraryEl.appendChild(folderHeader);
@@ -341,6 +335,7 @@ class App {
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
+        this.collectionFiles = await this.post('/api/collections/get-files', { id: c.id });
         this.refreshPhotos();
     }
 
@@ -394,59 +389,44 @@ class App {
     }
 
     async clearAllPicked() {
-        await fetch('/api/picked/clear', { method: 'POST' });
+        await this.post('/api/picked/clear');
         this.refreshPhotos();
     }
 
     async storePickedToCollection(id: string | null) {
-        const res = await fetch('/api/picked/ids');
-        const pickedIds = await res.json();
+        const pickedIds = await this.post('/api/picked/ids');
         if (pickedIds.length === 0) return;
         if (id === null) {
             const name = prompt('New Collection Name:');
             if (!name) return;
-            const res = await fetch(`/api/collections?name=${encodeURIComponent(name)}`, { method: 'POST' });
-            const coll = await res.json();
-            id = coll.id;
+            const res = await this.post('/api/collections/create', { name });
+            id = res.id;
         }
-        await fetch(`/api/collections/${id}/add`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pickedIds)
-        });
+        await this.post('/api/collections/add-files', { collectionId: id, fileIds: pickedIds });
         await this.refreshCollections();
     }
 
     async deleteCollection(id: string) {
         if (!confirm('Are you sure you want to remove this collection?')) return;
-        await fetch(`/api/collections/${id}`, { method: 'DELETE' });
+        await this.post('/api/collections/delete', { id });
         if (this.selectedCollectionId === id) this.setFilter('all');
         else await this.refreshCollections();
     }
 
     async refreshCollections() {
-        const res = await fetch('/api/collections');
-        this.userCollections = await res.json();
+        this.userCollections = await this.post('/api/collections/list');
         this.renderLibrary();
     }
 
     // --- Core Logic ---
     async searchPhotos(tag: string, value: string) {
-        const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
-        this.searchResultIds = await res.json();
+        this.searchResultIds = await this.post('/api/search', { tag, value });
         this.searchTitle = `${tag}: ${value}`;
         this.setFilter('search');
     }
 
-    getFilteredPhotos() {
-        let list = this.photos;
-        if (this.filterType === 'picked') list = list.filter(p => p?.isPicked);
-        else if (this.filterType === 'rating') list = list.filter(p => p?.rating === this.filterRating);
-        else if (this.filterType === 'search') list = list.filter(p => p && this.searchResultIds.includes(p.id));
-        else if (this.filterType === 'collection') list = list.filter(p => p && this.collectionFiles.includes(p.id));
-        
-        if (this.selectedRootId) list = list.filter(p => p?.rootPathId === this.selectedRootId);
-        return list as Photo[];
+    public getFilteredPhotos(): Photo[] {
+        return this.photos.filter(p => p !== null) as Photo[];
     }
 
     renderGrid() {
@@ -534,9 +514,11 @@ class App {
 
     enterLoupeMode(id: string) {
         this.isLoupeMode = true;
-        (this.workspaceEl?.querySelector('#grid-container') as HTMLElement).style.display = 'none';
-        this.gridHeader!.style.display = 'none';
-        this.loupeView!.style.display = 'flex';
+        if (this.workspaceEl) {
+            (this.workspaceEl.querySelector('#grid-container') as HTMLElement).style.display = 'none';
+        }
+        if (this.gridHeader) this.gridHeader.style.display = 'none';
+        if (this.loupeView) this.loupeView.style.display = 'flex';
         document.getElementById('nav-grid')?.classList.remove('active');
         document.getElementById('nav-loupe')?.classList.add('active');
         this.renderFilmstrip();
@@ -546,9 +528,11 @@ class App {
 
     enterGridMode() {
         this.isLoupeMode = false;
-        this.loupeView!.style.display = 'none';
-        (this.workspaceEl?.querySelector('#grid-container') as HTMLElement).style.display = 'flex';
-        this.gridHeader!.style.display = 'flex';
+        if (this.loupeView) this.loupeView.style.display = 'none';
+        if (this.workspaceEl) {
+            (this.workspaceEl.querySelector('#grid-container') as HTMLElement).style.display = 'flex';
+        }
+        if (this.gridHeader) this.gridHeader.style.display = 'flex';
         document.getElementById('nav-loupe')?.classList.remove('active');
         document.getElementById('nav-grid')?.classList.add('active');
         if (this.selectedId) {
@@ -582,8 +566,8 @@ class App {
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
         this.metadataEl.innerHTML = 'Loading...';
         try {
-            const res = await fetch(`/api/metadata/${id}`);
-            const meta: MetadataItem[] = await res.json();
+            const res = await this.post('/api/metadata', { id });
+            const meta: MetadataItem[] = res;
             const groups: {[k:string]: MetadataItem[]} = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -641,7 +625,7 @@ class App {
         picks?.forEach(p => { if (photo.isPicked) p.classList.add('picked'); else p.classList.remove('picked'); });
         if (this.selectedId === id) this.loadMetadata(id);
         this.renderLibrary();
-        try { await fetch(`/api/pick/${id}?isPicked=${photo.isPicked}`, { method: 'POST' }); } catch { photo.isPicked = !photo.isPicked; }
+        try { await this.post('/api/pick', { id, isPicked: photo.isPicked }); } catch { photo.isPicked = !photo.isPicked; }
     }
 
     async setRating(id: string | null, rating: number) {
@@ -657,7 +641,7 @@ class App {
         });
         if (this.selectedId === id) this.loadMetadata(id);
         this.renderLibrary();
-        try { await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' }); } catch { console.error('Failed to set rating'); }
+        try { await this.post('/api/rate', { id, rating }); } catch { console.error('Failed to set rating'); }
     }
 
     private handleKey(e: KeyboardEvent) {
@@ -671,7 +655,7 @@ class App {
     }
 
     private navigate(key: string) {
-        const photos = this.getFilteredPhotos();
+        const photos = this.photos.filter(p => p !== null) as Photo[];
         if (photos.length === 0) return;
         let index = this.selectedId ? photos.findIndex(p => p?.id === this.selectedId) : -1;
         if (key === 'ArrowRight') index++;

@@ -29,77 +29,90 @@ namespace PhotoLibrary
             var app = builder.Build();
             app.UseWebSockets();
 
-            // API: Get Photos
-            app.MapGet("/api/photos", (int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificIds, DatabaseManager db) =>
+            // --- API Endpoints (All POST with JSON bodies) ---
+
+            app.MapPost("/api/photos", async (HttpContext context, DatabaseManager db) =>
             {
-                var photos = db.GetPhotosPaged(limit ?? 100, offset ?? 0, rootId, pickedOnly ?? false, rating ?? 0, specificIds);
-                int total = db.GetTotalPhotoCount(rootId, pickedOnly ?? false, rating ?? 0, specificIds);
+                var req = await context.Request.ReadFromJsonAsync<PagedPhotosRequest>();
+                if (req == null) return Results.BadRequest();
+                var photos = db.GetPhotosPaged(req.limit ?? 100, req.offset ?? 0, req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
+                int total = db.GetTotalPhotoCount(req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
                 return Results.Ok(new { photos, total });
             });
 
-            // API: Get Metadata
-            app.MapGet("/api/metadata/{id}", (string id, DatabaseManager db) =>
+            app.MapPost("/api/metadata", async (HttpContext context, DatabaseManager db) =>
             {
-                var metadata = db.GetMetadata(id);
+                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
+                if (req == null) return Results.BadRequest();
+                var metadata = db.GetMetadata(req.id);
                 return Results.Ok(metadata);
             });
 
-            // API: Get Directories
-            app.MapGet("/api/directories", (DatabaseManager db) =>
+            app.MapPost("/api/directories", (DatabaseManager db) =>
             {
                 var roots = db.GetAllRootPaths();
                 return Results.Ok(roots);
             });
 
-            // API: Set Picked
-            app.MapPost("/api/pick/{id}", (string id, bool isPicked, DatabaseManager db) =>
+            app.MapPost("/api/pick", async (HttpContext context, DatabaseManager db) =>
             {
-                db.SetPicked(id, isPicked);
+                var req = await context.Request.ReadFromJsonAsync<PickRequest>();
+                if (req == null) return Results.BadRequest();
+                db.SetPicked(req.id, req.isPicked);
                 return Results.Ok();
             });
 
-            // API: Set Rating
-            app.MapPost("/api/rate/{id}/{rating}", (string id, int rating, DatabaseManager db) =>
+            app.MapPost("/api/rate", async (HttpContext context, DatabaseManager db) =>
             {
-                db.SetRating(id, rating);
+                var req = await context.Request.ReadFromJsonAsync<RateRequest>();
+                if (req == null) return Results.BadRequest();
+                db.SetRating(req.id, req.rating);
                 return Results.Ok();
             });
 
-            // API: Search
-            app.MapGet("/api/search", (string tag, string value, DatabaseManager db) =>
+            app.MapPost("/api/search", async (HttpContext context, DatabaseManager db) =>
             {
-                var fileIds = db.SearchMetadata(tag, value);
+                var req = await context.Request.ReadFromJsonAsync<SearchRequest>();
+                if (req == null) return Results.BadRequest();
+                var fileIds = db.SearchMetadata(req.tag, req.value);
                 return Results.Ok(fileIds);
             });
 
-            // API: Collections
-            app.MapGet("/api/collections", (DatabaseManager db) =>
+            app.MapPost("/api/collections/list", (DatabaseManager db) =>
             {
                 var list = db.GetCollections().Select(c => new { id = c.Id, name = c.Name, count = c.Count });
                 return Results.Ok(list);
             });
 
-            app.MapPost("/api/collections", (string name, DatabaseManager db) =>
+            app.MapPost("/api/collections/create", async (HttpContext context, DatabaseManager db) =>
             {
-                var id = db.CreateCollection(name);
-                return Results.Ok(new { id, name });
+                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
+                if (req == null) return Results.BadRequest();
+                var id = db.CreateCollection(req.name);
+                return Results.Ok(new { id, name = req.name });
             });
 
-            app.MapDelete("/api/collections/{id}", (string id, DatabaseManager db) =>
+            app.MapPost("/api/collections/delete", async (HttpContext context, DatabaseManager db) =>
             {
-                db.DeleteCollection(id);
+                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
+                if (req == null) return Results.BadRequest();
+                db.DeleteCollection(req.id);
                 return Results.Ok();
             });
 
-            app.MapPost("/api/collections/{id}/add", (string id, string[] fileIds, DatabaseManager db) =>
+            app.MapPost("/api/collections/add-files", async (HttpContext context, DatabaseManager db) =>
             {
-                db.AddFilesToCollection(id, fileIds);
+                var req = await context.Request.ReadFromJsonAsync<CollectionAddRequest>();
+                if (req == null) return Results.BadRequest();
+                db.AddFilesToCollection(req.collectionId, req.fileIds);
                 return Results.Ok();
             });
 
-            app.MapGet("/api/collections/{id}/files", (string id, DatabaseManager db) =>
+            app.MapPost("/api/collections/get-files", async (HttpContext context, DatabaseManager db) =>
             {
-                var fileIds = db.GetCollectionFiles(id);
+                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
+                if (req == null) return Results.BadRequest();
+                var fileIds = db.GetCollectionFiles(req.id);
                 return Results.Ok(fileIds);
             });
 
@@ -109,7 +122,7 @@ namespace PhotoLibrary
                 return Results.Ok();
             });
 
-            app.MapGet("/api/picked/ids", (DatabaseManager db) =>
+            app.MapPost("/api/picked/ids", (DatabaseManager db) =>
             {
                 return Results.Ok(db.GetPickedIds());
             });
@@ -124,30 +137,20 @@ namespace PhotoLibrary
                         var ws = await context.WebSockets.AcceptWebSocketAsync();
                         await HandleWebSocket(ws, context.RequestServices.GetRequiredService<PreviewManager>());
                     }
-                    else
-                    {
-                        context.Response.StatusCode = 400;
-                    }
+                    else context.Response.StatusCode = 400;
                 }
-                else
-                {
-                    await next();
-                }
+                else await next();
             });
 
             // Static Files (Embedded)
             app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
-            
             app.MapGet("/{*path}", (string path) => {
-                if (string.IsNullOrEmpty(path)) return Results.NotFound(); // Should be caught by "/" but just in case
-                
+                if (string.IsNullOrEmpty(path)) return Results.NotFound();
                 string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
-                
                 string contentType = "application/octet-stream";
                 if (path.EndsWith(".html")) contentType = "text/html";
                 else if (path.EndsWith(".js")) contentType = "application/javascript";
                 else if (path.EndsWith(".css")) contentType = "text/css";
-                
                 return ServeEmbeddedFile(resourceName, contentType);
             });
 
@@ -180,19 +183,14 @@ namespace PhotoLibrary
                             var data = pm.GetPreviewData(req.fileId, req.size);
                             if (data != null)
                             {
-                                // Protocol: [4 bytes requestId (int32 little endian)] [Image Data]
                                 var response = new byte[4 + data.Length];
                                 BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
                                 data.CopyTo(response, 4);
-
                                 await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, CancellationToken.None);
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"WS Error: {ex.Message}");
-                    }
+                    catch (Exception ex) { Console.WriteLine($"WS Error: {ex.Message}"); }
                 }
                 else if (result.MessageType == WebSocketMessageType.Close)
                 {
@@ -201,11 +199,14 @@ namespace PhotoLibrary
             }
         }
 
-        public class ImageRequest
-        {
-            public int requestId { get; set; }
-            public string fileId { get; set; } = "";
-            public int size { get; set; }
-        }
+        // --- DTOs ---
+        public record IdRequest(string id);
+        public record NameRequest(string name);
+        public record PickRequest(string id, bool isPicked);
+        public record RateRequest(string id, int rating);
+        public record SearchRequest(string tag, string value);
+        public record CollectionAddRequest(string collectionId, string[] fileIds);
+        public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificIds);
+        public class ImageRequest { public int requestId { get; set; } public string fileId { get; set; } = ""; public int size { get; set; } }
     }
 }

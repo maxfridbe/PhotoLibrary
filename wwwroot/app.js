@@ -7,7 +7,7 @@ class App {
         this.isConnected = false;
         this.pendingRequests = [];
         // State
-        this.photos = []; // Array with holes for virtualization
+        this.photos = [];
         this.photoMap = new Map();
         this.roots = [];
         this.userCollections = [];
@@ -21,8 +21,8 @@ class App {
         this.searchTitle = '';
         this.collectionFiles = [];
         // Virtual Grid config
-        this.rowHeight = 230; // 220px card + 10px gap
-        this.minCardWidth = 210; // 200px + 10px gap
+        this.rowHeight = 230;
+        this.minCardWidth = 210;
         this.cols = 1;
         this.visibleRange = { start: 0, end: 0 };
         this.isLoadingChunk = new Set();
@@ -46,6 +46,15 @@ class App {
         this.loadData();
         this.setupGlobalKeyboard();
         this.setupContextMenu();
+    }
+    // Helper for all API calls
+    async post(url, data = {}) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await res.json();
     }
     initLayout() {
         const config = {
@@ -117,12 +126,12 @@ class App {
     }
     async loadData() {
         try {
-            const [rootsRes, collsRes] = await Promise.all([
-                fetch('/api/directories'),
-                fetch('/api/collections')
+            const [roots, colls] = await Promise.all([
+                this.post('/api/directories'),
+                this.post('/api/collections/list')
             ]);
-            this.roots = await rootsRes.json();
-            this.userCollections = await collsRes.json();
+            this.roots = roots;
+            this.userCollections = colls;
             await this.refreshPhotos();
         }
         catch (e) {
@@ -132,15 +141,18 @@ class App {
     async refreshPhotos() {
         this.photos = [];
         this.isLoadingChunk.clear();
-        let url = `/api/photos?limit=100&offset=0`;
+        const params = { limit: 100, offset: 0 };
         if (this.filterType === 'picked')
-            url += '&pickedOnly=true';
+            params.pickedOnly = true;
         if (this.filterType === 'rating')
-            url += `&rating=${this.filterRating}`;
+            params.rating = this.filterRating;
         if (this.selectedRootId)
-            url += `&rootId=${this.selectedRootId}`;
-        const res = await fetch(url);
-        const data = await res.json();
+            params.rootId = this.selectedRootId;
+        if (this.filterType === 'collection')
+            params.specificIds = this.collectionFiles;
+        if (this.filterType === 'search')
+            params.specificIds = this.searchResultIds;
+        const data = await this.post('/api/photos', params);
         this.totalPhotos = data.total;
         this.photos = new Array(this.totalPhotos).fill(null);
         data.photos.forEach((p, i) => {
@@ -180,9 +192,8 @@ class App {
         this.gridView.style.transform = `translateY(${startRow * this.rowHeight}px)`;
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
-            if (photo) {
+            if (photo)
                 this.gridView.appendChild(this.createCard(photo, 'grid'));
-            }
             else {
                 const placeholder = document.createElement('div');
                 placeholder.className = 'card placeholder';
@@ -206,15 +217,18 @@ class App {
     async loadChunk(offset, limit) {
         this.isLoadingChunk.add(offset);
         try {
-            let url = `/api/photos?limit=${limit}&offset=${offset}`;
+            const params = { limit, offset };
             if (this.filterType === 'picked')
-                url += '&pickedOnly=true';
+                params.pickedOnly = true;
             if (this.filterType === 'rating')
-                url += `&rating=${this.filterRating}`;
+                params.rating = this.filterRating;
             if (this.selectedRootId)
-                url += `&rootId=${this.selectedRootId}`;
-            const res = await fetch(url);
-            const data = await res.json();
+                params.rootId = this.selectedRootId;
+            if (this.filterType === 'collection')
+                params.specificIds = this.collectionFiles;
+            if (this.filterType === 'search')
+                params.specificIds = this.searchResultIds;
+            const data = await this.post('/api/photos', params);
             data.photos.forEach((p, i) => {
                 this.photos[offset + i] = p;
                 this.photoMap.set(p.id, p);
@@ -258,7 +272,6 @@ class App {
             const el = this.addTreeItem(this.libraryEl, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
-        // Individual Ratings
         for (let i = 5; i >= 1; i--) {
             const count = this.photos.filter(p => p && p.rating === i).length;
             this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
@@ -308,6 +321,7 @@ class App {
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
+        this.collectionFiles = await this.post('/api/collections/get-files', { id: c.id });
         this.refreshPhotos();
     }
     // --- Context Menus ---
@@ -358,63 +372,44 @@ class App {
         menu.style.top = e.pageY + 'px';
     }
     async clearAllPicked() {
-        await fetch('/api/picked/clear', { method: 'POST' });
+        await this.post('/api/picked/clear');
         this.refreshPhotos();
     }
     async storePickedToCollection(id) {
-        const res = await fetch('/api/picked/ids');
-        const pickedIds = await res.json();
+        const pickedIds = await this.post('/api/picked/ids');
         if (pickedIds.length === 0)
             return;
         if (id === null) {
             const name = prompt('New Collection Name:');
             if (!name)
                 return;
-            const res = await fetch(`/api/collections?name=${encodeURIComponent(name)}`, { method: 'POST' });
-            const coll = await res.json();
-            id = coll.id;
+            const res = await this.post('/api/collections/create', { name });
+            id = res.id;
         }
-        await fetch(`/api/collections/${id}/add`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pickedIds)
-        });
+        await this.post('/api/collections/add-files', { collectionId: id, fileIds: pickedIds });
         await this.refreshCollections();
     }
     async deleteCollection(id) {
         if (!confirm('Are you sure you want to remove this collection?'))
             return;
-        await fetch(`/api/collections/${id}`, { method: 'DELETE' });
+        await this.post('/api/collections/delete', { id });
         if (this.selectedCollectionId === id)
             this.setFilter('all');
         else
             await this.refreshCollections();
     }
     async refreshCollections() {
-        const res = await fetch('/api/collections');
-        this.userCollections = await res.json();
+        this.userCollections = await this.post('/api/collections/list');
         this.renderLibrary();
     }
     // --- Core Logic ---
     async searchPhotos(tag, value) {
-        const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
-        this.searchResultIds = await res.json();
+        this.searchResultIds = await this.post('/api/search', { tag, value });
         this.searchTitle = `${tag}: ${value}`;
         this.setFilter('search');
     }
     getFilteredPhotos() {
-        let list = this.photos;
-        if (this.filterType === 'picked')
-            list = list.filter(p => p === null || p === void 0 ? void 0 : p.isPicked);
-        else if (this.filterType === 'rating')
-            list = list.filter(p => (p === null || p === void 0 ? void 0 : p.rating) === this.filterRating);
-        else if (this.filterType === 'search')
-            list = list.filter(p => p && this.searchResultIds.includes(p.id));
-        else if (this.filterType === 'collection')
-            list = list.filter(p => p && this.collectionFiles.includes(p.id));
-        if (this.selectedRootId)
-            list = list.filter(p => (p === null || p === void 0 ? void 0 : p.rootPathId) === this.selectedRootId);
-        return list;
+        return this.photos.filter(p => p !== null);
     }
     renderGrid() {
         this.updateVirtualGrid();
@@ -504,25 +499,33 @@ class App {
             this.loadMainPreview(id);
     }
     enterLoupeMode(id) {
-        var _a, _b, _c;
+        var _a, _b;
         this.isLoupeMode = true;
-        ((_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelector('#grid-container')).style.display = 'none';
-        this.gridHeader.style.display = 'none';
-        this.loupeView.style.display = 'flex';
-        (_b = document.getElementById('nav-grid')) === null || _b === void 0 ? void 0 : _b.classList.remove('active');
-        (_c = document.getElementById('nav-loupe')) === null || _c === void 0 ? void 0 : _c.classList.add('active');
+        if (this.workspaceEl) {
+            this.workspaceEl.querySelector('#grid-container').style.display = 'none';
+        }
+        if (this.gridHeader)
+            this.gridHeader.style.display = 'none';
+        if (this.loupeView)
+            this.loupeView.style.display = 'flex';
+        (_a = document.getElementById('nav-grid')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
+        (_b = document.getElementById('nav-loupe')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
     enterGridMode() {
-        var _a, _b, _c;
+        var _a, _b;
         this.isLoupeMode = false;
-        this.loupeView.style.display = 'none';
-        ((_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelector('#grid-container')).style.display = 'flex';
-        this.gridHeader.style.display = 'flex';
-        (_b = document.getElementById('nav-loupe')) === null || _b === void 0 ? void 0 : _b.classList.remove('active');
-        (_c = document.getElementById('nav-grid')) === null || _c === void 0 ? void 0 : _c.classList.add('active');
+        if (this.loupeView)
+            this.loupeView.style.display = 'none';
+        if (this.workspaceEl) {
+            this.workspaceEl.querySelector('#grid-container').style.display = 'flex';
+        }
+        if (this.gridHeader)
+            this.gridHeader.style.display = 'flex';
+        (_a = document.getElementById('nav-loupe')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
+        (_b = document.getElementById('nav-grid')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
         if (this.selectedId) {
             const index = this.photos.findIndex(p => (p === null || p === void 0 ? void 0 : p.id) === this.selectedId);
             if (index !== -1) {
@@ -555,8 +558,8 @@ class App {
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
         this.metadataEl.innerHTML = 'Loading...';
         try {
-            const res = await fetch(`/api/metadata/${id}`);
-            const meta = await res.json();
+            const res = await this.post('/api/metadata', { id });
+            const meta = res;
             const groups = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -635,7 +638,7 @@ class App {
             this.loadMetadata(id);
         this.renderLibrary();
         try {
-            await fetch(`/api/pick/${id}?isPicked=${photo.isPicked}`, { method: 'POST' });
+            await this.post('/api/pick', { id, isPicked: photo.isPicked });
         }
         catch (_b) {
             photo.isPicked = !photo.isPicked;
@@ -662,7 +665,7 @@ class App {
             this.loadMetadata(id);
         this.renderLibrary();
         try {
-            await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' });
+            await this.post('/api/rate', { id, rating });
         }
         catch (_b) {
             console.error('Failed to set rating');
@@ -692,7 +695,7 @@ class App {
         }
     }
     navigate(key) {
-        const photos = this.getFilteredPhotos();
+        const photos = this.photos.filter(p => p !== null);
         if (photos.length === 0)
             return;
         let index = this.selectedId ? photos.findIndex(p => (p === null || p === void 0 ? void 0 : p.id) === this.selectedId) : -1;
