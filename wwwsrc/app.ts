@@ -287,7 +287,7 @@ class App {
         });
         for (let i = 5; i >= 1; i--) {
             const count = this.photos.filter(p => p && p.rating === i).length;
-            this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+            this.addTreeItem(this.libraryEl, '★'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
         }
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
