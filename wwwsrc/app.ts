@@ -450,9 +450,25 @@ class App {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
-        this.ws.onopen = () => { this.isConnected = true; this.processPending(); };
-        this.ws.onclose = () => { this.isConnected = false; setTimeout(() => this.connectWs(), 2000); };
+        this.ws.onopen = () => { 
+            this.isConnected = true; 
+            this.updateStatus(true);
+            this.processPending(); 
+        };
+        this.ws.onclose = () => { 
+            this.isConnected = false; 
+            this.updateStatus(false);
+            setTimeout(() => this.connectWs(), 2000); 
+        };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
+    }
+
+    updateStatus(connected: boolean) {
+        const el = document.getElementById('connection-status');
+        if (el) {
+            el.innerText = connected ? 'Connected' : 'Disconnected';
+            el.style.color = connected ? '#0f0' : '#f00';
+        }
     }
 
     handleBinaryMessage(buffer: ArrayBuffer) {
