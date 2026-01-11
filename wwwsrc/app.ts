@@ -17,10 +17,11 @@ class App {
     private pendingRequests: ImageRequest[] = [];
 
     // State
-    private photos: Photo[] = [];
+    private photos: (Photo | null)[] = []; // Array with holes for virtualization
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
     private userCollections: Collection[] = [];
+    private totalPhotos = 0;
     
     public selectedId: string | null = null;
     private selectedRootId: string | null = null;
@@ -30,7 +31,13 @@ class App {
     
     private searchResultIds: string[] = [];
     private searchTitle: string = '';
-    private collectionFiles: string[] = []; // IDs for current selected collection
+
+    // Virtual Grid config
+    private readonly rowHeight = 230; // 220px card + 10px gap
+    private readonly minCardWidth = 210; // 200px + 10px gap
+    private cols = 1;
+    private visibleRange = { start: 0, end: 0 };
+    private isLoadingChunk = new Set<number>();
 
     private isLoupeMode = false;
     private reconnectAttempts = 0;
@@ -44,6 +51,7 @@ class App {
     // Workspace Elements
     private gridHeader: HTMLElement | null = null;
     private gridView: HTMLElement | null = null;
+    private scrollSentinel: HTMLElement | null = null;
     private loupeView: HTMLElement | null = null;
     private filmstrip: HTMLElement | null = null;
     private mainPreview: HTMLImageElement | null = null;
@@ -83,13 +91,17 @@ class App {
         this.layout.registerComponent('workspace', function(container: any) {
             self.workspaceEl = document.createElement('div');
             self.workspaceEl.className = 'gl-component';
+            self.workspaceEl.style.overflow = 'hidden';
             self.workspaceEl.innerHTML = `
                 <div id="grid-header" class="grid-header">
                     <span id="header-text">All Photos</span>
                     <span id="header-count">0 items</span>
                 </div>
-                <div id="grid-view" class="grid-view">Loading...</div>
-                <div id="loupe-view" class="loupe-view" style="display:none;">
+                <div id="grid-container" style="flex:1; overflow-y:auto; position:relative;">
+                    <div id="scroll-sentinel" style="position:absolute; top:0; left:0; right:0; height:0; pointer-events:none;"></div>
+                    <div id="grid-view" class="grid-view" style="position:absolute; top:0; left:0; right:0;"></div>
+                </div>
+                <div id="loupe-view" class="loupe-view" style="display:none; height:100%;">
                     <div class="preview-area">
                         <div class="spinner center-spinner" id="preview-spinner"></div>
                         <img id="main-preview" src="" alt="">
@@ -98,12 +110,18 @@ class App {
                 </div>
             `;
             container.getElement().append(self.workspaceEl);
+            
             self.gridHeader = self.workspaceEl.querySelector('#grid-header');
             self.gridView = self.workspaceEl.querySelector('#grid-view');
+            self.scrollSentinel = self.workspaceEl.querySelector('#scroll-sentinel');
             self.loupeView = self.workspaceEl.querySelector('#loupe-view');
             self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
             self.mainPreview = self.workspaceEl.querySelector('#main-preview') as HTMLImageElement;
             self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
+
+            const gridScroll = self.workspaceEl.querySelector('#grid-container') as HTMLElement;
+            gridScroll.onscroll = () => self.updateVirtualGrid();
+
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
@@ -116,31 +134,131 @@ class App {
         });
 
         this.layout.init();
-        window.addEventListener('resize', () => this.layout.updateSize());
+        window.addEventListener('resize', () => {
+            this.layout.updateSize();
+            this.updateVirtualGrid();
+        });
     }
 
     async loadData() {
         try {
-            const [rootsRes, photosRes, collsRes] = await Promise.all([
+            const [rootsRes, collsRes] = await Promise.all([
                 fetch('/api/directories'),
-                fetch('/api/photos'),
                 fetch('/api/collections')
             ]);
             this.roots = await rootsRes.json();
-            this.photos = await photosRes.json();
             this.userCollections = await collsRes.json();
-            this.photoMap = new Map(this.photos.map(p => [p.id, p]));
-            this.renderLibrary();
-            this.renderGrid();
+            await this.refreshPhotos();
         } catch (e) { console.error("Load failed", e); }
+    }
+
+    async refreshPhotos() {
+        this.photos = [];
+        this.isLoadingChunk.clear();
+        
+        let url = `/api/photos?limit=100&offset=0`;
+        if (this.filterType === 'picked') url += '&pickedOnly=true';
+        if (this.filterType === 'rating') url += `&minRating=${this.filterRating}`;
+        if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        this.totalPhotos = data.total;
+        this.photos = new Array(this.totalPhotos).fill(null);
+        
+        data.photos.forEach((p: Photo, i: number) => {
+            this.photos[i] = p;
+            this.photoMap.set(p.id, p);
+        });
+
+        this.renderLibrary();
+        this.renderGrid();
+    }
+
+    // --- Virtual Grid ---
+    updateVirtualGrid() {
+        if (!this.gridView || !this.workspaceEl || this.isLoupeMode) return; 
+        
+        const gridContainer = this.gridView.parentElement as HTMLElement;
+        const containerWidth = gridContainer.clientWidth - 20;
+        this.cols = Math.max(1, Math.floor(containerWidth / this.minCardWidth));
+        
+        const rowCount = Math.ceil(this.totalPhotos / this.cols);
+        const totalHeight = rowCount * this.rowHeight;
+        this.scrollSentinel!.style.height = totalHeight + 'px';
+
+        const scrollTop = gridContainer.scrollTop;
+        const viewHeight = gridContainer.clientHeight;
+        
+        const startRow = Math.floor(scrollTop / this.rowHeight);
+        const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight);
+        
+        const startIndex = Math.max(0, startRow * this.cols);
+        const endIndex = Math.min(this.totalPhotos, (endRow + 1) * this.cols);
+
+        if (startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
+            this.visibleRange = { start: startIndex, end: endIndex };
+            this.renderVisiblePhotos();
+        }
+        this.checkMissingChunks(startIndex, endIndex);
+    }
+
+    renderVisiblePhotos() {
+        if (!this.gridView) return;
+        this.gridView.innerHTML = '';
+        const startRow = Math.floor(this.visibleRange.start / this.cols);
+        this.gridView.style.transform = `translateY(${startRow * this.rowHeight}px)`;
+
+        for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
+            const photo = this.photos[i];
+            if (photo) {
+                this.gridView.appendChild(this.createCard(photo, 'grid'));
+            } else {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'card placeholder';
+                placeholder.style.height = (this.rowHeight - 10) + 'px';
+                placeholder.innerHTML = '<div class="img-container"><div class="spinner"></div></div>';
+                this.gridView.appendChild(placeholder);
+            }
+        }
+    }
+
+    async checkMissingChunks(start: number, end: number) {
+        const chunkSize = 100;
+        const startChunk = Math.floor(start / chunkSize);
+        const endChunk = Math.floor(end / chunkSize);
+        for (let c = startChunk; c <= endChunk; c++) {
+            const offset = c * chunkSize;
+            if (!this.isLoadingChunk.has(offset) && !this.photos[offset]) {
+                this.loadChunk(offset, chunkSize);
+            }
+        }
+    }
+
+    async loadChunk(offset: number, limit: number) {
+        this.isLoadingChunk.add(offset);
+        try {
+            let url = `/api/photos?limit=${limit}&offset=${offset}`;
+            if (this.filterType === 'picked') url += '&pickedOnly=true';
+            if (this.filterType === 'rating') url += `&minRating=${this.filterRating}`;
+            if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            data.photos.forEach((p: Photo, i: number) => {
+                this.photos[offset + i] = p;
+                this.photoMap.set(p.id, p);
+            });
+            this.renderVisiblePhotos();
+        } finally {
+            this.isLoadingChunk.delete(offset);
+        }
     }
 
     // --- Library Tree ---
     renderLibrary() {
         if (!this.libraryEl) return;
         this.libraryEl.innerHTML = '';
-
-        // Search Section
         const searchHeader = document.createElement('div');
         searchHeader.className = 'tree-section-header';
         searchHeader.innerText = 'Search';
@@ -156,31 +274,20 @@ class App {
         if (this.filterType === 'search') {
             this.addTreeItem(this.libraryEl, '🔍 ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
         }
-
-        // Collections Section
         const collHeader = document.createElement('div');
         collHeader.className = 'tree-section-header';
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
-
-        this.addTreeItem(this.libraryEl, 'All Photos', this.photos.length, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        
-        // Picked item with context menu
-        const pickedCount = this.photos.filter(p => p.isPicked).length;
+        this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
+        const pickedCount = this.photos.filter(p => p?.isPicked).length; 
         const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
         pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
-
-        // User Collections
         this.userCollections.forEach(c => {
             const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
-
-        // Stars (1+)
-        const ratedCount = this.photos.filter(p => p.rating > 0).length;
+        const ratedCount = this.photos.filter(p => p && p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
-
-        // Folders Section
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -195,8 +302,7 @@ class App {
             else tree.push(map.get(r.id));
         });
         const renderNode = (item: any, container: HTMLElement) => {
-            const count = this.photos.filter(p => p.rootPathId === item.node.id).length;
-            this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
+            this.addTreeItem(container, item.node.name, 0, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
                 childContainer.className = 'tree-children';
@@ -221,30 +327,14 @@ class App {
         this.filterRating = rating;
         this.selectedRootId = rootId;
         this.selectedCollectionId = null;
-        this.renderLibrary();
-        this.renderGrid();
-        if (this.isLoupeMode) this.renderFilmstrip();
+        this.refreshPhotos();
     }
 
     async setCollectionFilter(c: Collection) {
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
-        const res = await fetch(`/api/collections/${c.id}/files`);
-        this.collectionFiles = await res.json();
-        this.renderLibrary();
-        this.renderGrid();
-        if (this.isLoupeMode) this.renderFilmstrip();
-    }
-
-    getFilteredPhotos() {
-        let list = this.photos;
-        if (this.filterType === 'picked') list = list.filter(p => p.isPicked);
-        else if (this.filterType === 'rating') list = list.filter(p => p.rating >= this.filterRating);
-        else if (this.filterType === 'search') list = list.filter(p => this.searchResultIds.includes(p.id));
-        else if (this.filterType === 'collection') list = list.filter(p => this.collectionFiles.includes(p.id));
-        if (this.selectedRootId) list = list.filter(p => p.rootPathId === this.selectedRootId);
-        return list;
+        this.refreshPhotos();
     }
 
     // --- Context Menus ---
@@ -258,23 +348,19 @@ class App {
     showPickedContextMenu(e: MouseEvent) {
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';
-        
         const clear = document.createElement('div');
         clear.className = 'context-menu-item';
         clear.innerText = 'Clear All Picked';
         clear.onclick = () => this.clearAllPicked();
         menu.appendChild(clear);
-
         const divider = document.createElement('div');
         divider.className = 'context-menu-divider';
         menu.appendChild(divider);
-
         const storeNew = document.createElement('div');
         storeNew.className = 'context-menu-item';
         storeNew.innerText = 'Store to new collection...';
         storeNew.onclick = () => this.storePickedToCollection(null);
         menu.appendChild(storeNew);
-
         this.userCollections.forEach(c => {
             const item = document.createElement('div');
             item.className = 'context-menu-item';
@@ -282,7 +368,6 @@ class App {
             item.onclick = () => this.storePickedToCollection(c.id);
             menu.appendChild(item);
         });
-
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
@@ -296,7 +381,6 @@ class App {
         del.innerText = 'Remove Collection';
         del.onclick = () => this.deleteCollection(c.id);
         menu.appendChild(del);
-
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
@@ -304,15 +388,13 @@ class App {
 
     async clearAllPicked() {
         await fetch('/api/picked/clear', { method: 'POST' });
-        this.photos.forEach(p => p.isPicked = false);
-        this.renderLibrary();
-        this.renderGrid();
+        this.refreshPhotos();
     }
 
     async storePickedToCollection(id: string | null) {
-        const pickedIds = this.photos.filter(p => p.isPicked).map(p => p.id);
+        const res = await fetch('/api/picked/ids');
+        const pickedIds = await res.json();
         if (pickedIds.length === 0) return;
-
         if (id === null) {
             const name = prompt('New Collection Name:');
             if (!name) return;
@@ -320,7 +402,6 @@ class App {
             const coll = await res.json();
             id = coll.id;
         }
-
         await fetch(`/api/collections/${id}/add`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -350,10 +431,12 @@ class App {
         this.setFilter('search');
     }
 
+    public getFilteredPhotos(): Photo[] {
+        return this.photos.filter(p => p !== null) as Photo[];
+    }
+
     renderGrid() {
-        if (!this.gridView || !this.gridHeader) return;
-        this.gridView.innerHTML = '';
-        const photos = this.getFilteredPhotos();
+        this.updateVirtualGrid();
         let headerText = "All Photos";
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
@@ -366,16 +449,17 @@ class App {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
-        (this.gridHeader.querySelector('#header-text') as HTMLElement).innerHTML = `Showing <b>${headerText}</b>`;
-        (this.gridHeader.querySelector('#header-count') as HTMLElement).innerText = `${photos.length} items`;
-        photos.forEach(p => this.gridView!.appendChild(this.createCard(p, 'grid')));
+        if (this.gridHeader) {
+            (this.gridHeader.querySelector('#header-text') as HTMLElement).innerHTML = `Showing <b>${headerText}</b>`;
+            (this.gridHeader.querySelector('#header-count') as HTMLElement).innerText = `${this.totalPhotos} items`;
+        }
     }
 
     renderFilmstrip() {
         if (!this.filmstrip) return;
         this.filmstrip.innerHTML = '';
-        const photos = this.getFilteredPhotos();
-        photos.forEach(p => this.filmstrip!.appendChild(this.createCard(p, 'filmstrip')));
+        const loadedPhotos = this.getFilteredPhotos();
+        loadedPhotos.forEach(p => this.filmstrip!.appendChild(this.createCard(p, 'filmstrip')));
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el) el.scrollIntoView({ behavior: 'auto', inline: 'center' });
@@ -436,7 +520,7 @@ class App {
 
     enterLoupeMode(id: string) {
         this.isLoupeMode = true;
-        this.gridView!.style.display = 'none';
+        (this.workspaceEl?.querySelector('#grid-container') as HTMLElement).style.display = 'none';
         this.gridHeader!.style.display = 'none';
         this.loupeView!.style.display = 'flex';
         document.getElementById('nav-grid')?.classList.remove('active');
@@ -449,14 +533,18 @@ class App {
     enterGridMode() {
         this.isLoupeMode = false;
         this.loupeView!.style.display = 'none';
-        this.gridView!.style.display = 'grid';
+        (this.workspaceEl?.querySelector('#grid-container') as HTMLElement).style.display = 'flex';
         this.gridHeader!.style.display = 'flex';
         document.getElementById('nav-loupe')?.classList.remove('active');
         document.getElementById('nav-grid')?.classList.add('active');
         if (this.selectedId) {
-            const el = this.gridView?.querySelector(`.card[data-id="${this.selectedId}"]`);
-            el?.scrollIntoView({ behavior: 'auto', block: 'center' });
+            const index = this.photos.findIndex(p => p?.id === this.selectedId);
+            if (index !== -1) {
+                const row = Math.floor(index / this.cols);
+                (this.gridView!.parentElement as HTMLElement).scrollTop = row * this.rowHeight - 100;
+            }
         }
+        this.updateVirtualGrid();
     }
 
     loadMainPreview(id: string) {
@@ -516,8 +604,8 @@ class App {
                 });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
-                    const tagEscaped = m.tag.replace(/'/g, "\\'");
-                    const valEscaped = m.value.replace(/'/g, "\\'");
+                    const tagEscaped = m.tag.replace(/'/g, "'\'");
+                    const valEscaped = m.value.replace(/'/g, "'\'");
                     html += `<div class="meta-row">
                         <span class="meta-key">${m.tag}</span>
                         <span class="meta-val">${m.value}</span>
@@ -571,22 +659,17 @@ class App {
     private navigate(key: string) {
         const photos = this.getFilteredPhotos();
         if (photos.length === 0) return;
-        let index = this.selectedId ? photos.findIndex(p => p.id === this.selectedId) : -1;
+        let index = this.selectedId ? photos.findIndex(p => p?.id === this.selectedId) : -1;
         if (key === 'ArrowRight') index++;
         else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
-            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; }
-            else {
-                const grid = this.gridView!;
-                const cards = grid.children;
-                if (cards.length === 0) return;
-                const containerWidth = grid.clientWidth;
-                const cardWidth = (cards[0] as HTMLElement).offsetWidth + 10;
-                const cols = Math.max(1, Math.floor(containerWidth / cardWidth));
-                if (key === 'ArrowDown') index += cols; else index -= cols;
-            }
+            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; } 
+            else { if (key === 'ArrowDown') index += this.cols; else index -= this.cols; }
         }
-        if (index >= 0 && index < photos.length) this.selectPhoto(photos[index].id);
+        if (index >= 0 && index < photos.length) {
+            const target = photos[index];
+            if (target) this.selectPhoto(target.id);
+        }
     }
 
     private showShortcuts() { document.getElementById('shortcuts-modal')?.classList.add('active'); }
@@ -598,15 +681,12 @@ class App {
         });
     }
 
-    // --- Networking ---
     connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
         this.ws.onopen = () => { this.isConnected = true; this.updateStatus(true); this.processPending(); };
-        this.ws.onclose = () => {
-            this.isConnected = false;
-            this.updateStatus(false);
+        this.ws.onclose = () => { this.isConnected = false; this.updateStatus(false);
             const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
             this.reconnectAttempts++;
             setTimeout(() => this.connectWs(), delay); 

@@ -30,10 +30,11 @@ namespace PhotoLibrary
             app.UseWebSockets();
 
             // API: Get Photos
-            app.MapGet("/api/photos", (DatabaseManager db) =>
+            app.MapGet("/api/photos", (int? limit, int? offset, string? rootId, bool? pickedOnly, int? minRating, string[]? specificIds, DatabaseManager db) =>
             {
-                var photos = db.GetAllPhotos();
-                return Results.Ok(photos);
+                var photos = db.GetPhotosPaged(limit ?? 100, offset ?? 0, rootId, pickedOnly ?? false, minRating ?? 0, specificIds);
+                int total = db.GetTotalPhotoCount(rootId, pickedOnly ?? false, minRating ?? 0, specificIds);
+                return Results.Ok(new { photos, total });
             });
 
             // API: Get Metadata

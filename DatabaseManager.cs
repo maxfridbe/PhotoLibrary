@@ -66,7 +66,9 @@ namespace PhotoLibrary
                     FOREIGN KEY(CollectionId) REFERENCES UserCollections(Id),
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
                 );",
-                @"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);"
+                @"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);",
+                @"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON FileEntry(CreatedAt);",
+                @"CREATE INDEX IF NOT EXISTS IDX_FileEntry_RootPathId ON FileEntry(RootPathId);"
             };
 
             foreach (var cmdText in commands)
@@ -75,6 +77,77 @@ namespace PhotoLibrary
                 command.CommandText = cmdText;
                 command.ExecuteNonQuery();
             }
+        }
+
+        public int GetTotalPhotoCount(string? rootId = null, bool pickedOnly = false, int minRating = 0, string[]? specificIds = null)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            
+            var whereClauses = new List<string>();
+            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id)");
+            if (minRating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating >= $MinRating)");
+            if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
+            if (specificIds != null && specificIds.Length > 0) 
+                whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
+
+            string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+            command.CommandText = $"SELECT COUNT(*) FROM FileEntry f {where}";
+            
+            if (minRating > 0) command.Parameters.AddWithValue("$MinRating", minRating);
+            if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
+
+            return Convert.ToInt32(command.ExecuteScalar());
+        }
+
+        public IEnumerable<FileEntry> GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int minRating = 0, string[]? specificIds = null)
+        {
+            var entries = new List<FileEntry>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            var whereClauses = new List<string>();
+            if (pickedOnly) whereClauses.Add("p.FileId IS NOT NULL");
+            if (minRating > 0) whereClauses.Add("r.Rating >= $MinRating");
+            if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
+            if (specificIds != null && specificIds.Length > 0) 
+                whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
+
+            string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+
+            command.CommandText = $@"
+                SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
+                       CASE WHEN p.FileId IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                       COALESCE(r.Rating, 0) as Rating
+                FROM FileEntry f
+                LEFT JOIN PickedImages p ON f.Id = p.FileId
+                LEFT JOIN ImageRatings r ON f.Id = r.FileId
+                {where}
+                ORDER BY f.CreatedAt DESC 
+                LIMIT $Limit OFFSET $Offset";
+
+            command.Parameters.AddWithValue("$Limit", limit);
+            command.Parameters.AddWithValue("$Offset", offset);
+            if (minRating > 0) command.Parameters.AddWithValue("$MinRating", minRating);
+            if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                entries.Add(new FileEntry {
+                    Id = reader.GetString(0),
+                    RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Size = reader.GetInt64(3),
+                    CreatedAt = DateTime.Parse(reader.GetString(4)),
+                    ModifiedAt = DateTime.Parse(reader.GetString(5)),
+                    IsPicked = reader.GetInt32(6) == 1,
+                    Rating = reader.GetInt32(7)
+                });
+            }
+            return entries;
         }
 
         // --- Collections ---
@@ -97,19 +170,16 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-            
             var cmd1 = connection.CreateCommand();
             cmd1.Transaction = transaction;
             cmd1.CommandText = "DELETE FROM CollectionFiles WHERE CollectionId = $Id";
             cmd1.Parameters.AddWithValue("$Id", id);
             cmd1.ExecuteNonQuery();
-
             var cmd2 = connection.CreateCommand();
             cmd2.Transaction = transaction;
             cmd2.CommandText = "DELETE FROM UserCollections WHERE Id = $Id";
             cmd2.Parameters.AddWithValue("$Id", id);
             cmd2.ExecuteNonQuery();
-
             transaction.Commit();
         }
 
@@ -118,9 +188,7 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-
-            foreach (var fileId in fileIds)
-            {
+            foreach (var fileId in fileIds) {
                 var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = "INSERT OR IGNORE INTO CollectionFiles (CollectionId, FileId) VALUES ($CId, $FId)";
@@ -181,8 +249,6 @@ namespace PhotoLibrary
             while (reader.Read()) list.Add(reader.GetString(0));
             return list;
         }
-
-        // --- Existing logic ---
 
         public string GetOrCreateBaseRoot(string absolutePath)
         {
@@ -300,32 +366,7 @@ namespace PhotoLibrary
 
         public IEnumerable<FileEntry> GetAllPhotos()
         {
-            var entries = new List<FileEntry>();
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var command = connection.CreateCommand();
-            command.CommandText = @"
-                SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
-                       CASE WHEN p.FileId IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
-                       COALESCE(r.Rating, 0) as Rating
-                FROM FileEntry f
-                LEFT JOIN PickedImages p ON f.Id = p.FileId
-                LEFT JOIN ImageRatings r ON f.Id = r.FileId
-                ORDER BY f.CreatedAt DESC LIMIT 1000";
-            using var reader = command.ExecuteReader();
-            while (reader.Read()) {
-                entries.Add(new FileEntry {
-                    Id = reader.GetString(0),
-                    RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    Size = reader.GetInt64(3),
-                    CreatedAt = DateTime.Parse(reader.GetString(4)),
-                    ModifiedAt = DateTime.Parse(reader.GetString(5)),
-                    IsPicked = reader.GetInt32(6) == 1,
-                    Rating = reader.GetInt32(7)
-                });
-            }
-            return entries;
+            return GetPhotosPaged(1000, 0);
         }
 
         public IEnumerable<RootPathEntry> GetAllRootPaths()
