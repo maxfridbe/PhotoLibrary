@@ -37,7 +37,6 @@ namespace PhotoLibrary
                     Size INTEGER,
                     CreatedAt TEXT,
                     ModifiedAt TEXT,
-                    IsStarred INTEGER DEFAULT 0,
                     FOREIGN KEY(RootPathId) REFERENCES RootPaths(Id),
                     UNIQUE(RootPathId, FileName)
                 );
@@ -50,21 +49,21 @@ namespace PhotoLibrary
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
                 );
 
+                CREATE TABLE IF NOT EXISTS PickedImages (
+                    FileId TEXT PRIMARY KEY,
+                    PickedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                );
+
+                CREATE TABLE IF NOT EXISTS ImageRatings (
+                    FileId TEXT PRIMARY KEY,
+                    Rating INTEGER,
+                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                );
+
                 CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);
             ";
             command.ExecuteNonQuery();
-
-            // Migration: Ensure IsStarred exists for existing DBs
-            try
-            {
-                var migrationCmd = connection.CreateCommand();
-                migrationCmd.CommandText = "ALTER TABLE FileEntry ADD COLUMN IsStarred INTEGER DEFAULT 0";
-                migrationCmd.ExecuteNonQuery();
-            }
-            catch (SqliteException) 
-            {
-                // Column likely exists
-            }
         }
 
         // Creates a top-level root (ParentId IS NULL)
@@ -133,10 +132,9 @@ namespace PhotoLibrary
             var command = connection.CreateCommand();
             command.Transaction = transaction;
 
-            // Preserve IsStarred on conflict
             command.CommandText = @"
-                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt, IsStarred)
-                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt, 0)
+                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
+                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
                 ON CONFLICT(RootPathId, FileName) DO UPDATE SET
                     Size = excluded.Size,
                     CreatedAt = excluded.CreatedAt,
@@ -212,7 +210,15 @@ namespace PhotoLibrary
             connection.Open();
             
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt, IsStarred FROM FileEntry ORDER BY CreatedAt DESC LIMIT 1000";
+            // Left join to get Picked status and Rating
+            command.CommandText = @"
+                SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
+                       CASE WHEN p.FileId IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                       COALESCE(r.Rating, 0) as Rating
+                FROM FileEntry f
+                LEFT JOIN PickedImages p ON f.Id = p.FileId
+                LEFT JOIN ImageRatings r ON f.Id = r.FileId
+                ORDER BY f.CreatedAt DESC LIMIT 1000";
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -225,7 +231,8 @@ namespace PhotoLibrary
                     Size = reader.GetInt64(3),
                     CreatedAt = DateTime.Parse(reader.GetString(4)),
                     ModifiedAt = DateTime.Parse(reader.GetString(5)),
-                    IsStarred = !reader.IsDBNull(6) && reader.GetInt32(6) == 1
+                    IsPicked = reader.GetInt32(6) == 1,
+                    Rating = reader.GetInt32(7)
                 });
             }
             return entries;
@@ -276,15 +283,42 @@ namespace PhotoLibrary
             return items;
         }
 
-        public void SetStar(string fileId, bool isStarred)
+        public void SetPicked(string fileId, bool isPicked)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             
             var command = connection.CreateCommand();
-            command.CommandText = "UPDATE FileEntry SET IsStarred = $IsStarred WHERE Id = $Id";
+            if (isPicked)
+            {
+                command.CommandText = "INSERT OR IGNORE INTO PickedImages (FileId) VALUES ($Id)";
+            }
+            else
+            {
+                command.CommandText = "DELETE FROM PickedImages WHERE FileId = $Id";
+            }
             command.Parameters.AddWithValue("$Id", fileId);
-            command.Parameters.AddWithValue("$IsStarred", isStarred ? 1 : 0);
+            command.ExecuteNonQuery();
+        }
+
+        public void SetRating(string fileId, int rating)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            if (rating > 0)
+            {
+                command.CommandText = @"
+                    INSERT INTO ImageRatings (FileId, Rating) VALUES ($Id, $Rating)
+                    ON CONFLICT(FileId) DO UPDATE SET Rating = excluded.Rating";
+                command.Parameters.AddWithValue("$Rating", rating);
+            }
+            else
+            {
+                command.CommandText = "DELETE FROM ImageRatings WHERE FileId = $Id";
+            }
+            command.Parameters.AddWithValue("$Id", fileId);
             command.ExecuteNonQuery();
         }
     }

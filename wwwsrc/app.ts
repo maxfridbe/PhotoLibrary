@@ -2,7 +2,7 @@
 declare var GoldenLayout: any;
 declare var $: any;
 
-interface Photo { id: string; fileName: string; createdAt: string; rootPathId: string; isStarred: boolean; }
+interface Photo { id: string; fileName: string; createdAt: string; rootPathId: string; isPicked: boolean; rating: number; }
 interface MetadataItem { directory: string; tag: string; value: string; }
 interface RootPath { id: string; parentId: string | null; name: string; }
 interface ImageRequest { requestId: number; fileId: string; size: number; }
@@ -20,7 +20,7 @@ class App {
     private photoMap: Map<string, Photo> = new Map();
     private selectedId: string | null = null;
     private selectedRootId: string | null = null;
-    private filterStarred: boolean = false;
+    private filterPicked: boolean = false;
     private isLoupeMode = false;
 
     // Components
@@ -62,7 +62,7 @@ class App {
             self.libraryEl = document.createElement('div');
             self.libraryEl.className = 'tree-view gl-component';
             container.getElement().append(self.libraryEl);
-            if (self.photos.length > 0) self.loadData();
+            if (self.photos.length > 0) self.renderLibrary([]); // Roots will be loaded by loadData
         });
 
         this.layout.registerComponent('workspace', function(container: any, state: any) {
@@ -88,7 +88,8 @@ class App {
 
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => {
                 if (e.key.toLowerCase() === 'g') self.enterGridMode();
-                if (e.key.toLowerCase() === 'p') self.toggleStar(self.selectedId);
+                if (e.key.toLowerCase() === 'p') self.togglePick(self.selectedId);
+                if (e.key >= '0' && e.key <= '5') self.setRating(self.selectedId, parseInt(e.key));
             });
             self.workspaceEl.tabIndex = 0;
             
@@ -129,12 +130,12 @@ class App {
         if (!this.libraryEl) return;
         this.libraryEl.innerHTML = '';
 
-        // Starred Node
-        const starredBtn = document.createElement('div');
-        starredBtn.className = 'tree-item';
-        starredBtn.innerText = '★ Starred';
-        starredBtn.onclick = () => this.filterByRoot(null, starredBtn, true);
-        this.libraryEl.appendChild(starredBtn);
+        // Picked Node
+        const pickedBtn = document.createElement('div');
+        pickedBtn.className = 'tree-item';
+        pickedBtn.innerText = '⚑ Picked';
+        pickedBtn.onclick = () => this.filterByRoot(null, pickedBtn, true);
+        this.libraryEl.appendChild(pickedBtn);
 
         // All Photos
         const allBtn = document.createElement('div');
@@ -170,21 +171,21 @@ class App {
         tree.forEach(t => renderNode(t, this.libraryEl!));
     }
 
-    filterByRoot(rootId: string | null, el: HTMLElement, starredOnly: boolean) {
+    filterByRoot(rootId: string | null, el: HTMLElement, pickedOnly: boolean) {
         const current = this.libraryEl?.querySelector('.selected');
         if (current) current.classList.remove('selected');
         el.classList.add('selected');
 
         this.selectedRootId = rootId;
-        this.filterStarred = starredOnly;
+        this.filterPicked = pickedOnly;
         this.renderGrid();
         if (this.isLoupeMode) this.renderFilmstrip();
     }
 
     getFilteredPhotos() {
         let list = this.photos;
-        if (this.filterStarred) {
-            list = list.filter(p => p.isStarred);
+        if (this.filterPicked) {
+            list = list.filter(p => p.isPicked);
         } else if (this.selectedRootId) {
             list = list.filter(p => p.rootPathId === this.selectedRootId);
         }
@@ -234,20 +235,26 @@ class App {
             const info = document.createElement('div');
             info.className = 'info';
             
+            const top = document.createElement('div');
+            top.className = 'info-top';
             const nameSpan = document.createElement('span');
             nameSpan.innerText = p.fileName;
-            
-            const starBtn = document.createElement('span');
-            starBtn.className = `star-btn ${p.isStarred ? 'starred' : ''}`;
-            starBtn.innerHTML = '★';
-            starBtn.title = 'Toggle Star';
-            starBtn.onclick = (e) => {
-                e.stopPropagation();
-                this.toggleStar(p.id);
-            };
+            const pickBtn = document.createElement('span');
+            pickBtn.className = `pick-btn ${p.isPicked ? 'picked' : ''}`;
+            pickBtn.innerHTML = '⚑';
+            pickBtn.onclick = (e) => { e.stopPropagation(); this.togglePick(p.id); };
+            top.appendChild(nameSpan);
+            top.appendChild(pickBtn);
 
-            info.appendChild(nameSpan);
-            info.appendChild(starBtn);
+            const bottom = document.createElement('div');
+            bottom.className = 'info-bottom';
+            const stars = document.createElement('span');
+            stars.className = `stars ${p.rating > 0 ? 'has-rating' : ''}`;
+            stars.innerText = '★'.repeat(p.rating) || '☆☆☆☆☆';
+            bottom.appendChild(stars);
+
+            info.appendChild(top);
+            info.appendChild(bottom);
             card.appendChild(info);
             
             card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
@@ -329,7 +336,7 @@ class App {
             const res = await fetch(`/api/metadata/${id}`);
             const meta: MetadataItem[] = await res.json();
             
-            let html = `<h2>${photo.fileName} ${photo.isStarred ? '★' : ''}</h2>`;
+            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
             const groups: {[k:string]: MetadataItem[]} = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -350,28 +357,51 @@ class App {
         }
     }
 
-    async toggleStar(id: string | null) {
+    async togglePick(id: string | null) {
         if (!id) return;
         const photo = this.photoMap.get(id);
         if (!photo) return;
 
-        photo.isStarred = !photo.isStarred;
+        photo.isPicked = !photo.isPicked;
         
         // Optimistic UI update
-        const stars = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .star-btn`);
-        stars?.forEach(s => {
-            if (photo.isStarred) s.classList.add('starred');
-            else s.classList.remove('starred');
+        const picks = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
+        picks?.forEach(p => {
+            if (photo.isPicked) p.classList.add('picked');
+            else p.classList.remove('picked');
         });
         
-        // Refresh metadata panel if selected
         if (this.selectedId === id) this.loadMetadata(id);
 
         try {
-            await fetch(`/api/star/${id}?isStarred=${photo.isStarred}`, { method: 'POST' });
+            await fetch(`/api/pick/${id}?isPicked=${photo.isPicked}`, { method: 'POST' });
         } catch (e) {
-            console.error('Failed to save star status');
-            photo.isStarred = !photo.isStarred; // Revert
+            photo.isPicked = !photo.isPicked; // Revert
+        }
+    }
+
+    async setRating(id: string | null, rating: number) {
+        if (!id) return;
+        const photo = this.photoMap.get(id);
+        if (!photo) return;
+
+        photo.rating = rating;
+        
+        // Optimistic UI update
+        const stars = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .stars`);
+        stars?.forEach(s => {
+            const el = s as HTMLElement;
+            el.innerText = '★'.repeat(rating) || '☆☆☆☆☆';
+            if (rating > 0) el.classList.add('has-rating');
+            else el.classList.remove('has-rating');
+        });
+        
+        if (this.selectedId === id) this.loadMetadata(id);
+
+        try {
+            await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' });
+        } catch (e) {
+            console.error('Failed to set rating');
         }
     }
 

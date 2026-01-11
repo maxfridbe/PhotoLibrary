@@ -44,10 +44,17 @@ namespace PhotoLibrary
                 return Results.Ok(roots);
             });
 
-            // API: Set Star
-            app.MapPost("/api/star/{id}", (string id, bool isStarred, DatabaseManager db) =>
+            // API: Set Picked
+            app.MapPost("/api/pick/{id}", (string id, bool isPicked, DatabaseManager db) =>
             {
-                db.SetStar(id, isStarred);
+                db.SetPicked(id, isPicked);
+                return Results.Ok();
+            });
+
+            // API: Set Rating
+            app.MapPost("/api/rate/{id}/{rating}", (string id, int rating, DatabaseManager db) =>
+            {
+                db.SetRating(id, rating);
                 return Results.Ok();
             });
 

@@ -10,7 +10,8 @@ namespace PhotoLibrary
         public long Size { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime ModifiedAt { get; set; }
-        public bool IsStarred { get; set; }
+        public bool IsPicked { get; set; }
+        public int Rating { get; set; }
     }
 
     public class RootPathEntry
