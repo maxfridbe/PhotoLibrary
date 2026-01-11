@@ -7,8 +7,12 @@ mkdir -p "$TEST_DIR"
 
 # Copy real test images
 echo "Copying test images..."
-cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.ARW" "$TEST_DIR/"
-cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.JPG" "$TEST_DIR/"
+if [ ! -f "$TEST_DIR/MAX01109.ARW" ]; then
+    cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.ARW" "$TEST_DIR/"
+fi
+if [ ! -f "$TEST_DIR/MAX01109.JPG" ]; then
+    cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.JPG" "$TEST_DIR/"
+fi
 
 # Run with --testone (Note: --testone only processes ONE file, so it will pick one of them)
 echo "Running test with --testone..."
@@ -22,6 +26,12 @@ if [ -f "test.db" ]; then
     echo "=========================================="
     sqlite3 -header -column test.db "SELECT * FROM FileEntry;"
     
+    echo ""
+    echo "=========================================="
+    echo "Dumping Table: Directories"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM Directories;"
+
     echo ""
     echo "=========================================="
     echo "Dumping Table: Metadata"

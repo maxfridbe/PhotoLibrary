@@ -33,9 +33,6 @@ namespace PhotoLibrary
 
             foreach (var file in files)
             {
-                // Basic filter for images/videos could be added here, but requirement implied "scan directory"
-                // We'll try to read metadata from everything and just fail gracefully if not supported.
-                
                 try
                 {
                     ProcessFile(file, directoryPath);
@@ -56,27 +53,27 @@ namespace PhotoLibrary
             Console.WriteLine($"\nScanned {count} files.");
         }
 
-        private void ProcessFile(FileInfo file, string rootPath)
+        private void ProcessFile(FileInfo file, string rootScanPath)
         {
+            // Get Directory ID from DB
+            string? dirPath = file.DirectoryName;
+            if (dirPath == null) return; // Should not happen for file on disk
+
+            string dirId = _db.GetOrCreateDirectory(dirPath);
+
             var entry = new FileEntry
             {
-                // We don't set Id here if we want to reuse existing one, but Upsert logic handles it?
-                // Actually, our Upsert logic in DatabaseManager inserts a NEW Id if not found, 
-                // but if found, it updates fields. It doesn't update ID.
-                // So we can generate a temporary ID here, but we should rely on the DB to confirm the ID.
-                // Let's generate one; if we update, the DB ignores this new ID and keeps the old one.
-                
-                RootPath = rootPath,
+                DirectoryId = dirId,
                 FileName = file.Name,
-                RelativePath = Path.GetRelativePath(rootPath, file.FullName),
-                FullPath = file.FullName,
+                RelativePath = Path.GetRelativePath(rootScanPath, file.FullName),
+                // FullPath removed per requirement
                 Size = file.Length,
                 CreatedAt = file.CreationTime,
                 ModifiedAt = file.LastWriteTime
             };
 
             _db.UpsertFileEntry(entry);
-            var fileId = _db.GetFileId(entry.FullPath);
+            var fileId = _db.GetFileId(entry.DirectoryId, entry.FileName);
 
             if (fileId != null)
             {
@@ -104,6 +101,12 @@ namespace PhotoLibrary
                     {
                         foreach (var tag in directory.Tags)
                         {
+                            // Filter unknown tags
+                            if (tag.Name.StartsWith("Unknown tag", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
                             items.Add(new MetadataItem
                             {
                                 Directory = directory.Name,
@@ -121,7 +124,6 @@ namespace PhotoLibrary
             catch (Exception)
             {
                 // Log debug if needed
-                // Console.WriteLine($"Debug: {ex.Message}");
             }
             return items;
         }
