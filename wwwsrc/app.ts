@@ -55,16 +55,28 @@ class App {
 
         this.layout = new GoldenLayout(config, '#layout-container');
 
-        this.layout.registerComponent('library', (container: any) => {
-            this.libraryEl = document.createElement('div');
-            this.libraryEl.className = 'tree-view gl-component';
-            container.getElement().append(this.libraryEl);
+        const self = this;
+
+        this.layout.registerComponent('library', function(container: any, state: any) {
+            self.libraryEl = document.createElement('div');
+            self.libraryEl.className = 'tree-view gl-component';
+            container.getElement().append(self.libraryEl);
+            
+            // Re-render if data is already loaded
+            if (self.photos.length > 0) {
+                // We need to fetch/render again or just trigger a render from the main app
+                // For now, let's just let the main app render push into this element
+                // But wait, the main app's renderLibrary uses 'this.libraryEl'. 
+                // Since we just assigned it, we should be good for future renders.
+                // If data is already there, trigger render.
+                self.loadData(); // Re-trigger load/render to populate this new element
+            }
         });
 
-        this.layout.registerComponent('workspace', (container: any) => {
-            this.workspaceEl = document.createElement('div');
-            this.workspaceEl.className = 'gl-component';
-            this.workspaceEl.innerHTML = `
+        this.layout.registerComponent('workspace', function(container: any, state: any) {
+            self.workspaceEl = document.createElement('div');
+            self.workspaceEl.className = 'gl-component';
+            self.workspaceEl.innerHTML = `
                 <div id="grid-view" class="grid-view">Loading...</div>
                 <div id="loupe-view" class="loupe-view" style="display:none;">
                     <div class="preview-area">
@@ -74,28 +86,27 @@ class App {
                     <div id="filmstrip" class="filmstrip"></div>
                 </div>
             `;
-            container.getElement().append(this.workspaceEl);
+            container.getElement().append(self.workspaceEl);
             
-            // Cache elements
-            this.gridView = this.workspaceEl.querySelector('#grid-view');
-            this.loupeView = this.workspaceEl.querySelector('#loupe-view');
-            this.filmstrip = this.workspaceEl.querySelector('#filmstrip');
-            this.mainPreview = this.workspaceEl.querySelector('#main-preview');
-            this.previewSpinner = this.workspaceEl.querySelector('#preview-spinner');
+            self.gridView = self.workspaceEl.querySelector('#grid-view');
+            self.loupeView = self.workspaceEl.querySelector('#loupe-view');
+            self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
+            self.mainPreview = self.workspaceEl.querySelector('#main-preview') as HTMLImageElement;
+            self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
 
-            // Keyboard
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => {
-                if (e.key.toLowerCase() === 'g') this.enterGridMode();
+                if (e.key.toLowerCase() === 'g') self.enterGridMode();
             });
-            // Focus for keyboard events
-            this.workspaceEl.tabIndex = 0;
+            self.workspaceEl.tabIndex = 0;
+            
+            if (self.photos.length > 0) self.renderGrid();
         });
 
-        this.layout.registerComponent('metadata', (container: any) => {
-            this.metadataEl = document.createElement('div');
-            this.metadataEl.className = 'metadata-panel gl-component';
-            this.metadataEl.innerHTML = '<div style="color:#666;text-align:center;margin-top:20px;">Select a photo</div>';
-            container.getElement().append(this.metadataEl);
+        this.layout.registerComponent('metadata', function(container: any, state: any) {
+            self.metadataEl = document.createElement('div');
+            self.metadataEl.className = 'metadata-panel gl-component';
+            self.metadataEl.innerHTML = '<div style="color:#666;text-align:center;margin-top:20px;">Select a photo</div>';
+            container.getElement().append(self.metadataEl);
         });
 
         this.layout.init();
