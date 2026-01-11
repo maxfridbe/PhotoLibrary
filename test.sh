@@ -14,7 +14,7 @@ if [ ! -f "$TEST_DIR/MAX01109.JPG" ]; then
     cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.JPG" "$TEST_DIR/"
 fi
 
-# Run with --testone (Note: --testone only processes ONE file, so it will pick one of them)
+# Run with --testone
 echo "Running test with --testone..."
 ./run.sh --library test.db --updatemd "$TEST_DIR" --testone
 
@@ -28,9 +28,9 @@ if [ -f "test.db" ]; then
     
     echo ""
     echo "=========================================="
-    echo "Dumping Table: Directories"
+    echo "Dumping Table: RootPaths"
     echo "=========================================="
-    sqlite3 -header -column test.db "SELECT * FROM Directories;"
+    sqlite3 -header -column test.db "SELECT * FROM RootPaths;"
 
     echo ""
     echo "=========================================="

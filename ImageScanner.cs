@@ -10,6 +10,8 @@ namespace PhotoLibrary
     {
         private readonly DatabaseManager _db;
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
+        // Cache to avoid hitting DB for every file in same dir
+        private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
         public ImageScanner(DatabaseManager db)
         {
@@ -26,16 +28,40 @@ namespace PhotoLibrary
             }
 
             Console.WriteLine($"Scanning {directoryPath}...");
-            int count = 0;
+            
+            // Setup the Root Base
+            // Logic: 
+            // 1. Identify Parent of the scan target (Base Root)
+            // 2. Identify Name of scan target (Child Root) 
+            
+            string fullScanPath = root.FullName; // Absolute path
+            string? parentDir = Path.GetDirectoryName(fullScanPath);
+            string targetName = root.Name;
 
-            // Enumerate all files recursively
+            if (parentDir == null)
+            {
+                // Scanning system root?
+                parentDir = fullScanPath; 
+                // Special case logic might be needed, but assuming user scans a folder.
+            }
+
+            // Ensure Base Root exists
+            string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
+            
+            // Ensure Target Root exists
+            string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
+            
+            // Cache the target root ID for the full scan path
+            _pathCache[fullScanPath] = targetRootId;
+
+            int count = 0;
             var files = root.EnumerateFiles("*", SearchOption.AllDirectories);
 
             foreach (var file in files)
             {
                 try
                 {
-                    ProcessFile(file, directoryPath);
+                    ProcessFile(file, fullScanPath, targetRootId);
                     count++;
                     if (count % 10 == 0) Console.Write(".");
 
@@ -53,27 +79,70 @@ namespace PhotoLibrary
             Console.WriteLine($"\nScanned {count} files.");
         }
 
-        private void ProcessFile(FileInfo file, string rootScanPath)
+        private void ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
         {
-            // Get Directory ID from DB
             string? dirPath = file.DirectoryName;
-            if (dirPath == null) return; // Should not happen for file on disk
+            if (dirPath == null) return;
 
-            string dirId = _db.GetOrCreateDirectory(dirPath);
+            // Resolve the correct RootPathId for this file
+            string rootPathId;
+
+            if (dirPath == scanRootPath)
+            {
+                rootPathId = scanRootId;
+            }
+            else
+            {
+                // Subdirectory logic
+                if (!_pathCache.TryGetValue(dirPath, out rootPathId!))
+                {
+                    // Recursively build up to the scan root
+                    // This is complex because we need to link back to scanRootId
+                    // Simplification: We assume dirPath starts with scanRootPath
+                    
+                    if (dirPath.StartsWith(scanRootPath))
+                    {
+                        // Get path relative to scan root
+                        string relative = Path.GetRelativePath(scanRootPath, dirPath);
+                        string[] parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+                        
+                        string currentId = scanRootId;
+                        string currentPath = scanRootPath;
+
+                        foreach (var part in parts)
+                        {
+                            currentPath = Path.Combine(currentPath, part);
+                            if (_pathCache.TryGetValue(currentPath, out string? cachedId))
+                            {
+                                currentId = cachedId;
+                            }
+                            else
+                            {
+                                currentId = _db.GetOrCreateChildRoot(currentId, part);
+                                _pathCache[currentPath] = currentId;
+                            }
+                        }
+                        rootPathId = currentId;
+                    }
+                    else
+                    {
+                        // File is outside scan root? Should not happen with EnumerateFiles
+                        return; 
+                    }
+                }
+            }
 
             var entry = new FileEntry
             {
-                DirectoryId = dirId,
+                RootPathId = rootPathId,
                 FileName = file.Name,
-                RelativePath = Path.GetRelativePath(rootScanPath, file.FullName),
-                // FullPath removed per requirement
                 Size = file.Length,
                 CreatedAt = file.CreationTime,
                 ModifiedAt = file.LastWriteTime
             };
 
             _db.UpsertFileEntry(entry);
-            var fileId = _db.GetFileId(entry.DirectoryId, entry.FileName);
+            var fileId = _db.GetFileId(entry.RootPathId, entry.FileName!);
 
             if (fileId != null)
             {
@@ -87,7 +156,6 @@ namespace PhotoLibrary
             var items = new List<MetadataItem>();
             try
             {
-                // Read first 1MB
                 byte[] buffer = new byte[Math.Min(file.Length, MaxHeaderBytes)];
                 using (var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
@@ -101,7 +169,6 @@ namespace PhotoLibrary
                     {
                         foreach (var tag in directory.Tags)
                         {
-                            // Filter unknown tags
                             if (tag.Name.StartsWith("Unknown tag", StringComparison.OrdinalIgnoreCase))
                             {
                                 continue;
@@ -117,14 +184,8 @@ namespace PhotoLibrary
                     }
                 }
             }
-            catch (ImageProcessingException)
-            {
-                // Not an image or unknown format
-            }
-            catch (Exception)
-            {
-                // Log debug if needed
-            }
+            catch (ImageProcessingException) {{ }}
+            catch (Exception) {{ }}
             return items;
         }
     }

@@ -22,29 +22,23 @@ namespace PhotoLibrary
 
             var command = connection.CreateCommand();
             command.CommandText = @"
-                CREATE TABLE IF NOT EXISTS Directories (
+                CREATE TABLE IF NOT EXISTS RootPaths (
                     Id TEXT PRIMARY KEY,
                     ParentId TEXT,
                     Name TEXT,
-                    FOREIGN KEY(ParentId) REFERENCES Directories(Id),
+                    FOREIGN KEY(ParentId) REFERENCES RootPaths(Id),
                     UNIQUE(ParentId, Name)
                 );
 
-                -- Root directory handling (Name is empty or /)
-                -- We'll handle uniqueness via code or careful constraints.
-                -- SQLite treats NULLs as distinct for UNIQUE constraints usually, 
-                -- so strict root enforcement might need specific logic.
-
                 CREATE TABLE IF NOT EXISTS FileEntry (
                     Id TEXT PRIMARY KEY,
-                    DirectoryId TEXT,
+                    RootPathId TEXT,
                     FileName TEXT,
-                    RelativePath TEXT,
                     Size INTEGER,
                     CreatedAt TEXT,
                     ModifiedAt TEXT,
-                    FOREIGN KEY(DirectoryId) REFERENCES Directories(Id),
-                    UNIQUE(DirectoryId, FileName)
+                    FOREIGN KEY(RootPathId) REFERENCES RootPaths(Id),
+                    UNIQUE(RootPathId, FileName)
                 );
 
                 CREATE TABLE IF NOT EXISTS Metadata (
@@ -60,66 +54,55 @@ namespace PhotoLibrary
             command.ExecuteNonQuery();
         }
 
-        public string GetOrCreateDirectory(string fullPath)
+        // Creates a top-level root (ParentId IS NULL)
+        public string GetOrCreateBaseRoot(string absolutePath)
         {
-            // Normalize path separators
-            fullPath = Path.GetFullPath(fullPath);
-            string[] parts = fullPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-            
-            // Handle root (Linux starts with /, parts doesn't contain it)
-            // We'll treat the system root as a directory with Name="/" (or empty) and ParentId=NULL
-            
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-
-            string? currentParentId = null;
             
-            // Determine root name based on OS or convention. For Linux, root is /. 
-            // Path.GetPathRoot("/") returns "/".
-            string rootName = Path.GetPathRoot(fullPath); 
-            // On linux rootName is "/"
+            string id = EnsureRootPathExists(connection, transaction, null, absolutePath);
             
-            // Ensure root exists
-            currentParentId = EnsureDirectoryExists(connection, transaction, null, rootName);
-
-            foreach (var part in parts)
-            {
-                currentParentId = EnsureDirectoryExists(connection, transaction, currentParentId, part);
-            }
-
             transaction.Commit();
-            return currentParentId!;
+            return id;
         }
 
-        private string EnsureDirectoryExists(SqliteConnection connection, SqliteTransaction transaction, string? parentId, string name)
+        // Creates a child node
+        public string GetOrCreateChildRoot(string parentId, string name)
         {
-            // Check if exists
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            
+            string id = EnsureRootPathExists(connection, transaction, parentId, name);
+            
+            transaction.Commit();
+            return id;
+        }
+
+        private string EnsureRootPathExists(SqliteConnection connection, SqliteTransaction transaction, string? parentId, string name)
+        {
             var checkCmd = connection.CreateCommand();
             checkCmd.Transaction = transaction;
             
             if (parentId == null)
             {
-                checkCmd.CommandText = "SELECT Id FROM Directories WHERE ParentId IS NULL AND Name = $Name";
+                checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId IS NULL AND Name = $Name";
             }
             else
             {
-                checkCmd.CommandText = "SELECT Id FROM Directories WHERE ParentId = $ParentId AND Name = $Name";
+                checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId = $ParentId AND Name = $Name";
                 checkCmd.Parameters.AddWithValue("$ParentId", parentId);
             }
             checkCmd.Parameters.AddWithValue("$Name", name);
             
             var existingId = checkCmd.ExecuteScalar() as string;
-            if (existingId != null)
-            {
-                return existingId;
-            }
+            if (existingId != null) return existingId;
 
-            // Create
-            var newId = Guid.NewGuid().ToString();
+            string newId = Guid.NewGuid().ToString();
             var insertCmd = connection.CreateCommand();
             insertCmd.Transaction = transaction;
-            insertCmd.CommandText = "INSERT INTO Directories (Id, ParentId, Name) VALUES ($Id, $ParentId, $Name)";
+            insertCmd.CommandText = "INSERT INTO RootPaths (Id, ParentId, Name) VALUES ($Id, $ParentId, $Name)";
             insertCmd.Parameters.AddWithValue("$Id", newId);
             insertCmd.Parameters.AddWithValue("$ParentId", (object?)parentId ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("$Name", name);
@@ -138,35 +121,27 @@ namespace PhotoLibrary
             command.Transaction = transaction;
 
             command.CommandText = @"
-                INSERT INTO FileEntry (Id, DirectoryId, FileName, RelativePath, Size, CreatedAt, ModifiedAt)
-                VALUES ($Id, $DirectoryId, $FileName, $RelativePath, $Size, $CreatedAt, $ModifiedAt)
-                ON CONFLICT(DirectoryId, FileName) DO UPDATE SET
+                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
+                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
+                ON CONFLICT(RootPathId, FileName) DO UPDATE SET
                     Size = excluded.Size,
                     CreatedAt = excluded.CreatedAt,
                     ModifiedAt = excluded.ModifiedAt;
             ";
 
             command.Parameters.AddWithValue("$Id", entry.Id);
-            command.Parameters.AddWithValue("$DirectoryId", entry.DirectoryId);
-            command.Parameters.AddWithValue("$FileName", entry.FileName);
-            command.Parameters.AddWithValue("$RelativePath", entry.RelativePath);
+            command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("$Size", entry.Size);
             command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
             command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
-
             command.ExecuteNonQuery();
 
-            // Clear old metadata
-            // Need to get the ID again? 
-            // If we inserted, entry.Id is correct. 
-            // If we updated, the ID in DB is the OLD one, not entry.Id (which is new random guid).
-            // We must fetch the actual ID to be safe.
-            
             var getIdCmd = connection.CreateCommand();
             getIdCmd.Transaction = transaction;
-            getIdCmd.CommandText = "SELECT Id FROM FileEntry WHERE DirectoryId = $DirectoryId AND FileName = $FileName";
-            getIdCmd.Parameters.AddWithValue("$DirectoryId", entry.DirectoryId);
-            getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName);
+            getIdCmd.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
+            getIdCmd.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
+            getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
             var actualId = getIdCmd.ExecuteScalar() as string;
 
             if (actualId != null)
@@ -181,13 +156,13 @@ namespace PhotoLibrary
             transaction.Commit();
         }
 
-        public string? GetFileId(string directoryId, string fileName)
+        public string? GetFileId(string rootPathId, string fileName)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id FROM FileEntry WHERE DirectoryId = $DirectoryId AND FileName = $FileName";
-            command.Parameters.AddWithValue("$DirectoryId", directoryId);
+            command.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
+            command.Parameters.AddWithValue("$RootPathId", rootPathId);
             command.Parameters.AddWithValue("$FileName", fileName);
             return command.ExecuteScalar() as string;
         }
@@ -207,8 +182,8 @@ namespace PhotoLibrary
                     VALUES ($FileId, $Directory, $Tag, $Value)
                 ";
                 command.Parameters.AddWithValue("$FileId", fileId);
-                command.Parameters.AddWithValue("$Directory", item.Directory);
-                command.Parameters.AddWithValue("$Tag", item.Tag);
+                command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
+                command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
                 command.Parameters.AddWithValue("$Value", item.Value ?? "");
                 command.ExecuteNonQuery();
             }
