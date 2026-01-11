@@ -29,6 +29,7 @@ class App {
         this.initLayout();
         this.connectWs();
         this.loadData();
+        this.setupGlobalKeyboard();
     }
     initLayout() {
         const config = {
@@ -75,14 +76,7 @@ class App {
             self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
             self.mainPreview = self.workspaceEl.querySelector('#main-preview');
             self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
-            container.getElement().get(0).addEventListener('keydown', (e) => {
-                if (e.key.toLowerCase() === 'g')
-                    self.enterGridMode();
-                if (e.key.toLowerCase() === 'p')
-                    self.togglePick(self.selectedId);
-                if (e.key >= '0' && e.key <= '5')
-                    self.setRating(self.selectedId, parseInt(e.key));
-            });
+            container.getElement().get(0).addEventListener('keydown', (e) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0)
                 self.renderGrid();
@@ -116,20 +110,15 @@ class App {
         if (!this.libraryEl)
             return;
         this.libraryEl.innerHTML = '';
-        // Collections Section
         const collHeader = document.createElement('div');
         collHeader.className = 'tree-section-header';
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
-        // All Photos
         this.addTreeItem(this.libraryEl, 'All Photos', this.photos.length, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        // Picked
         const pickedCount = this.photos.filter(p => p.isPicked).length;
         this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
-        // Stars (1+)
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
-        // Folders Section
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -190,7 +179,6 @@ class App {
             return;
         this.gridView.innerHTML = '';
         const photos = this.getFilteredPhotos();
-        // Update Header
         let headerText = "All Photos";
         if (this.filterType === 'picked')
             headerText = "Collection: Picked";
@@ -348,15 +336,13 @@ class App {
             return;
         photo.isPicked = !photo.isPicked;
         const picks = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
-        picks === null || picks === void 0 ? void 0 : picks.forEach(p => {
-            if (photo.isPicked)
-                p.classList.add('picked');
-            else
-                p.classList.remove('picked');
-        });
+        picks === null || picks === void 0 ? void 0 : picks.forEach(p => { if (photo.isPicked)
+            p.classList.add('picked');
+        else
+            p.classList.remove('picked'); });
         if (this.selectedId === id)
             this.loadMetadata(id);
-        this.renderLibrary(); // Update count
+        this.renderLibrary();
         try {
             await fetch(`/api/pick/${id}?isPicked=${photo.isPicked}`, { method: 'POST' });
         }
@@ -383,13 +369,87 @@ class App {
         });
         if (this.selectedId === id)
             this.loadMetadata(id);
-        this.renderLibrary(); // Update count
+        this.renderLibrary();
         try {
             await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' });
         }
         catch (_b) {
             console.error('Failed to set rating');
         }
+    }
+    // --- Navigation ---
+    handleKey(e) {
+        const key = e.key.toLowerCase();
+        if (key === 'g')
+            this.enterGridMode();
+        if (key === 'l') {
+            if (this.selectedId)
+                this.enterLoupeMode(this.selectedId);
+        }
+        if (key === 'p')
+            this.togglePick(this.selectedId);
+        if (key >= '0' && key <= '5')
+            this.setRating(this.selectedId, parseInt(key));
+        if (key === '?' || key === '/') {
+            if (key === '?' || (key === '/' && e.shiftKey)) {
+                e.preventDefault();
+                this.showShortcuts();
+            }
+        }
+        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
+            e.preventDefault();
+            this.navigate(e.key);
+        }
+    }
+    navigate(key) {
+        const photos = this.getFilteredPhotos();
+        if (photos.length === 0)
+            return;
+        let index = this.selectedId ? photos.findIndex(p => p.id === this.selectedId) : -1;
+        if (key === 'ArrowRight')
+            index++;
+        else if (key === 'ArrowLeft')
+            index--;
+        else if (key === 'ArrowDown' || key === 'ArrowUp') {
+            if (this.isLoupeMode) {
+                if (key === 'ArrowDown')
+                    index++;
+                else
+                    index--;
+            }
+            else {
+                // Grid navigation (complex as columns change)
+                const grid = this.gridView;
+                const cards = grid.children;
+                if (cards.length === 0)
+                    return;
+                // Estimate columns
+                const containerWidth = grid.clientWidth;
+                const cardWidth = cards[0].offsetWidth + 10; // 10 is gap
+                const cols = Math.max(1, Math.floor(containerWidth / cardWidth));
+                if (key === 'ArrowDown')
+                    index += cols;
+                else
+                    index -= cols;
+            }
+        }
+        if (index >= 0 && index < photos.length) {
+            this.selectPhoto(photos[index].id);
+        }
+    }
+    showShortcuts() {
+        var _a;
+        (_a = document.getElementById('shortcuts-modal')) === null || _a === void 0 ? void 0 : _a.classList.add('active');
+    }
+    setupGlobalKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+                return;
+            // Only handle if not already handled by a component or to trigger global ones
+            if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+                this.showShortcuts();
+            }
+        });
     }
     // --- Networking ---
     connectWs() {
@@ -427,10 +487,4 @@ class App {
         }
     }
 }
-// Global shortcut support
-document.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'g') {
-        window.app.enterGridMode();
-    }
-});
 window.app = new App();
