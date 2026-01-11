@@ -31,6 +31,7 @@ class App {
     
     private searchResultIds: string[] = [];
     private searchTitle: string = '';
+    private collectionFiles: string[] = [];
 
     // Virtual Grid config
     private readonly rowHeight = 230; // 220px card + 10px gap
@@ -158,7 +159,7 @@ class App {
         
         let url = `/api/photos?limit=100&offset=0`;
         if (this.filterType === 'picked') url += '&pickedOnly=true';
-        if (this.filterType === 'rating') url += `&minRating=${this.filterRating}`;
+        if (this.filterType === 'rating') url += `&rating=${this.filterRating}`;
         if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
 
         const res = await fetch(url);
@@ -241,7 +242,7 @@ class App {
         try {
             let url = `/api/photos?limit=${limit}&offset=${offset}`;
             if (this.filterType === 'picked') url += '&pickedOnly=true';
-            if (this.filterType === 'rating') url += `&minRating=${this.filterRating}`;
+            if (this.filterType === 'rating') url += `&rating=${this.filterRating}`;
             if (this.selectedRootId) url += `&rootId=${this.selectedRootId}`;
             const res = await fetch(url);
             const data = await res.json();
@@ -279,16 +280,22 @@ class App {
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
         this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        const pickedCount = this.photos.filter(p => p?.isPicked).length; 
-        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
-        pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
-        this.userCollections.forEach(c => {
-            const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
-            el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
-        });
-        const ratedCount = this.photos.filter(p => p && p.rating > 0).length;
-        this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
-        const folderHeader = document.createElement('div');
+                const pickedCount = this.photos.filter(p => p?.isPicked).length; 
+                const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+                pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
+        
+                this.userCollections.forEach(c => {
+                    const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+                    el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
+                });
+        
+                // Individual Ratings
+                for (let i = 5; i >= 1; i--) {
+                    const count = this.photos.filter(p => p && p.rating === i).length;
+                    this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+                }
+        
+                const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
         this.libraryEl.appendChild(folderHeader);
@@ -431,8 +438,15 @@ class App {
         this.setFilter('search');
     }
 
-    public getFilteredPhotos(): Photo[] {
-        return this.photos.filter(p => p !== null) as Photo[];
+    getFilteredPhotos() {
+        let list = this.photos;
+        if (this.filterType === 'picked') list = list.filter(p => p?.isPicked);
+        else if (this.filterType === 'rating') list = list.filter(p => p?.rating === this.filterRating);
+        else if (this.filterType === 'search') list = list.filter(p => p && this.searchResultIds.includes(p.id));
+        else if (this.filterType === 'collection') list = list.filter(p => p && this.collectionFiles.includes(p.id));
+        
+        if (this.selectedRootId) list = list.filter(p => p?.rootPathId === this.selectedRootId);
+        return list as Photo[];
     }
 
     renderGrid() {

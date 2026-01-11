@@ -79,7 +79,7 @@ namespace PhotoLibrary
             }
         }
 
-        public int GetTotalPhotoCount(string? rootId = null, bool pickedOnly = false, int minRating = 0, string[]? specificIds = null)
+        public int GetTotalPhotoCount(string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
@@ -87,7 +87,7 @@ namespace PhotoLibrary
             
             var whereClauses = new List<string>();
             if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id)");
-            if (minRating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating >= $MinRating)");
+            if (rating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating = $Rating)");
             if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
             if (specificIds != null && specificIds.Length > 0) 
                 whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
@@ -95,13 +95,13 @@ namespace PhotoLibrary
             string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
             command.CommandText = $"SELECT COUNT(*) FROM FileEntry f {where}";
             
-            if (minRating > 0) command.Parameters.AddWithValue("$MinRating", minRating);
+            if (rating > 0) command.Parameters.AddWithValue("$Rating", rating);
             if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
 
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
-        public IEnumerable<FileEntry> GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int minRating = 0, string[]? specificIds = null)
+        public IEnumerable<FileEntry> GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
         {
             var entries = new List<FileEntry>();
             using var connection = new SqliteConnection(_connectionString);
@@ -110,7 +110,7 @@ namespace PhotoLibrary
             var command = connection.CreateCommand();
             var whereClauses = new List<string>();
             if (pickedOnly) whereClauses.Add("p.FileId IS NOT NULL");
-            if (minRating > 0) whereClauses.Add("r.Rating >= $MinRating");
+            if (rating > 0) whereClauses.Add("r.Rating = $Rating");
             if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
             if (specificIds != null && specificIds.Length > 0) 
                 whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
@@ -130,7 +130,7 @@ namespace PhotoLibrary
 
             command.Parameters.AddWithValue("$Limit", limit);
             command.Parameters.AddWithValue("$Offset", offset);
-            if (minRating > 0) command.Parameters.AddWithValue("$MinRating", minRating);
+            if (rating > 0) command.Parameters.AddWithValue("$Rating", rating);
             if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
 
             using var reader = command.ExecuteReader();
@@ -149,8 +149,6 @@ namespace PhotoLibrary
             }
             return entries;
         }
-
-        // --- Collections ---
 
         public string CreateCollection(string name)
         {

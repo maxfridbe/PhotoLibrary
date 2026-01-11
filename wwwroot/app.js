@@ -19,6 +19,7 @@ class App {
         this.filterRating = 0;
         this.searchResultIds = [];
         this.searchTitle = '';
+        this.collectionFiles = [];
         // Virtual Grid config
         this.rowHeight = 230; // 220px card + 10px gap
         this.minCardWidth = 210; // 200px + 10px gap
@@ -135,7 +136,7 @@ class App {
         if (this.filterType === 'picked')
             url += '&pickedOnly=true';
         if (this.filterType === 'rating')
-            url += `&minRating=${this.filterRating}`;
+            url += `&rating=${this.filterRating}`;
         if (this.selectedRootId)
             url += `&rootId=${this.selectedRootId}`;
         const res = await fetch(url);
@@ -209,7 +210,7 @@ class App {
             if (this.filterType === 'picked')
                 url += '&pickedOnly=true';
             if (this.filterType === 'rating')
-                url += `&minRating=${this.filterRating}`;
+                url += `&rating=${this.filterRating}`;
             if (this.selectedRootId)
                 url += `&rootId=${this.selectedRootId}`;
             const res = await fetch(url);
@@ -257,8 +258,11 @@ class App {
             const el = this.addTreeItem(this.libraryEl, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
-        const ratedCount = this.photos.filter(p => p && p.rating > 0).length;
-        this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
+        // Individual Ratings
+        for (let i = 5; i >= 1; i--) {
+            const count = this.photos.filter(p => p && p.rating === i).length;
+            this.addTreeItem(this.libraryEl, '★'.repeat(i) + ' stars', count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+        }
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -399,7 +403,18 @@ class App {
         this.setFilter('search');
     }
     getFilteredPhotos() {
-        return this.photos.filter(p => p !== null);
+        let list = this.photos;
+        if (this.filterType === 'picked')
+            list = list.filter(p => p === null || p === void 0 ? void 0 : p.isPicked);
+        else if (this.filterType === 'rating')
+            list = list.filter(p => (p === null || p === void 0 ? void 0 : p.rating) === this.filterRating);
+        else if (this.filterType === 'search')
+            list = list.filter(p => p && this.searchResultIds.includes(p.id));
+        else if (this.filterType === 'collection')
+            list = list.filter(p => p && this.collectionFiles.includes(p.id));
+        if (this.selectedRootId)
+            list = list.filter(p => (p === null || p === void 0 ? void 0 : p.rootPathId) === this.selectedRootId);
+        return list;
     }
     renderGrid() {
         this.updateVirtualGrid();
