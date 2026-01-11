@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-11T13:34:40.3131222-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-11T13:41:56.4486806-06:00
 
 export interface IdRequest {
     id: string;
@@ -29,12 +29,12 @@ export interface CollectionAddRequest {
 }
 
 export interface PagedPhotosRequest {
-    limit: number;
-    offset: number;
-    rootId: string;
-    pickedOnly: boolean;
-    rating: number;
-    specificIds: string[];
+    limit?: number;
+    offset?: number;
+    rootId?: string;
+    pickedOnly?: boolean;
+    rating?: number;
+    specificIds?: string[];
 }
 
 export interface ImageRequest {

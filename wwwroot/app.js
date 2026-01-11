@@ -1,4 +1,4 @@
-"use strict";
+import * as Api from './Functions.generated';
 class App {
     constructor() {
         this.ws = null;
@@ -48,7 +48,7 @@ class App {
         this.setupGlobalKeyboard();
         this.setupContextMenu();
     }
-    // Helper for all API calls
+    // Helper for all API calls (deprecated by Api.* functions, but keeping for reference)
     async post(url, data = {}) {
         const res = await fetch(url, {
             method: 'POST',
@@ -128,9 +128,9 @@ class App {
     async loadData() {
         try {
             const [roots, colls, stats] = await Promise.all([
-                this.post('/api/directories'),
-                this.post('/api/collections/list'),
-                this.post('/api/stats')
+                Api.api_directories({}),
+                Api.api_collections_list({}),
+                Api.api_stats({})
             ]);
             this.roots = roots;
             this.userCollections = colls;
@@ -144,20 +144,17 @@ class App {
     async refreshPhotos() {
         this.photos = [];
         this.isLoadingChunk.clear();
-        const params = { limit: 100, offset: 0 };
-        if (this.filterType === 'picked')
-            params.pickedOnly = true;
-        if (this.filterType === 'rating')
-            params.rating = this.filterRating;
-        if (this.selectedRootId)
-            params.rootId = this.selectedRootId;
-        if (this.filterType === 'collection')
-            params.specificIds = this.collectionFiles;
-        if (this.filterType === 'search')
-            params.specificIds = this.searchResultIds;
+        const params = {
+            limit: 100,
+            offset: 0,
+            rootId: this.selectedRootId || undefined,
+            pickedOnly: this.filterType === 'picked',
+            rating: this.filterRating,
+            specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined))
+        };
         const [data, stats] = await Promise.all([
-            this.post('/api/photos', params),
-            this.post('/api/stats')
+            Api.api_photos(params),
+            Api.api_stats({})
         ]);
         this.totalPhotos = data.total;
         this.stats = stats;
@@ -224,18 +221,15 @@ class App {
     async loadChunk(offset, limit) {
         this.isLoadingChunk.add(offset);
         try {
-            const params = { limit, offset };
-            if (this.filterType === 'picked')
-                params.pickedOnly = true;
-            if (this.filterType === 'rating')
-                params.rating = this.filterRating;
-            if (this.selectedRootId)
-                params.rootId = this.selectedRootId;
-            if (this.filterType === 'collection')
-                params.specificIds = this.collectionFiles;
-            if (this.filterType === 'search')
-                params.specificIds = this.searchResultIds;
-            const data = await this.post('/api/photos', params);
+            const params = {
+                limit,
+                offset,
+                rootId: this.selectedRootId || undefined,
+                pickedOnly: this.filterType === 'picked',
+                rating: this.filterRating,
+                specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined))
+            };
+            const data = await Api.api_photos(params);
             data.photos.forEach((p, i) => {
                 this.photos[offset + i] = p;
                 this.photoMap.set(p.id, p);
@@ -327,7 +321,7 @@ class App {
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
-        this.collectionFiles = await this.post('/api/collections/get-files', { id: c.id });
+        this.collectionFiles = await Api.api_collections_get_files({ id: c.id });
         this.refreshPhotos();
     }
     // --- Context Menus ---
@@ -378,39 +372,39 @@ class App {
         menu.style.top = e.pageY + 'px';
     }
     async clearAllPicked() {
-        await this.post('/api/picked/clear');
+        await Api.api_picked_clear({});
         this.refreshPhotos();
     }
     async storePickedToCollection(id) {
-        const pickedIds = await this.post('/api/picked/ids');
+        const pickedIds = await Api.api_picked_ids({});
         if (pickedIds.length === 0)
             return;
         if (id === null) {
             const name = prompt('New Collection Name:');
             if (!name)
                 return;
-            const res = await this.post('/api/collections/create', { name });
+            const res = await Api.api_collections_create({ name });
             id = res.id;
         }
-        await this.post('/api/collections/add-files', { collectionId: id, fileIds: pickedIds });
+        await Api.api_collections_add_files({ collectionId: id, fileIds: pickedIds });
         await this.refreshCollections();
     }
     async deleteCollection(id) {
         if (!confirm('Are you sure you want to remove this collection?'))
             return;
-        await this.post('/api/collections/delete', { id });
+        await Api.api_collections_delete({ id });
         if (this.selectedCollectionId === id)
             this.setFilter('all');
         else
             await this.refreshCollections();
     }
     async refreshCollections() {
-        this.userCollections = await this.post('/api/collections/list');
+        this.userCollections = await Api.api_collections_list({});
         this.renderLibrary();
     }
     // --- Core Logic ---
     async searchPhotos(tag, value) {
-        this.searchResultIds = await this.post('/api/search', { tag, value });
+        this.searchResultIds = await Api.api_search({ tag, value });
         this.searchTitle = `${tag}: ${value}`;
         this.setFilter('search');
     }
@@ -564,8 +558,7 @@ class App {
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
         this.metadataEl.innerHTML = 'Loading...';
         try {
-            const res = await this.post('/api/metadata', { id });
-            const meta = res;
+            const meta = await Api.api_metadata({ id });
             const groups = {};
             meta.forEach(m => {
                 const k = m.directory || 'Unknown';
@@ -611,8 +604,8 @@ class App {
                 });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
-                    const tagEscaped = m.tag.replace(/'/g, "'\'");
-                    const valEscaped = m.value.replace(/'/g, "'\'");
+                    const tagEscaped = m.tag.replace(/'/g, "' ");
+                    const valEscaped = m.value.replace(/'/g, "' ");
                     html += `<div class="meta-row">
                         <span class="meta-key">${m.tag}</span>
                         <span class="meta-val">${m.value}</span>
@@ -644,7 +637,7 @@ class App {
             this.loadMetadata(id);
         this.renderLibrary();
         try {
-            await this.post('/api/pick', { id, isPicked: photo.isPicked });
+            await Api.api_pick({ id, isPicked: photo.isPicked });
         }
         catch (_b) {
             photo.isPicked = !photo.isPicked;
@@ -671,7 +664,7 @@ class App {
             this.loadMetadata(id);
         this.renderLibrary();
         try {
-            await this.post('/api/rate', { id, rating });
+            await Api.api_rate({ id, rating });
         }
         catch (_b) {
             console.error('Failed to set rating');
