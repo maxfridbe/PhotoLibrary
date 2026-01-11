@@ -118,18 +118,19 @@ class PhotoApp {
         });
     }
     lazyLoadImage(id, img, size) {
+        const target = img.parentElement || img;
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     this.requestImage(id, size).then(blob => {
-                        img.src = URL.createObjectURL(blob);
                         img.onload = () => { var _a; return (_a = img.parentElement) === null || _a === void 0 ? void 0 : _a.classList.add('loaded'); };
+                        img.src = URL.createObjectURL(blob);
                     });
                     observer.disconnect();
                 }
             });
         });
-        observer.observe(img);
+        observer.observe(target);
     }
     // --- Interaction ---
     selectPhoto(id) {
