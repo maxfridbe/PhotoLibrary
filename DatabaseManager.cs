@@ -79,26 +79,22 @@ namespace PhotoLibrary
             }
         }
 
-        public int GetTotalPhotoCount(string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
+        public StatsResponse GetGlobalStats()
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            var command = connection.CreateCommand();
-            
-            var whereClauses = new List<string>();
-            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id)");
-            if (rating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating = $Rating)");
-            if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
-            if (specificIds != null && specificIds.Length > 0) 
-                whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
-
-            string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
-            command.CommandText = $"SELECT COUNT(*) FROM FileEntry f {where}";
-            
-            if (rating > 0) command.Parameters.AddWithValue("$Rating", rating);
-            if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
-
-            return Convert.ToInt32(command.ExecuteScalar());
+            var stats = new StatsResponse();
+            var pickedCmd = connection.CreateCommand();
+            pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
+            stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
+            var ratingCmd = connection.CreateCommand();
+            ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
+            using var reader = ratingCmd.ExecuteReader();
+            while (reader.Read()) {
+                int r = reader.GetInt32(0);
+                if (r >= 1 && r <= 5) stats.RatingCounts[r - 1] = reader.GetInt32(1);
+            }
+            return stats;
         }
 
         public PagedPhotosResponse GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
@@ -108,23 +104,21 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             
-            var command = connection.CreateCommand();
             var whereClauses = new List<string>();
-            if (pickedOnly) whereClauses.Add("p.FileId IS NOT NULL");
-            if (rating > 0) whereClauses.Add("r.Rating = $Rating");
+            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id)");
+            if (rating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating = $Rating)");
             if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
             if (specificIds != null && specificIds.Length > 0) 
                 whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
 
             string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
 
+            var command = connection.CreateCommand();
             command.CommandText = $@"
                 SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
-                       CASE WHEN p.FileId IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
-                       COALESCE(r.Rating, 0) as Rating
+                       CASE WHEN (SELECT 1 FROM PickedImages p WHERE p.FileId = f.Id) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                       COALESCE((SELECT r.Rating FROM ImageRatings r WHERE r.FileId = f.Id), 0) as Rating
                 FROM FileEntry f
-                LEFT JOIN PickedImages p ON f.Id = p.FileId
-                LEFT JOIN ImageRatings r ON f.Id = r.FileId
                 {where}
                 ORDER BY f.CreatedAt DESC 
                 LIMIT $Limit OFFSET $Offset";
@@ -149,12 +143,17 @@ namespace PhotoLibrary
                 });
             }
             result.Photos = entries;
-            result.Total = GetTotalPhotoCount(rootId, pickedOnly, rating, specificIds);
+            
+            var countCmd = connection.CreateCommand();
+            countCmd.CommandText = $"SELECT COUNT(*) FROM FileEntry f {where}";
+            if (rating > 0) countCmd.Parameters.AddWithValue("$Rating", rating);
+            if (rootId != null) countCmd.Parameters.AddWithValue("$RootId", rootId);
+            result.Total = Convert.ToInt32(countCmd.ExecuteScalar());
+
             return result;
         }
 
         // --- Collections ---
-
         public string CreateCollection(string name)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -212,8 +211,7 @@ namespace PhotoLibrary
                 SELECT c.Id, c.Name, COUNT(cf.FileId) 
                 FROM UserCollections c 
                 LEFT JOIN CollectionFiles cf ON c.Id = cf.CollectionId 
-                GROUP BY c.Id, c.Name 
-                ORDER BY c.Name";
+                GROUP BY c.Id, c.Name ORDER BY c.Name";
             using var reader = command.ExecuteReader();
             while (reader.Read()) list.Add(new CollectionResponse { Id = reader.GetString(0), Name = reader.GetString(1), Count = reader.GetInt32(2) });
             return list;
@@ -253,6 +251,7 @@ namespace PhotoLibrary
             return list;
         }
 
+        // --- Directory Logic ---
         public string GetOrCreateBaseRoot(string absolutePath)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -277,12 +276,8 @@ namespace PhotoLibrary
         {
             var checkCmd = connection.CreateCommand();
             checkCmd.Transaction = transaction;
-            if (parentId == null) {
-                checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId IS NULL AND Name = $Name";
-            } else {
-                checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId = $ParentId AND Name = $Name";
-                checkCmd.Parameters.AddWithValue("$ParentId", parentId);
-            }
+            if (parentId == null) checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId IS NULL AND Name = $Name";
+            else { checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId = $ParentId AND Name = $Name"; checkCmd.Parameters.AddWithValue("$ParentId", parentId); }
             checkCmd.Parameters.AddWithValue("$Name", name);
             var existingId = checkCmd.ExecuteScalar() as string;
             if (existingId != null) return existingId;
@@ -307,10 +302,7 @@ namespace PhotoLibrary
             command.CommandText = @"
                 INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
                 VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
-                ON CONFLICT(RootPathId, FileName) DO UPDATE SET
-                    Size = excluded.Size,
-                    CreatedAt = excluded.CreatedAt,
-                    ModifiedAt = excluded.ModifiedAt;
+                ON CONFLICT(RootPathId, FileName) DO UPDATE SET Size = excluded.Size, CreatedAt = excluded.CreatedAt, ModifiedAt = excluded.ModifiedAt;
             ";
             command.Parameters.AddWithValue("$Id", entry.Id);
             command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
@@ -319,6 +311,7 @@ namespace PhotoLibrary
             command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
             command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
             command.ExecuteNonQuery();
+            
             var getIdCmd = connection.CreateCommand();
             getIdCmd.Transaction = transaction;
             getIdCmd.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
@@ -354,10 +347,7 @@ namespace PhotoLibrary
             foreach (var item in items) {
                 var command = connection.CreateCommand();
                 command.Transaction = transaction;
-                command.CommandText = @"
-                    INSERT INTO Metadata (FileId, Directory, Tag, Value)
-                    VALUES ($FileId, $Directory, $Tag, $Value)
-                ";
+                command.CommandText = @"INSERT INTO Metadata (FileId, Directory, Tag, Value) VALUES ($FileId, $Directory, $Tag, $Value)";
                 command.Parameters.AddWithValue("$FileId", fileId);
                 command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
                 command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
@@ -375,13 +365,7 @@ namespace PhotoLibrary
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
             using var reader = command.ExecuteReader();
-            while (reader.Read()) {
-                items.Add(new RootPathResponse {
-                    Id = reader.GetString(0),
-                    ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Name = reader.GetString(2)
-                });
-            }
+            while (reader.Read()) items.Add(new RootPathResponse { Id = reader.GetString(0), ParentId = reader.IsDBNull(1) ? null : reader.GetString(1), Name = reader.GetString(2) });
             return items;
         }
 
@@ -394,13 +378,7 @@ namespace PhotoLibrary
             command.CommandText = "SELECT Directory, Tag, Value FROM Metadata WHERE FileId = $FileId";
             command.Parameters.AddWithValue("$FileId", fileId);
             using var reader = command.ExecuteReader();
-            while (reader.Read()) {
-                items.Add(new MetadataItemResponse {
-                    Directory = reader.IsDBNull(0) ? null : reader.GetString(0),
-                    Tag = reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Value = reader.IsDBNull(2) ? null : reader.GetString(2)
-                });
-            }
+            while (reader.Read()) items.Add(new MetadataItemResponse { Directory = reader.IsDBNull(0) ? null : reader.GetString(0), Tag = reader.IsDBNull(1) ? null : reader.GetString(1), Value = reader.IsDBNull(2) ? null : reader.GetString(2) });
             return items;
         }
 
@@ -421,9 +399,7 @@ namespace PhotoLibrary
             connection.Open();
             var command = connection.CreateCommand();
             if (rating > 0) {
-                command.CommandText = @"
-                    INSERT INTO ImageRatings (FileId, Rating) VALUES ($Id, $Rating)
-                    ON CONFLICT(FileId) DO UPDATE SET Rating = excluded.Rating";
+                command.CommandText = @"INSERT INTO ImageRatings (FileId, Rating) VALUES ($Id, $Rating) ON CONFLICT(FileId) DO UPDATE SET Rating = excluded.Rating";
                 command.Parameters.AddWithValue("$Rating", rating);
             } else command.CommandText = "DELETE FROM ImageRatings WHERE FileId = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
@@ -442,25 +418,6 @@ namespace PhotoLibrary
             using var reader = command.ExecuteReader();
             while (reader.Read()) ids.Add(reader.GetString(0));
             return ids;
-        }
-
-        public StatsResponse GetGlobalStats()
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            var stats = new StatsResponse();
-            var pickedCmd = connection.CreateCommand();
-            pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
-            stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
-            var ratingCmd = connection.CreateCommand();
-            ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
-            using var reader = ratingCmd.ExecuteReader();
-            while (reader.Read()) {
-                int r = reader.GetInt32(0);
-                int count = reader.GetInt32(1);
-                if (r >= 1 && r <= 5) stats.RatingCounts[r - 1] = count;
-            }
-            return stats;
         }
     }
 }

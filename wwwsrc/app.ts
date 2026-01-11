@@ -4,8 +4,8 @@ declare var $: any;
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 import * as Api from './Functions.generated.js';
+import { hub } from './PubSub.js';
 
-// Types (aliases for convenience)
 type Photo = Res.PhotoResponse;
 type MetadataItem = Res.MetadataItemResponse;
 type RootPath = Res.RootPathResponse;
@@ -21,7 +21,6 @@ class App {
     private isConnected = false;
     private pendingRequests: ImageRequest[] = [];
 
-    // State
     public photos: (Photo | null)[] = []; 
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
@@ -39,7 +38,6 @@ class App {
     public searchTitle: string = '';
     public collectionFiles: string[] = [];
 
-    // Virtual Grid config
     private readonly rowHeight = 230; 
     private readonly minCardWidth = 210; 
     private cols = 1;
@@ -50,12 +48,9 @@ class App {
     private reconnectAttempts = 0;
     private readonly maxReconnectDelay = 256000;
 
-    // Components
     public libraryEl: HTMLElement | null = null;
     public workspaceEl: HTMLElement | null = null;
     public metadataEl: HTMLElement | null = null;
-
-    // Workspace Elements
     public gridHeader: HTMLElement | null = null;
     public gridView: HTMLElement | null = null;
     public scrollSentinel: HTMLElement | null = null;
@@ -70,16 +65,116 @@ class App {
         this.loadData();
         this.setupGlobalKeyboard();
         this.setupContextMenu();
+        this.initPubSub();
     }
 
-    // Helper for all API calls (deprecated by Api.* functions, but keeping for reference)
-    public async post(url: string, data: any = {}) {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+    private initPubSub() {
+        hub.sub('photo.selected', (data) => {
+            this.selectedId = data.id;
+            this.updateSelectionUI(data.id);
+            this.loadMetadata(data.id);
+            if (this.isLoupeMode) this.loadMainPreview(data.id);
         });
-        return await res.json();
+
+        hub.sub('view.mode.changed', (data) => {
+            this.isLoupeMode = data.mode === 'loupe';
+            this.updateViewModeUI();
+            if (data.mode === 'loupe' && data.id) {
+                hub.pub('photo.selected', { id: data.id, photo: this.photoMap.get(data.id)! });
+            }
+        });
+
+        hub.sub('photo.updated', (data) => {
+            this.photoMap.set(data.id, data.photo);
+            const idx = this.photos.findIndex(p => p?.id === data.id);
+            if (idx !== -1) this.photos[idx] = data.photo;
+            this.updatePhotoCardUI(data.photo);
+            if (this.selectedId === data.id) this.loadMetadata(data.id);
+        });
+
+        hub.subPattern('photo.picked.*', () => this.refreshStatsAndLibrary());
+        hub.subPattern('photo.starred.*', () => this.refreshStatsAndLibrary());
+
+        hub.sub('search.triggered', (data) => this.searchPhotos(data.tag, data.value));
+        hub.sub('shortcuts.show', () => document.getElementById('shortcuts-modal')?.classList.add('active'));
+
+        hub.sub('ui.layout.changed', () => this.updateVirtualGrid());
+        hub.sub('connection.changed', (data) => this.updateStatusUI(data.connected, data.connecting));
+        hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
+    }
+
+    private showNotification(message: string, type: 'info' | 'error' | 'success') {
+        const container = document.getElementById('notifications');
+        if (!container) return;
+        const el = document.createElement('div');
+        el.style.padding = '10px 20px';
+        el.style.borderRadius = '4px';
+        el.style.color = '#fff';
+        el.style.fontSize = '0.9em';
+        el.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+        el.style.background = type === 'error' ? '#d32f2f' : (type === 'success' ? '#388e3c' : '#1976d2');
+        el.innerText = message;
+        container.appendChild(el);
+        setTimeout(() => {
+            el.style.opacity = '0';
+            el.style.transition = 'opacity 0.5s';
+            setTimeout(() => el.remove(), 500);
+        }, 3000);
+    }
+
+    private updateStatusUI(connected: boolean, connecting: boolean = false) {
+        const el = document.getElementById('connection-status');
+        if (el) {
+            if (connecting) {
+                el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
+                el.style.color = '#aaa';
+            } else if (connected) {
+                el.innerText = 'Connected';
+                el.style.color = '#0f0';
+            } else {
+                el.innerText = 'Disconnected';
+                el.style.color = '#f00';
+            }
+        }
+    }
+
+    async refreshStatsAndLibrary() {
+        this.stats = await Api.api_stats({});
+        this.renderLibrary();
+    }
+
+    async loadData() {
+        try {
+            const [roots, colls, stats] = await Promise.all([
+                Api.api_directories({}),
+                Api.api_collections_list({}),
+                Api.api_stats({})
+            ]);
+            this.roots = roots;
+            this.userCollections = colls;
+            this.stats = stats;
+            await this.refreshPhotos();
+        } catch (e) { console.error("Load failed", e); }
+    }
+
+    async refreshPhotos() {
+        this.photos = [];
+        this.isLoadingChunk.clear();
+        const params: Req.PagedPhotosRequest = { 
+            limit: 100, offset: 0, 
+            rootId: this.selectedRootId || undefined, 
+            pickedOnly: this.filterType === 'picked',
+            rating: this.filterRating, 
+            specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
+        };
+        const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats({}) ]);
+        this.totalPhotos = data.total;
+        this.stats = stats;
+        this.photos = new Array(this.totalPhotos).fill(null);
+        data.photos.forEach((p: Photo, i: number) => { this.photos[i] = p; this.photoMap.set(p.id, p); });
+        this.renderLibrary();
+        this.renderGrid();
+        if (this.isLoupeMode) this.renderFilmstrip();
     }
 
     initLayout() {
@@ -94,17 +189,14 @@ class App {
                 ]
             }]
         };
-
         this.layout = new GoldenLayout(config, '#layout-container');
         const self = this;
-
         this.layout.registerComponent('library', function(container: any) {
             self.libraryEl = document.createElement('div');
             self.libraryEl.className = 'tree-view gl-component';
             container.getElement().append(self.libraryEl);
             if (self.photos.length > 0) self.renderLibrary();
         });
-
         this.layout.registerComponent('workspace', function(container: any) {
             self.workspaceEl = document.createElement('div');
             self.workspaceEl.className = 'gl-component';
@@ -140,76 +232,60 @@ class App {
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
         });
-
         this.layout.registerComponent('metadata', function(container: any) {
             self.metadataEl = document.createElement('div');
             self.metadataEl.className = 'metadata-panel gl-component';
             container.getElement().append(self.metadataEl);
         });
-
         this.layout.init();
-        window.addEventListener('resize', () => {
-            this.layout.updateSize();
-            this.updateVirtualGrid();
-        });
+        window.addEventListener('resize', () => { this.layout.updateSize(); hub.pub('ui.layout.changed', {}); });
+        this.layout.on('stateChanged', () => hub.pub('ui.layout.changed', {}));
     }
 
-    async loadData() {
-        try {
-            const [roots, colls, stats] = await Promise.all([
-                Api.api_directories({}),
-                Api.api_collections_list({}),
-                Api.api_stats({})
-            ]);
-            this.roots = roots;
-            this.userCollections = colls;
-            this.stats = stats;
-            await this.refreshPhotos();
-        } catch (e) { console.error("Load failed", e); }
-    }
-
-    async refreshPhotos() {
-        this.photos = [];
-        this.isLoadingChunk.clear();
-        
-        const params: Req.PagedPhotosRequest = { 
-            limit: 100, 
-            offset: 0, 
-            rootId: this.selectedRootId || undefined, 
-            pickedOnly: this.filterType === 'picked',
-            rating: this.filterRating, 
-            specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
-        };
-
-        const [data, stats] = await Promise.all([
-            Api.api_photos(params),
-            Api.api_stats({})
-        ]);
-        
-        this.totalPhotos = data.total;
-        this.stats = stats;
-        this.photos = new Array(this.totalPhotos).fill(null);
-        data.photos.forEach((p: Photo, i: number) => {
-            this.photos[i] = p;
-            this.photoMap.set(p.id, p);
-        });
-        this.renderLibrary();
-        this.renderGrid();
-        if (this.isLoupeMode) this.refreshLoupe();
-    }
-
-    refreshLoupe() {
-        this.renderFilmstrip();
-        // If current selection is not in the new filtered list, select the first one
-        const filtered = this.getFilteredPhotos();
-        if (this.selectedId && !filtered.find(p => p.id === this.selectedId)) {
-            if (filtered.length > 0) this.selectPhoto(filtered[0].id);
-        } else if (!this.selectedId && filtered.length > 0) {
-            this.selectPhoto(filtered[0].id);
+    private updateSelectionUI(id: string) {
+        const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
+        oldSel?.forEach(e => e.classList.remove('selected'));
+        const newSel = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
+        newSel?.forEach(e => e.classList.add('selected'));
+        if (this.isLoupeMode) {
+            const stripItem = this.filmstrip?.querySelector(`.card[data-id="${id}"]`);
+            if (stripItem) stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
         }
     }
 
-    // --- Virtual Grid ---
+    private updateViewModeUI() {
+        const gridCont = (this.workspaceEl?.querySelector('#grid-container') as HTMLElement);
+        if (this.isLoupeMode) {
+            if (gridCont) gridCont.style.display = 'none';
+            if (this.gridHeader) this.gridHeader.style.display = 'none';
+            if (this.loupeView) this.loupeView.style.display = 'flex';
+            document.getElementById('nav-grid')?.classList.remove('active');
+            document.getElementById('nav-loupe')?.classList.add('active');
+            this.renderFilmstrip();
+        } else {
+            if (this.loupeView) this.loupeView.style.display = 'none';
+            if (gridCont) gridCont.style.display = 'flex';
+            if (this.gridHeader) this.gridHeader.style.display = 'flex';
+            document.getElementById('nav-loupe')?.classList.remove('active');
+            document.getElementById('nav-grid')?.classList.add('active');
+            this.updateVirtualGrid();
+        }
+    }
+
+    private updatePhotoCardUI(photo: Photo) {
+        const cards = this.workspaceEl?.querySelectorAll(`.card[data-id="${photo.id}"]`);
+        cards?.forEach(card => {
+            const pBtn = card.querySelector('.pick-btn');
+            if (pBtn) { if (photo.isPicked) pBtn.classList.add('picked'); else pBtn.classList.remove('picked'); }
+            const stars = card.querySelector('.stars');
+            if (stars) {
+                const el = stars as HTMLElement;
+                el.innerText = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
+                if (photo.rating > 0) el.classList.add('has-rating'); else el.classList.remove('has-rating');
+            }
+        });
+    }
+
     updateVirtualGrid() {
         if (!this.gridView || !this.workspaceEl || this.isLoupeMode) return;
         const gridContainer = this.gridView.parentElement as HTMLElement;
@@ -221,9 +297,8 @@ class App {
         const scrollTop = gridContainer.scrollTop;
         const viewHeight = gridContainer.clientHeight;
         const startRow = Math.floor(scrollTop / this.rowHeight);
-        const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight);
+        const endIndex = Math.min(this.totalPhotos, Math.ceil((scrollTop + viewHeight) / this.rowHeight + 1) * this.cols);
         const startIndex = Math.max(0, startRow * this.cols);
-        const endIndex = Math.min(this.totalPhotos, (endRow + 1) * this.cols);
         if (startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.renderVisiblePhotos();
@@ -255,9 +330,7 @@ class App {
         const endChunk = Math.floor(end / chunkSize);
         for (let c = startChunk; c <= endChunk; c++) {
             const offset = c * chunkSize;
-            if (!this.isLoadingChunk.has(offset) && !this.photos[offset]) {
-                this.loadChunk(offset, chunkSize);
-            }
+            if (!this.isLoadingChunk.has(offset) && !this.photos[offset]) this.loadChunk(offset, chunkSize);
         }
     }
 
@@ -265,25 +338,18 @@ class App {
         this.isLoadingChunk.add(offset);
         try {
             const params: Req.PagedPhotosRequest = { 
-                limit, 
-                offset, 
+                limit, offset, 
                 rootId: this.selectedRootId || undefined, 
-                pickedOnly: this.filterType === 'picked',
+                pickedOnly: this.filterType === 'picked', 
                 rating: this.filterRating, 
                 specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
             };
             const data = await Api.api_photos(params);
-            data.photos.forEach((p: Photo, i: number) => {
-                this.photos[offset + i] = p;
-                this.photoMap.set(p.id, p);
-            });
+            data.photos.forEach((p: Photo, i: number) => { this.photos[offset + i] = p; this.photoMap.set(p.id, p); });
             this.renderVisiblePhotos();
-        } finally {
-            this.isLoadingChunk.delete(offset);
-        }
+        } finally { this.isLoadingChunk.delete(offset); }
     }
 
-    // --- Library Tree ---
     renderLibrary() {
         if (!this.libraryEl) return;
         this.libraryEl.innerHTML = '';
@@ -296,29 +362,25 @@ class App {
         const searchInput = document.createElement('input');
         searchInput.className = 'search-input';
         searchInput.placeholder = 'Tag search...';
-        searchInput.onkeydown = (e) => { if (e.key === 'Enter') this.searchPhotos('FileName', searchInput.value); };
+        searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub('search.triggered', { tag: 'FileName', value: searchInput.value }); };
         searchBox.appendChild(searchInput);
         this.libraryEl.appendChild(searchBox);
-        if (this.filterType === 'search') {
-            this.addTreeItem(this.libraryEl, '🔍 ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
-        }
+        if (this.filterType === 'search') this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
         const collHeader = document.createElement('div');
         collHeader.className = 'tree-section-header';
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
         this.addTreeItem(this.libraryEl, 'All Photos', this.totalPhotos, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
-        
-        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        const pEl = this.addTreeItem(this.libraryEl, '\u2691 Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
         pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
         this.userCollections.forEach(c => {
-            const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            const el = this.addTreeItem(this.libraryEl!, '\uD83D\uDCC1 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
             el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
         });
         for (let i = 5; i >= 1; i--) {
             const count = this.stats.ratingCounts[i-1];
-            this.addTreeItem(this.libraryEl, '★'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
+            this.addTreeItem(this.libraryEl, '\u2605'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i);
         }
-
         const folderHeader = document.createElement('div');
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
@@ -328,10 +390,7 @@ class App {
         const map = new Map<string, { node: RootPath, children: any[] }>();
         this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
         const tree: any[] = [];
-        this.roots.forEach(r => {
-            if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id));
-            else tree.push(map.get(r.id));
-        });
+        this.roots.forEach(r => { if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id)); else tree.push(map.get(r.id)); });
         const renderNode = (item: any, container: HTMLElement) => {
             this.addTreeItem(container, item.node.name!, 0, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
             if (item.children.length > 0) {
@@ -353,7 +412,7 @@ class App {
         return el;
     }
 
-    setFilter(type: 'all' | 'picked' | 'rating' | 'search' | 'collection', rating: number = 0, rootId: string | null = null) {
+    setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null) {
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
@@ -369,59 +428,26 @@ class App {
         this.refreshPhotos();
     }
 
-    // --- Context Menus ---
-    setupContextMenu() {
-        document.addEventListener('click', () => {
-            const menu = document.getElementById('context-menu');
-            if (menu) menu.style.display = 'none';
-        });
-    }
+    setupContextMenu() { document.addEventListener('click', () => { const menu = document.getElementById('context-menu'); if (menu) menu.style.display = 'none'; }); }
 
     showPickedContextMenu(e: MouseEvent) {
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';
-        const clear = document.createElement('div');
-        clear.className = 'context-menu-item';
-        clear.innerText = 'Clear All Picked';
-        clear.onclick = () => this.clearAllPicked();
-        menu.appendChild(clear);
-        const divider = document.createElement('div');
-        divider.className = 'context-menu-divider';
-        menu.appendChild(divider);
-        const storeNew = document.createElement('div');
-        storeNew.className = 'context-menu-item';
-        storeNew.innerText = 'Store to new collection...';
-        storeNew.onclick = () => this.storePickedToCollection(null);
-        menu.appendChild(storeNew);
-        this.userCollections.forEach(c => {
-            const item = document.createElement('div');
-            item.className = 'context-menu-item';
-            item.innerText = `Store to '${c.name}'`;
-            item.onclick = () => this.storePickedToCollection(c.id);
-            menu.appendChild(item);
-        });
-        menu.style.display = 'block';
-        menu.style.left = e.pageX + 'px';
-        menu.style.top = e.pageY + 'px';
+        const clear = document.createElement('div'); clear.className = 'context-menu-item'; clear.innerText = 'Clear All Picked'; clear.onclick = () => this.clearAllPicked(); menu.appendChild(clear);
+        const divider = document.createElement('div'); divider.className = 'context-menu-divider'; menu.appendChild(divider);
+        const storeNew = document.createElement('div'); storeNew.className = 'context-menu-item'; storeNew.innerText = 'Store to new collection...'; storeNew.onclick = () => this.storePickedToCollection(null); menu.appendChild(storeNew);
+        this.userCollections.forEach(c => { const item = document.createElement('div'); item.className = 'context-menu-item'; item.innerText = `Store to '${c.name}'`; item.onclick = () => this.storePickedToCollection(c.id); menu.appendChild(item); });
+        menu.style.display = 'block'; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px';
     }
 
     showCollectionContextMenu(e: MouseEvent, c: Collection) {
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';
-        const del = document.createElement('div');
-        del.className = 'context-menu-item';
-        del.innerText = 'Remove Collection';
-        del.onclick = () => this.deleteCollection(c.id);
-        menu.appendChild(del);
-        menu.style.display = 'block';
-        menu.style.left = e.pageX + 'px';
-        menu.style.top = e.pageY + 'px';
+        const del = document.createElement('div'); del.className = 'context-menu-item'; del.innerText = 'Remove Collection'; del.onclick = () => this.deleteCollection(c.id); menu.appendChild(del);
+        menu.style.display = 'block'; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px';
     }
 
-    async clearAllPicked() {
-        await Api.api_picked_clear({});
-        this.refreshPhotos();
-    }
+    async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub('ui.notification', { message: 'Picked photos cleared', type: 'info' }); }
 
     async storePickedToCollection(id: string | null) {
         const pickedIds = await Api.api_picked_ids({});
@@ -433,31 +459,27 @@ class App {
             id = res.id;
         }
         await Api.api_collections_add_files({ collectionId: id!, fileIds: pickedIds });
+        hub.pub('ui.notification', { message: 'Photos added to collection', type: 'success' });
         await this.refreshCollections();
     }
 
     async deleteCollection(id: string) {
         if (!confirm('Are you sure you want to remove this collection?')) return;
         await Api.api_collections_delete({ id });
+        hub.pub('ui.notification', { message: 'Collection deleted', type: 'info' });
         if (this.selectedCollectionId === id) this.setFilter('all');
         else await this.refreshCollections();
     }
 
-    async refreshCollections() {
-        this.userCollections = await Api.api_collections_list({});
-        this.renderLibrary();
-    }
+    async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
 
-    // --- Core Logic ---
     async searchPhotos(tag: string, value: string) {
         this.searchResultIds = await Api.api_search({ tag, value });
         this.searchTitle = `${tag}: ${value}`;
         this.setFilter('search');
     }
 
-    public getFilteredPhotos(): Photo[] {
-        return this.photos.filter(p => p !== null) as Photo[];
-    }
+    public getFilteredPhotos(): Photo[] { return this.photos.filter(p => p !== null) as Photo[]; }
 
     renderGrid() {
         this.updateVirtualGrid();
@@ -465,14 +487,8 @@ class App {
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
         else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
-        else if (this.filterType === 'collection') {
-            const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
-            headerText = "Collection: " + (c?.name || "");
-        }
-        else if (this.selectedRootId) {
-            const root = this.roots.find(r => r.id === this.selectedRootId);
-            headerText = root ? `Folder: ${root.name}` : "Folder";
-        }
+        else if (this.filterType === 'collection') { const c = this.userCollections.find(x => x.id === this.selectedCollectionId); headerText = "Collection: " + (c?.name || ""); }
+        else if (this.selectedRootId) { const root = this.roots.find(r => r.id === this.selectedRootId); headerText = root ? `Folder: ${root.name}` : "Folder"; }
         if (this.gridHeader) {
             (this.gridHeader.querySelector('#header-text') as HTMLElement).innerHTML = `Showing <b>${headerText}</b>`;
             (this.gridHeader.querySelector('#header-count') as HTMLElement).innerText = `${this.totalPhotos} items`;
@@ -504,14 +520,16 @@ class App {
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
+            const starText = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
+            const pickClass = p.isPicked ? 'picked' : '';
             info.innerHTML = `
-                <div class="info-top"><span>${p.fileName}</span><span class="pick-btn ${p.isPicked?'picked':''}" onclick="event.stopPropagation(); app.togglePick('${p.id}')">⚑</span></div>
-                <div class="info-bottom"><span class="stars ${p.rating>0?'has-rating':''}">` + ('★'.repeat(p.rating) || '☆☆☆☆☆') + `</span></div>
+                <div class="info-top"><span>${p.fileName}</span><span class="pick-btn ${pickClass}" onclick="event.stopPropagation(); app.togglePick('${p.id}')">⚑</span></div>
+                <div class="info-bottom"><span class="stars ${p.rating>0?'has-rating':''}">` + starText + `</span></div>
             `;
             card.appendChild(info);
-            card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
+            card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
         }
-        card.addEventListener('click', () => this.selectPhoto(p.id));
+        card.addEventListener('click', () => hub.pub('photo.selected', { id: p.id, photo: p }));
         return card;
     }
 
@@ -545,7 +563,8 @@ class App {
     enterLoupeMode(id: string) {
         this.isLoupeMode = true;
         if (this.workspaceEl) {
-            (this.workspaceEl.querySelector('#grid-container') as HTMLElement).style.display = 'none';
+            const cont = this.workspaceEl.querySelector('#grid-container') as HTMLElement;
+            if (cont) cont.style.display = 'none';
         }
         if (this.gridHeader) this.gridHeader.style.display = 'none';
         if (this.loupeView) this.loupeView.style.display = 'flex';
@@ -560,7 +579,8 @@ class App {
         this.isLoupeMode = false;
         if (this.loupeView) this.loupeView.style.display = 'none';
         if (this.workspaceEl) {
-            (this.workspaceEl.querySelector('#grid-container') as HTMLElement).style.display = 'flex';
+            const cont = this.workspaceEl.querySelector('#grid-container') as HTMLElement;
+            if (cont) cont.style.display = 'flex';
         }
         if (this.gridHeader) this.gridHeader.style.display = 'flex';
         document.getElementById('nav-loupe')?.classList.remove('active');
@@ -569,7 +589,8 @@ class App {
             const index = this.photos.findIndex(p => p?.id === this.selectedId);
             if (index !== -1) {
                 const row = Math.floor(index / this.cols);
-                (this.gridView!.parentElement as HTMLElement).scrollTop = row * this.rowHeight - 100;
+                const cont = this.gridView!.parentElement as HTMLElement;
+                if (cont) cont.scrollTop = row * this.rowHeight - (cont.clientHeight / 2) + (this.rowHeight / 2);
             }
         }
         this.updateVirtualGrid();
@@ -598,46 +619,30 @@ class App {
         try {
             const meta = await Api.api_metadata({ id });
             const groups: {[k:string]: MetadataItem[]} = {};
-            meta.forEach(m => {
-                const k = m.directory || 'Unknown';
-                if (!groups[k]) groups[k] = [];
-                groups[k].push(m);
-            });
+            meta.forEach(m => { const k = m.directory || 'Unknown'; if (!groups[k]) groups[k] = []; groups[k].push(m); });
             groups['File Info'] = [
                 { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
                 { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
                 { directory: 'File Info', tag: 'ID', value: id }
             ];
             const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
-                const getMinPriority = (g: string) => {
-                    const priorities = groups[g].map(i => priorityTags.indexOf(i.tag!)).filter(p => p !== -1);
-                    return priorities.length > 0 ? Math.min(...priorities) : 999;
-                };
-                const pa = getMinPriority(a);
-                const pb = getMinPriority(b);
+                const getMinPriority = (g: string) => { const priorities = groups[g].map(i => priorityTags.indexOf(i.tag!)).filter(p => p !== -1); return priorities.length > 0 ? Math.min(...priorities) : 999; };
+                const pa = getMinPriority(a); const pb = getMinPriority(b);
                 if (pa !== pb) return pa - pb;
                 let ia = groupOrder.indexOf(a); let ib = groupOrder.indexOf(b);
                 if (ia === -1) ia = 999; if (ib === -1) ib = 999;
                 return ia - ib;
             });
-            let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
+            const pickText = photo.isPicked ? '\u2691' : '';
+            const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
+            let html = `<h2>${photo.fileName} ${pickText} ${starsText}</h2>`;
             for (const k of sortedGroupKeys) {
                 const items = groups[k];
-                items.sort((a, b) => {
-                    let ia = priorityTags.indexOf(a.tag!); let ib = priorityTags.indexOf(b.tag!);
-                    if (ia === -1) ia = 999; if (ib === -1) ib = 999;
-                    if (ia !== ib) return ia - ib;
-                    return a.tag!.localeCompare(b.tag!);
-                });
+                items.sort((a, b) => { let ia = priorityTags.indexOf(a.tag!); let ib = priorityTags.indexOf(b.tag!); if (ia === -1) ia = 999; if (ib === -1) ib = 999; if (ia !== ib) return ia - ib; return a.tag!.localeCompare(b.tag!); });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
-                    const tagEscaped = m.tag!.replace(/'/g, "' ");
-                    const valEscaped = m.value!.replace(/'/g, "' ");
-                    html += `<div class="meta-row">
-                        <span class="meta-key">${m.tag}</span>
-                        <span class="meta-val">${m.value}</span>
-                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${tagEscaped}', '${valEscaped}')">🔍</span>
-                    </div>`;
+                    const tagEsc = m.tag!.replace(/'/g, "\'"); const valEsc = m.value!.replace(/'/g, "\'");
+                    html += `<div class="meta-row"><span class="meta-key">${m.tag}</span><span class="meta-val">${m.value}</span><span class="meta-search-btn" title="Search" onclick="hub.pub('search.triggered', { tag: '${tagEsc}', value: '${valEsc}' })">�\uDD0D</span></div>`;
                 });
                 html += `</div>`;
             }
@@ -650,36 +655,30 @@ class App {
         const photo = this.photoMap.get(id);
         if (!photo) return;
         photo.isPicked = !photo.isPicked;
-        const picks = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
-        picks?.forEach(p => { if (photo.isPicked) p.classList.add('picked'); else p.classList.remove('picked'); });
-        if (this.selectedId === id) this.loadMetadata(id);
-        this.renderLibrary();
-        try { await Api.api_pick({ id, isPicked: photo.isPicked }); } catch { photo.isPicked = !photo.isPicked; }
+        if (photo.isPicked) hub.pub('photo.picked.added', { id }); else hub.pub('photo.picked.removed', { id });
+        hub.pub('photo.updated', { id, photo });
+        try { await Api.api_pick({ id, isPicked: photo.isPicked }); } catch { photo.isPicked = !photo.isPicked; hub.pub('photo.updated', { id, photo }); }
     }
 
     async setRating(id: string | null, rating: number) {
         if (!id) return;
         const photo = this.photoMap.get(id);
         if (!photo) return;
-        photo.rating = rating;
-        const stars = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .stars`);
-        stars?.forEach(s => {
-            const el = s as HTMLElement;
-            el.innerText = '★'.repeat(rating) || '☆☆☆☆☆';
-            if (rating > 0) el.classList.add('has-rating'); else el.classList.remove('has-rating');
-        });
-        if (this.selectedId === id) this.loadMetadata(id);
-        this.renderLibrary();
-        try { await Api.api_rate({ id, rating }); } catch { console.error('Failed to set rating'); }
+        const prev = photo.rating; photo.rating = rating;
+        if (prev === 0 && rating > 0) hub.pub('photo.starred.added', { id, rating });
+        else if (prev > 0 && rating === 0) hub.pub('photo.starred.removed', { id, previousRating: prev });
+        else hub.pub('photo.starred.changed', { id, rating, previousRating: prev });
+        hub.pub('photo.updated', { id, photo });
+        try { await Api.api_rate({ id, rating }); } catch { photo.rating = prev; hub.pub('photo.updated', { id, photo }); }
     }
 
     private handleKey(e: KeyboardEvent) {
         const key = e.key.toLowerCase();
-        if (key === 'g') this.enterGridMode();
-        if (key === 'l') { if (this.selectedId) this.enterLoupeMode(this.selectedId); }
+        if (key === 'g') hub.pub('view.mode.changed', { mode: 'grid' });
+        if (key === 'l') { if (this.selectedId) hub.pub('view.mode.changed', { mode: 'loupe', id: this.selectedId }); }
         if (key === 'p') this.togglePick(this.selectedId);
         if (key >= '0' && key <= '5') this.setRating(this.selectedId, parseInt(key));
-        if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); this.showShortcuts(); } }
+        if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); hub.pub('shortcuts.show', {}); } }
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) { e.preventDefault(); this.navigate(e.key); }
     }
 
@@ -687,57 +686,35 @@ class App {
         const photos = this.photos.filter(p => p !== null) as Photo[];
         if (photos.length === 0) return;
         let index = this.selectedId ? photos.findIndex(p => p?.id === this.selectedId) : -1;
-        if (key === 'ArrowRight') index++;
-        else if (key === 'ArrowLeft') index--;
+        if (key === 'ArrowRight') index++; else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
             if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; } 
             else { if (key === 'ArrowDown') index += this.cols; else index -= this.cols; }
         }
-        if (index >= 0 && index < photos.length) {
-            const target = photos[index];
-            if (target) this.selectPhoto(target.id);
-        }
+        if (index >= 0 && index < photos.length) { const target = photos[index]; if (target) hub.pub('photo.selected', { id: target.id, photo: target }); }
     }
 
-    private showShortcuts() { document.getElementById('shortcuts-modal')?.classList.add('active'); }
-
     private setupGlobalKeyboard() {
-        document.addEventListener('keydown', (e) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            if (e.key === '?' || (e.key === '/' && e.shiftKey)) this.showShortcuts();
-        });
+        document.addEventListener('keydown', (e) => { if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return; if (e.key === '?' || (e.key === '/' && e.shiftKey)) hub.pub('shortcuts.show', {}); });
     }
 
     connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
-        this.ws.onopen = () => { this.isConnected = true; this.updateStatus(true); this.processPending(); };
-        this.ws.onclose = () => { this.isConnected = false; this.updateStatus(false);
+        this.ws.onopen = () => { this.isConnected = true; hub.pub('connection.changed', { connected: true, connecting: false }); this.processPending(); };
+        this.ws.onclose = () => { this.isConnected = false; hub.pub('connection.changed', { connected: false, connecting: false });
             const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
-            this.reconnectAttempts++;
-            setTimeout(() => this.connectWs(), delay); 
+            this.reconnectAttempts++; setTimeout(() => { hub.pub('connection.changed', { connected: false, connecting: true }); this.connectWs(); }, delay); 
         };
         this.ws.onmessage = (e) => this.handleBinaryMessage(e.data);
-    }
-
-    updateStatus(connected: boolean, connecting: boolean = false) {
-        const el = document.getElementById('connection-status');
-        if (el) {
-            if (connecting) { el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...'; el.style.color = '#aaa'; } 
-            else if (connected) { el.innerText = 'Connected'; el.style.color = '#0f0'; }
-            else { el.innerText = 'Disconnected'; el.style.color = '#f00'; }
-        }
     }
 
     handleBinaryMessage(buffer: ArrayBuffer) {
         const view = new DataView(buffer);
         const reqId = view.getInt32(0, true);
         const data = buffer.slice(4);
-        if (this.requestMap.has(reqId)) {
-            this.requestMap.get(reqId)!(new Blob([data], {type:'image/jpeg'}));
-            this.requestMap.delete(reqId);
-        }
+        if (this.requestMap.has(reqId)) { this.requestMap.get(reqId)!(new Blob([data], {type:'image/jpeg'})); this.requestMap.delete(reqId); }
     }
 
     requestImage(fileId: string, size: number): Promise<Blob> {
@@ -750,11 +727,8 @@ class App {
         });
     }
 
-    processPending() {
-        while(this.pendingRequests.length && this.isConnected) {
-            this.ws?.send(JSON.stringify(this.pendingRequests.shift()));
-        }
-    }
+    processPending() { while(this.pendingRequests.length && this.isConnected) { this.ws?.send(JSON.stringify(this.pendingRequests.shift())); } }
 }
 
-(window as any).app = new App();
+const app = new App();
+(window as any).app = app;
