@@ -169,6 +169,7 @@ class PhotoApp {
     }
 
     lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
+        const target = img.parentElement || img;
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -180,7 +181,7 @@ class PhotoApp {
                 }
             });
         });
-        observer.observe(img);
+        observer.observe(target);
     }
 
     // --- Interaction ---
