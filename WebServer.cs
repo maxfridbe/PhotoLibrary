@@ -30,6 +30,13 @@ namespace PhotoLibrary
                 return Results.Ok(photos);
             });
 
+            // API: Get Metadata
+            app.MapGet("/api/metadata/{id}", (string id, DatabaseManager db) =>
+            {
+                var metadata = db.GetMetadata(id);
+                return Results.Ok(metadata);
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {

@@ -215,5 +215,28 @@ namespace PhotoLibrary
             }
             return entries;
         }
+
+        public IEnumerable<MetadataItem> GetMetadata(string fileId)
+        {
+            var items = new List<MetadataItem>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Directory, Tag, Value FROM Metadata WHERE FileId = $FileId";
+            command.Parameters.AddWithValue("$FileId", fileId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(new MetadataItem
+                {
+                    Directory = reader.IsDBNull(0) ? null : reader.GetString(0),
+                    Tag = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    Value = reader.IsDBNull(2) ? null : reader.GetString(2)
+                });
+            }
+            return items;
+        }
     }
 }
