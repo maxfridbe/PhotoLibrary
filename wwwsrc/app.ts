@@ -195,6 +195,18 @@ class App {
         });
         this.renderLibrary();
         this.renderGrid();
+        if (this.isLoupeMode) this.refreshLoupe();
+    }
+
+    refreshLoupe() {
+        this.renderFilmstrip();
+        // If current selection is not in the new filtered list, select the first one
+        const filtered = this.getFilteredPhotos();
+        if (this.selectedId && !filtered.find(p => p.id === this.selectedId)) {
+            if (filtered.length > 0) this.selectPhoto(filtered[0].id);
+        } else if (!this.selectedId && filtered.length > 0) {
+            this.selectPhoto(filtered[0].id);
+        }
     }
 
     // --- Virtual Grid ---
