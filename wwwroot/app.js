@@ -6,9 +6,21 @@ class PhotoApp {
         this.nextRequestId = 1;
         this.isConnected = false;
         this.pendingRequests = [];
+        this.photos = [];
+        this.photoMap = new Map();
         this.selectedId = null;
+        // UI State
+        this.isLoupeMode = false;
+        this.gridView = document.getElementById('grid-view');
+        this.loupeView = document.getElementById('loupe-view');
+        this.filmstrip = document.getElementById('filmstrip');
+        this.mainPreview = document.getElementById('main-preview');
+        this.previewSpinner = document.getElementById('preview-spinner');
+        this.sidebar = document.getElementById('sidebar');
+        this.viewModeLabel = document.getElementById('view-mode');
         this.init();
-        this.setupModal();
+        this.setupResizer();
+        this.setupKeyboard();
     }
     async init() {
         this.connectWs();
@@ -54,81 +66,144 @@ class PhotoApp {
     async loadPhotos() {
         try {
             const res = await fetch('/api/photos');
-            const photos = await res.json();
-            this.renderGrid(photos);
+            this.photos = await res.json();
+            this.photoMap = new Map(this.photos.map(p => [p.id, p]));
+            this.renderGrid();
+            this.renderFilmstrip();
         }
         catch (e) {
             console.error("Failed to load photos", e);
         }
     }
-    renderGrid(photos) {
-        const app = document.getElementById('app');
-        if (!app)
-            return;
-        app.innerHTML = '';
-        photos.forEach(p => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            card.dataset.id = p.id;
-            const imgContainer = document.createElement('div');
-            imgContainer.className = 'img-container';
-            const spinner = document.createElement('div');
-            spinner.className = 'spinner';
-            imgContainer.appendChild(spinner);
-            const img = document.createElement('img');
-            img.alt = p.fileName;
-            imgContainer.appendChild(img);
-            // Lazy load 300px preview
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        this.requestImage(p.id, 300).then(blob => {
-                            img.src = URL.createObjectURL(blob);
-                            img.onload = () => {
-                                imgContainer.classList.add('loaded');
-                                spinner.remove();
-                            };
-                        });
-                        observer.unobserve(card);
-                    }
-                });
-            });
-            observer.observe(card);
+    // --- Rendering ---
+    createCard(p, type) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = p.id;
+        const imgContainer = document.createElement('div');
+        imgContainer.className = 'img-container';
+        const img = document.createElement('img');
+        img.loading = "lazy"; // Native lazy loading
+        imgContainer.appendChild(img);
+        // Fetch thumbnail
+        // Use IntersectionObserver for true lazy loading of binary blobs if needed
+        // For simplicity, trigger load when element created, but in real app use Observer
+        this.lazyLoadImage(p.id, img, 300);
+        card.appendChild(imgContainer);
+        if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
-            info.innerHTML = `
-                <div>${p.fileName}</div>
-                <div class='date'>${new Date(p.createdAt).toLocaleDateString()}</div>
-            `;
-            card.appendChild(imgContainer);
+            info.innerText = p.fileName;
             card.appendChild(info);
-            // Events
-            card.addEventListener('click', () => this.selectPhoto(p, card));
-            card.addEventListener('dblclick', () => this.openModal(p));
-            app.appendChild(card);
+        }
+        // Events
+        card.addEventListener('click', () => this.selectPhoto(p.id));
+        if (type === 'grid') {
+            card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
+        }
+        return card;
+    }
+    renderGrid() {
+        this.gridView.innerHTML = '';
+        this.photos.forEach(p => {
+            const card = this.createCard(p, 'grid');
+            this.gridView.appendChild(card);
         });
     }
-    selectPhoto(photo, cardElement) {
-        // UI Selection
-        if (this.selectedId) {
-            const prev = document.querySelector(`.card[data-id="${this.selectedId}"]`);
-            if (prev)
-                prev.classList.remove('selected');
-        }
-        this.selectedId = photo.id;
-        cardElement.classList.add('selected');
-        // Load Metadata
-        this.loadMetadata(photo);
+    renderFilmstrip() {
+        this.filmstrip.innerHTML = '';
+        this.photos.forEach(p => {
+            const card = this.createCard(p, 'filmstrip');
+            this.filmstrip.appendChild(card);
+        });
     }
-    async loadMetadata(photo) {
-        const sidebar = document.getElementById('sidebar');
-        if (!sidebar)
+    lazyLoadImage(id, img, size) {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    this.requestImage(id, size).then(blob => {
+                        img.src = URL.createObjectURL(blob);
+                        img.onload = () => { var _a; return (_a = img.parentElement) === null || _a === void 0 ? void 0 : _a.classList.add('loaded'); };
+                    });
+                    observer.disconnect();
+                }
+            });
+        });
+        observer.observe(img);
+    }
+    // --- Interaction ---
+    selectPhoto(id) {
+        if (this.selectedId === id)
             return;
-        sidebar.innerHTML = '<div class="no-selection">Loading metadata...</div>';
+        // Deselect previous
+        if (this.selectedId) {
+            const prevGrid = this.gridView.querySelector(`.card[data-id="${this.selectedId}"]`);
+            const prevStrip = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
+            if (prevGrid)
+                prevGrid.classList.remove('selected');
+            if (prevStrip)
+                prevStrip.classList.remove('selected');
+        }
+        this.selectedId = id;
+        // Select new
+        const newGrid = this.gridView.querySelector(`.card[data-id="${id}"]`);
+        const newStrip = this.filmstrip.querySelector(`.card[data-id="${id}"]`);
+        if (newGrid) {
+            newGrid.classList.add('selected');
+            if (!this.isLoupeMode)
+                newGrid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        if (newStrip) {
+            newStrip.classList.add('selected');
+            if (this.isLoupeMode)
+                newStrip.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+        }
+        this.loadMetadata(id);
+        if (this.isLoupeMode) {
+            this.loadMainPreview(id);
+        }
+    }
+    enterLoupeMode(id) {
+        this.isLoupeMode = true;
+        this.gridView.classList.add('hidden');
+        this.loupeView.classList.add('active');
+        this.viewModeLabel.innerText = "Loupe View (Press 'G' for Grid)";
+        this.selectPhoto(id);
+        // Ensure main preview loads (selectPhoto calls it if mode is set)
+    }
+    enterGridMode() {
+        this.isLoupeMode = false;
+        this.loupeView.classList.remove('active');
+        this.gridView.classList.remove('hidden');
+        this.viewModeLabel.innerText = "Grid View";
+        // Scroll to selected
+        if (this.selectedId) {
+            const el = this.gridView.querySelector(`.card[data-id="${this.selectedId}"]`);
+            if (el)
+                el.scrollIntoView({ behavior: 'auto', block: 'center' });
+        }
+    }
+    loadMainPreview(id) {
+        this.mainPreview.style.display = 'none';
+        this.previewSpinner.style.display = 'block';
+        // Request 1024px
+        this.requestImage(id, 1024).then(blob => {
+            // Only update if selection hasn't changed
+            if (this.selectedId === id) {
+                this.mainPreview.src = URL.createObjectURL(blob);
+                this.mainPreview.style.display = 'block';
+                this.previewSpinner.style.display = 'none';
+            }
+        });
+    }
+    async loadMetadata(id) {
+        const photo = this.photoMap.get(id);
+        if (!photo)
+            return;
+        this.sidebar.innerHTML = '<div style="color:#888; text-align:center; margin-top:20px;">Loading metadata...</div>';
         try {
-            const res = await fetch(`/api/metadata/${photo.id}`);
+            const res = await fetch(`/api/metadata/${id}`);
             const meta = await res.json();
-            // Group by Directory
             const groups = {};
             meta.forEach(m => {
                 const dir = m.directory || 'Unknown';
@@ -137,11 +212,11 @@ class PhotoApp {
                 groups[dir].push(m);
             });
             let html = `<h2>${photo.fileName}</h2>`;
-            // Basic Info
             html += `
                 <div class="meta-group">
                     <h3>File Info</h3>
                     <div class="meta-row"><span class="meta-key">Created</span><span class="meta-val">${new Date(photo.createdAt).toLocaleString()}</span></div>
+                    <div class="meta-row"><span class="meta-key">ID</span><span class="meta-val" title="${id}">${id.substring(0, 8)}...</span></div>
                 </div>
             `;
             for (const dir of Object.keys(groups)) {
@@ -151,14 +226,47 @@ class PhotoApp {
                 });
                 html += `</div>`;
             }
-            sidebar.innerHTML = html;
+            this.sidebar.innerHTML = html;
         }
         catch (e) {
-            sidebar.innerHTML = '<div class="no-selection">Failed to load metadata</div>';
+            this.sidebar.innerHTML = 'Error loading metadata';
         }
     }
+    // --- Helpers ---
+    setupKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'g') {
+                this.enterGridMode();
+            }
+            // Arrow key navigation could be added here
+        });
+    }
+    setupResizer() {
+        const resizer = document.getElementById('resizer');
+        let isResizing = false;
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('resizing');
+            document.body.style.cursor = 'col-resize';
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing)
+                return;
+            const newWidth = document.body.clientWidth - e.clientX;
+            if (newWidth > 150 && newWidth < 800) {
+                document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+            }
+        });
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = 'default';
+            }
+        });
+    }
     requestImage(fileId, size) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const requestId = this.nextRequestId++;
             this.requestMap.set(requestId, resolve);
             const payload = { requestId, fileId, size };
@@ -173,48 +281,9 @@ class PhotoApp {
     processPending() {
         while (this.pendingRequests.length > 0 && this.isConnected && this.ws) {
             const req = this.pendingRequests.shift();
-            if (req) {
+            if (req)
                 this.ws.send(JSON.stringify(req));
-            }
         }
-    }
-    setupModal() {
-        const modal = document.getElementById('modal');
-        const closeBtn = document.querySelector('.modal-close');
-        if (!modal || !closeBtn)
-            return;
-        const close = () => {
-            modal.classList.remove('active');
-            const img = document.getElementById('modal-img');
-            if (img)
-                img.src = ''; // Clear memory
-        };
-        closeBtn.addEventListener('click', close);
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal)
-                close();
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape')
-                close();
-        });
-    }
-    openModal(photo) {
-        const modal = document.getElementById('modal');
-        const img = document.getElementById('modal-img');
-        const spinner = document.getElementById('modal-spinner');
-        if (!modal || !img || !spinner)
-            return;
-        modal.classList.add('active');
-        img.style.display = 'none';
-        spinner.style.display = 'block';
-        this.requestImage(photo.id, 1024).then(blob => {
-            img.src = URL.createObjectURL(blob);
-            img.onload = () => {
-                img.style.display = 'block';
-                spinner.style.display = 'none';
-            };
-        });
     }
 }
 new PhotoApp();

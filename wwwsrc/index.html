@@ -5,71 +5,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo Library</title>
     <style>
-        body { margin: 0; background: #1e1e1e; color: #ddd; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; }
+        :root { --sidebar-width: 300px; --filmstrip-height: 120px; }
+        body { margin: 0; background: #1e1e1e; color: #ddd; font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
         /* Header */
-        .status { padding: 5px 10px; background: #333; font-size: 0.8em; border-bottom: 1px solid #444; display: flex; justify-content: space-between; flex-shrink: 0; }
+        .status { padding: 0 10px; height: 30px; line-height: 30px; background: #333; font-size: 0.8em; border-bottom: 1px solid #444; display: flex; justify-content: space-between; flex-shrink: 0; user-select: none; }
         #connection-status { color: #f00; }
         #connection-status.connected { color: #0f0; }
 
         /* Main Layout */
-        .container { display: flex; flex: 1; overflow: hidden; }
+        .workspace { display: flex; flex: 1; overflow: hidden; position: relative; }
         
-        /* Grid Area */
-        .main-content { flex: 1; overflow-y: auto; padding: 10px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-        
-        .card { background: #2b2b2b; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; border: 2px solid transparent; }
-        .card.selected { border-color: #0078d7; background: #333; }
-        
-        .img-container { height: 160px; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-        .img-container img { max-width: 100%; max-height: 100%; object-fit: contain; display: none; }
-        .img-container.loaded img { display: block; }
-        .img-container .spinner { width: 20px; height: 20px; border: 2px solid #555; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; position: absolute; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .info { padding: 8px; font-size: 0.8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .date { color: #888; font-size: 0.9em; }
+        /* Center Area (Grid or Loupe) */
+        .center-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 
-        /* Sidebar */
-        .sidebar { width: 300px; background: #252526; border-left: 1px solid #333; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; flex-shrink: 0; }
+        /* Grid View */
+        .grid-view { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; align-content: start; }
+        .grid-view.hidden { display: none; }
+
+        /* Loupe View (Preview + Filmstrip) */
+        .loupe-view { flex: 1; display: flex; flex-direction: column; background: #111; display: none; }
+        .loupe-view.active { display: flex; }
+        
+        .preview-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+        .preview-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        
+        .filmstrip { height: var(--filmstrip-height); background: #252526; border-top: 1px solid #333; display: flex; overflow-x: auto; align-items: center; padding: 0 10px; gap: 10px; flex-shrink: 0; }
+        
+        /* Shared Card Styles */
+        .card { background: #2b2b2b; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; position: relative; }
+        .card.selected { border-color: #0078d7; }
+        
+        /* Grid Card specific */
+        .grid-view .card { height: 220px; }
+        .grid-view .img-container { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        
+        /* Filmstrip Card specific */
+        .filmstrip .card { height: 90px; width: 120px; }
+        .filmstrip .img-container { height: 100%; width: 100%; background: #000; }
+        .filmstrip .info { display: none; } /* Hide info in filmstrip */
+
+        .img-container img { width: 100%; height: 100%; object-fit: cover; display: none; }
+        .img-container.loaded img { display: block; }
+
+        .info { padding: 5px; font-size: 0.75em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #2b2b2b; }
+        .date { color: #888; font-size: 0.9em; display: none; }
+
+        /* Sidebar (Metadata) */
+        .sidebar { width: var(--sidebar-width); background: #252526; border-left: 1px solid #333; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; flex-shrink: 0; min-width: 200px; max-width: 600px; }
         .sidebar h2 { margin-top: 0; font-size: 1.1em; color: #fff; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
+        
+        .resizer { width: 5px; background: #333; cursor: col-resize; flex-shrink: 0; z-index: 100; transition: background 0.2s; }
+        .resizer:hover, .resizer.resizing { background: #0078d7; }
+
+        /* Metadata Styling */
         .meta-group { margin-bottom: 15px; }
-        .meta-group h3 { font-size: 0.9em; color: #aaa; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 0.05em; }
-        .meta-row { display: flex; font-size: 0.85em; padding: 2px 0; }
+        .meta-group h3 { font-size: 0.85em; color: #aaa; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+        .meta-row { display: flex; font-size: 0.85em; padding: 2px 0; border-bottom: 1px solid #333; }
         .meta-key { color: #888; width: 40%; padding-right: 10px; overflow: hidden; text-overflow: ellipsis; }
         .meta-val { color: #ddd; flex: 1; word-break: break-word; }
-        .no-selection { color: #666; font-style: italic; text-align: center; margin-top: 50px; }
+        
+        /* Utilities */
+        .spinner { width: 20px; height: 20px; border: 2px solid #555; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+        .center-spinner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Modal */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; }
-        .modal.active { display: flex; }
-        .modal-content { max-width: 95%; max-height: 95%; position: relative; }
-        .modal-content img { max-width: 100%; max-height: 90vh; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        .modal-close { position: absolute; top: -30px; right: 0; color: #fff; cursor: pointer; font-size: 24px; }
-        .modal-spinner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
     </style>
 </head>
 <body>
     <div class="status">
         <span>Photo Library</span>
-        <span id="connection-status">Disconnected</span>
+        <span>
+            <span id="view-mode">Grid View</span> | 
+            <span id="connection-status">Disconnected</span>
+        </span>
     </div>
 
-    <div class="container">
-        <div class="main-content">
-            <div id="app" class="grid">Loading photos...</div>
+    <div class="workspace">
+        <div class="center-panel">
+            <!-- Grid Mode -->
+            <div id="grid-view" class="grid-view"></div>
+            
+            <!-- Loupe Mode -->
+            <div id="loupe-view" class="loupe-view">
+                <div class="preview-area">
+                    <div class="spinner center-spinner" id="preview-spinner"></div>
+                    <img id="main-preview" src="" alt="">
+                </div>
+                <div id="filmstrip" class="filmstrip"></div>
+            </div>
         </div>
+
+        <div class="resizer" id="resizer"></div>
+        
         <div class="sidebar" id="sidebar">
-            <div class="no-selection">Select a photo to view metadata</div>
-        </div>
-    </div>
-
-    <div class="modal" id="modal">
-        <div class="modal-content">
-            <span class="modal-close">&times;</span>
-            <div class="spinner modal-spinner" id="modal-spinner"></div>
-            <img id="modal-img" src="" alt="Full View">
+            <div style="color:#666; text-align:center; margin-top:50px;">Select a photo</div>
         </div>
     </div>
 
