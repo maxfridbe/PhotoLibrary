@@ -66,8 +66,17 @@ namespace PhotoLibrary
             });
 
             // Static Files (Embedded)
-            app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
-            app.MapGet("/app.js", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.app.js", "application/javascript"));
+            app.MapGet("/{*path}", (string path) => {
+                if (string.IsNullOrEmpty(path)) path = "index.html";
+                string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
+                
+                string contentType = "application/octet-stream";
+                if (path.EndsWith(".html")) contentType = "text/html";
+                else if (path.EndsWith(".js")) contentType = "application/javascript";
+                else if (path.EndsWith(".css")) contentType = "text/css";
+                
+                return ServeEmbeddedFile(resourceName, contentType);
+            });
 
             Console.WriteLine($"Web server running on port {port}");
             app.Run();

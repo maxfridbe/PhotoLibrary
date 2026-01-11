@@ -17,6 +17,10 @@
   <Target Name="CompileTypeScript" BeforeTargets="Build">
     <Exec Command="tsc" />
     <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
+    <ItemGroup>
+      <LibFiles Include="wwwsrc/lib/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LibFiles)" DestinationFolder="wwwroot/lib/%(RecursiveDir)" />
   </Target>
 
   <ItemGroup>
