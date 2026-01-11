@@ -20,6 +20,12 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA journal_mode=WAL;";
+                command.ExecuteNonQuery();
+            }
+
             string[] commands = new[] {
                 @"CREATE TABLE IF NOT EXISTS RootPaths (
                     Id TEXT PRIMARY KEY,
