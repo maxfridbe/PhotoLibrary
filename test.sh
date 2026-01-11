@@ -11,6 +11,16 @@ echo "Running test with --testone..."
 # Check if db was created
 if [ -f "test.db" ]; then
     echo "Success: Database created."
+    echo "=========================================="
+    echo "Dumping Table: FileEntry"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM FileEntry;"
+    
+    echo ""
+    echo "=========================================="
+    echo "Dumping Table: Metadata"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM Metadata;"
 else
     echo "Failure: Database not created."
 fi
