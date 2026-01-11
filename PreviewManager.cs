@@ -24,16 +24,18 @@ namespace PhotoLibrary
                 walCommand.ExecuteNonQuery();
             }
 
-            var command = connection.CreateCommand();
-            command.CommandText = @"
-                CREATE TABLE IF NOT EXISTS Previews (
-                    FileId TEXT,
-                    LongEdge INTEGER,
-                    Data BLOB,
-                    PRIMARY KEY (FileId, LongEdge)
-                );
-            ";
-            command.ExecuteNonQuery();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS Previews (
+                        FileId TEXT,
+                        LongEdge INTEGER,
+                        Data BLOB,
+                        PRIMARY KEY (FileId, LongEdge)
+                    );
+                ";
+                command.ExecuteNonQuery();
+            }
         }
 
         public bool HasPreview(string fileId, int longEdge)
