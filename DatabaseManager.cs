@@ -20,17 +20,15 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            var command = connection.CreateCommand();
-            command.CommandText = @"
-                CREATE TABLE IF NOT EXISTS RootPaths (
+            string[] commands = new[] {
+                @"CREATE TABLE IF NOT EXISTS RootPaths (
                     Id TEXT PRIMARY KEY,
                     ParentId TEXT,
                     Name TEXT,
                     FOREIGN KEY(ParentId) REFERENCES RootPaths(Id),
                     UNIQUE(ParentId, Name)
-                );
-
-                CREATE TABLE IF NOT EXISTS FileEntry (
+                );",
+                @"CREATE TABLE IF NOT EXISTS FileEntry (
                     Id TEXT PRIMARY KEY,
                     RootPathId TEXT,
                     FileName TEXT,
@@ -39,31 +37,33 @@ namespace PhotoLibrary
                     ModifiedAt TEXT,
                     FOREIGN KEY(RootPathId) REFERENCES RootPaths(Id),
                     UNIQUE(RootPathId, FileName)
-                );
-
-                CREATE TABLE IF NOT EXISTS Metadata (
+                );",
+                @"CREATE TABLE IF NOT EXISTS Metadata (
                     FileId TEXT,
                     Directory TEXT,
                     Tag TEXT,
                     Value TEXT,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
-                );
-
-                CREATE TABLE IF NOT EXISTS PickedImages (
+                );",
+                @"CREATE TABLE IF NOT EXISTS PickedImages (
                     FileId TEXT PRIMARY KEY,
                     PickedAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
-                );
-
-                CREATE TABLE IF NOT EXISTS ImageRatings (
+                );",
+                @"CREATE TABLE IF NOT EXISTS ImageRatings (
                     FileId TEXT PRIMARY KEY,
                     Rating INTEGER,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
-                );
+                );",
+                @"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);"
+            };
 
-                CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);
-            ";
-            command.ExecuteNonQuery();
+            foreach (var cmdText in commands)
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = cmdText;
+                command.ExecuteNonQuery();
+            }
         }
 
         // Creates a top-level root (ParentId IS NULL)
@@ -210,7 +210,6 @@ namespace PhotoLibrary
             connection.Open();
             
             var command = connection.CreateCommand();
-            // Left join to get Picked status and Rating
             command.CommandText = @"
                 SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
                        CASE WHEN p.FileId IS NOT NULL THEN 1 ELSE 0 END as IsPicked,

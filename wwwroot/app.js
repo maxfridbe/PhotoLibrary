@@ -9,15 +9,18 @@ class App {
         // State
         this.photos = [];
         this.photoMap = new Map();
+        this.roots = [];
         this.selectedId = null;
         this.selectedRootId = null;
-        this.filterPicked = false;
+        this.filterType = 'all';
+        this.filterRating = 0;
         this.isLoupeMode = false;
         // Components
         this.libraryEl = null;
         this.workspaceEl = null;
         this.metadataEl = null;
         // Workspace Elements
+        this.gridHeader = null;
         this.gridView = null;
         this.loupeView = null;
         this.filmstrip = null;
@@ -41,17 +44,21 @@ class App {
         };
         this.layout = new GoldenLayout(config, '#layout-container');
         const self = this;
-        this.layout.registerComponent('library', function (container, state) {
+        this.layout.registerComponent('library', function (container) {
             self.libraryEl = document.createElement('div');
             self.libraryEl.className = 'tree-view gl-component';
             container.getElement().append(self.libraryEl);
             if (self.photos.length > 0)
-                self.renderLibrary([]); // Roots will be loaded by loadData
+                self.renderLibrary();
         });
-        this.layout.registerComponent('workspace', function (container, state) {
+        this.layout.registerComponent('workspace', function (container) {
             self.workspaceEl = document.createElement('div');
             self.workspaceEl.className = 'gl-component';
             self.workspaceEl.innerHTML = `
+                <div id="grid-header" class="grid-header">
+                    <span id="header-text">All Photos</span>
+                    <span id="header-count">0 items</span>
+                </div>
                 <div id="grid-view" class="grid-view">Loading...</div>
                 <div id="loupe-view" class="loupe-view" style="display:none;">
                     <div class="preview-area">
@@ -62,6 +69,7 @@ class App {
                 </div>
             `;
             container.getElement().append(self.workspaceEl);
+            self.gridHeader = self.workspaceEl.querySelector('#grid-header');
             self.gridView = self.workspaceEl.querySelector('#grid-view');
             self.loupeView = self.workspaceEl.querySelector('#loupe-view');
             self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
@@ -79,10 +87,9 @@ class App {
             if (self.photos.length > 0)
                 self.renderGrid();
         });
-        this.layout.registerComponent('metadata', function (container, state) {
+        this.layout.registerComponent('metadata', function (container) {
             self.metadataEl = document.createElement('div');
             self.metadataEl.className = 'metadata-panel gl-component';
-            self.metadataEl.innerHTML = '<div style="color:#666;text-align:center;margin-top:20px;">Select a photo</div>';
             container.getElement().append(self.metadataEl);
         });
         this.layout.init();
@@ -94,10 +101,10 @@ class App {
                 fetch('/api/directories'),
                 fetch('/api/photos')
             ]);
-            const roots = await rootsRes.json();
+            this.roots = await rootsRes.json();
             this.photos = await photosRes.json();
             this.photoMap = new Map(this.photos.map(p => [p.id, p]));
-            this.renderLibrary(roots);
+            this.renderLibrary();
             this.renderGrid();
         }
         catch (e) {
@@ -105,38 +112,42 @@ class App {
         }
     }
     // --- Library Tree ---
-    renderLibrary(roots) {
+    renderLibrary() {
         if (!this.libraryEl)
             return;
         this.libraryEl.innerHTML = '';
-        // Picked Node
-        const pickedBtn = document.createElement('div');
-        pickedBtn.className = 'tree-item';
-        pickedBtn.innerText = '⚑ Picked';
-        pickedBtn.onclick = () => this.filterByRoot(null, pickedBtn, true);
-        this.libraryEl.appendChild(pickedBtn);
+        // Collections Section
+        const collHeader = document.createElement('div');
+        collHeader.className = 'tree-section-header';
+        collHeader.innerText = 'Collections';
+        this.libraryEl.appendChild(collHeader);
         // All Photos
-        const allBtn = document.createElement('div');
-        allBtn.className = 'tree-item selected';
-        allBtn.innerText = 'All Photos';
-        allBtn.onclick = () => this.filterByRoot(null, allBtn, false);
-        this.libraryEl.appendChild(allBtn);
-        // Directory Tree
+        this.addTreeItem(this.libraryEl, 'All Photos', this.photos.length, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
+        // Picked
+        const pickedCount = this.photos.filter(p => p.isPicked).length;
+        this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        // Stars (1+)
+        const ratedCount = this.photos.filter(p => p.rating > 0).length;
+        this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
+        // Folders Section
+        const folderHeader = document.createElement('div');
+        folderHeader.className = 'tree-section-header';
+        folderHeader.innerText = 'Folders';
+        this.libraryEl.appendChild(folderHeader);
+        const treeContainer = document.createElement('div');
+        this.libraryEl.appendChild(treeContainer);
         const map = new Map();
-        roots.forEach(r => map.set(r.id, { node: r, children: [] }));
+        this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
         const tree = [];
-        roots.forEach(r => {
+        this.roots.forEach(r => {
             if (r.parentId && map.has(r.parentId))
                 map.get(r.parentId).children.push(map.get(r.id));
             else
                 tree.push(map.get(r.id));
         });
         const renderNode = (item, container) => {
-            const el = document.createElement('div');
-            el.className = 'tree-item';
-            el.innerText = item.node.name;
-            el.onclick = () => this.filterByRoot(item.node.id, el, false);
-            container.appendChild(el);
+            const count = this.photos.filter(p => p.rootPathId === item.node.id).length;
+            const el = this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
                 childContainer.className = 'tree-children';
@@ -144,36 +155,53 @@ class App {
                 container.appendChild(childContainer);
             }
         };
-        tree.forEach(t => renderNode(t, this.libraryEl));
+        tree.forEach(t => renderNode(t, treeContainer));
     }
-    filterByRoot(rootId, el, pickedOnly) {
-        var _a;
-        const current = (_a = this.libraryEl) === null || _a === void 0 ? void 0 : _a.querySelector('.selected');
-        if (current)
-            current.classList.remove('selected');
-        el.classList.add('selected');
+    addTreeItem(container, text, count, onClick, isSelected) {
+        const el = document.createElement('div');
+        el.className = 'tree-item' + (isSelected ? ' selected' : '');
+        el.innerHTML = `<span>${text}</span><span class="count">${count}</span>`;
+        el.onclick = onClick;
+        container.appendChild(el);
+        return el;
+    }
+    setFilter(type, rating = 0, rootId = null) {
+        this.filterType = type;
+        this.filterRating = rating;
         this.selectedRootId = rootId;
-        this.filterPicked = pickedOnly;
+        this.renderLibrary();
         this.renderGrid();
         if (this.isLoupeMode)
             this.renderFilmstrip();
     }
     getFilteredPhotos() {
         let list = this.photos;
-        if (this.filterPicked) {
+        if (this.filterType === 'picked')
             list = list.filter(p => p.isPicked);
-        }
-        else if (this.selectedRootId) {
+        else if (this.filterType === 'rating')
+            list = list.filter(p => p.rating >= this.filterRating);
+        if (this.selectedRootId)
             list = list.filter(p => p.rootPathId === this.selectedRootId);
-        }
         return list;
     }
     // --- Workspace ---
     renderGrid() {
-        if (!this.gridView)
+        if (!this.gridView || !this.gridHeader)
             return;
         this.gridView.innerHTML = '';
         const photos = this.getFilteredPhotos();
+        // Update Header
+        let headerText = "All Photos";
+        if (this.filterType === 'picked')
+            headerText = "Collection: Picked";
+        else if (this.filterType === 'rating')
+            headerText = "Collection: Starred";
+        else if (this.selectedRootId) {
+            const root = this.roots.find(r => r.id === this.selectedRootId);
+            headerText = root ? `Folder: ${root.name}` : "Folder";
+        }
+        this.gridHeader.querySelector('#header-text').innerHTML = `Showing <b>${headerText}</b>`;
+        this.gridHeader.querySelector('#header-count').innerText = `${photos.length} items`;
         photos.forEach(p => {
             const card = this.createCard(p, 'grid');
             this.gridView.appendChild(card);
@@ -209,24 +237,10 @@ class App {
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
-            const top = document.createElement('div');
-            top.className = 'info-top';
-            const nameSpan = document.createElement('span');
-            nameSpan.innerText = p.fileName;
-            const pickBtn = document.createElement('span');
-            pickBtn.className = `pick-btn ${p.isPicked ? 'picked' : ''}`;
-            pickBtn.innerHTML = '⚑';
-            pickBtn.onclick = (e) => { e.stopPropagation(); this.togglePick(p.id); };
-            top.appendChild(nameSpan);
-            top.appendChild(pickBtn);
-            const bottom = document.createElement('div');
-            bottom.className = 'info-bottom';
-            const stars = document.createElement('span');
-            stars.className = `stars ${p.rating > 0 ? 'has-rating' : ''}`;
-            stars.innerText = '★'.repeat(p.rating) || '☆☆☆☆☆';
-            bottom.appendChild(stars);
-            info.appendChild(top);
-            info.appendChild(bottom);
+            info.innerHTML = `
+                <div class="info-top"><span>${p.fileName}</span><span class="pick-btn ${p.isPicked ? 'picked' : ''}" onclick="event.stopPropagation(); app.togglePick('${p.id}')">⚑</span></div>
+                <div class="info-bottom"><span class="stars ${p.rating > 0 ? 'has-rating' : ''}">` + ('★'.repeat(p.rating) || '☆☆☆☆☆') + `</span></div>
+            `;
             card.appendChild(info);
             card.addEventListener('dblclick', () => this.enterLoupeMode(p.id));
         }
@@ -264,6 +278,7 @@ class App {
     enterLoupeMode(id) {
         this.isLoupeMode = true;
         this.gridView.style.display = 'none';
+        this.gridHeader.style.display = 'none';
         this.loupeView.style.display = 'flex';
         this.renderFilmstrip();
         this.selectPhoto(id);
@@ -274,6 +289,7 @@ class App {
         this.isLoupeMode = false;
         this.loupeView.style.display = 'none';
         this.gridView.style.display = 'grid';
+        this.gridHeader.style.display = 'flex';
         if (this.selectedId) {
             const el = (_a = this.gridView) === null || _a === void 0 ? void 0 : _a.querySelector(`.card[data-id="${this.selectedId}"]`);
             el === null || el === void 0 ? void 0 : el.scrollIntoView({ behavior: 'auto', block: 'center' });
@@ -331,7 +347,6 @@ class App {
         if (!photo)
             return;
         photo.isPicked = !photo.isPicked;
-        // Optimistic UI update
         const picks = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
         picks === null || picks === void 0 ? void 0 : picks.forEach(p => {
             if (photo.isPicked)
@@ -341,11 +356,12 @@ class App {
         });
         if (this.selectedId === id)
             this.loadMetadata(id);
+        this.renderLibrary(); // Update count
         try {
             await fetch(`/api/pick/${id}?isPicked=${photo.isPicked}`, { method: 'POST' });
         }
-        catch (e) {
-            photo.isPicked = !photo.isPicked; // Revert
+        catch (_b) {
+            photo.isPicked = !photo.isPicked;
         }
     }
     async setRating(id, rating) {
@@ -356,7 +372,6 @@ class App {
         if (!photo)
             return;
         photo.rating = rating;
-        // Optimistic UI update
         const stars = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .stars`);
         stars === null || stars === void 0 ? void 0 : stars.forEach(s => {
             const el = s;
@@ -368,10 +383,11 @@ class App {
         });
         if (this.selectedId === id)
             this.loadMetadata(id);
+        this.renderLibrary(); // Update count
         try {
             await fetch(`/api/rate/${id}/${rating}`, { method: 'POST' });
         }
-        catch (e) {
+        catch (_b) {
             console.error('Failed to set rating');
         }
     }
