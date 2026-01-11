@@ -1,88 +1,57 @@
 # PhotoLibrary
 
-A C# CLI application designed to scan photo directories and index metadata into a SQLite database efficiently, optimized for slow network drives (CIFS/SMB). It also supports generating binary image previews.
+A high-performance C# CLI application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. It is specifically optimized for slow network drives (CIFS/SMB) and large photo libraries.
 
 ## Features
-- **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
-- **Preview Generation**: Generates resized JPG previews stored in a separate SQLite database.
-- **Sidecar Optimization**: When generating previews for RAW files (e.g., .ARW), checks for existing sidecar JPGs to use as the source, saving bandwidth and processing time.
-- **Hierarchical Path Normalization**: Uses a `RootPaths` table to store folder structures. The parent of your scan target is treated as the "Base Root", allowing for easy library relocation.
-- **Metadata Extraction**: Utilizes `MetadataExtractor` to pull Exif, XMP, and other tags.
-- **Smart Filtering**: Automatically ignores "Unknown tags" to keep the database clean and useful.
-- **Deduplication**: Uses `UPSERT` logic to update existing file records if they are re-scanned.
+
+-   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
+-   **Web Interface (viewer)**:
+    -   **Grid View**: Fast thumbnail grid with lazy loading.
+    -   **Loupe View**: High-resolution preview with a filmstrip for quick navigation.
+    -   **Metadata Sidebar**: Resizable panel showing detailed Exif, XMP, and system metadata.
+    -   **WebSocket Delivery**: Uses a custom binary WebSocket protocol for ultra-efficient image streaming.
+-   **Preview System**: 
+    -   Generates resized JPG previews stored in a separate SQLite database.
+    -   **Sidecar Optimization**: When processing RAW files (e.g., .ARW), it automatically uses sibling JPGs as the source to save bandwidth.
+-   **Hierarchical Path Normalization**: Stores folder structures in a `RootPaths` table, treating the scan target's parent as a "Base Root" for easy library relocation.
+-   **Smart Filtering**: Automatically ignores "Unknown tags" and non-essential metadata.
 
 ## Usage
 
 ### Prerequisites
 - .NET 8.0 SDK
-- `sqlite3` (optional, for manual DB inspection)
-- Native dependencies for Magick.NET (handled automatically in the self-contained build)
+- TypeScript (`tsc`) for web asset compilation (handled automatically during `dotnet build`)
+- `sqlite3` for manual database inspection
 
 ### Commands
 ```bash
-./run.sh --library <database_path> --updatemd <directory_to_scan> [OPTIONS]
+./run.sh --library <path> --updatemd <dir> [OPTIONS]
 ```
 
-### Options
-- `--library <path>`: **(Required)** Path to the main SQLite database file (stores metadata and file info).
-- `--updatemd <path>`: **(Required)** Directory to scan for images.
-- `--testone`: (Optional) Stop after processing the first file found. Useful for debugging or quick tests.
-- `--updatepreviews`: (Optional) Enable preview generation.
-- `--previewdb <path>`: (Required if `--updatepreviews` is used) Path to the SQLite database for storing previews.
-- `--longedge <pixels>`: (Required if `--updatepreviews` is used) The target size for the long edge of the preview. Can be specified multiple times for different sizes (e.g., `--longedge 1024 --longedge 300`).
-- `--host <port>`: (Optional) Starts a web server on the specified port to view the library (e.g., `--host 8080`). Requires `--library` and `--previewdb`.
+#### Options
+-   `--library <path>`: Path to the metadata SQLite database.
+-   `--updatemd <path>`: Directory to scan for images.
+-   `--updatepreviews`: Enable preview generation.
+-   `--previewdb <path>`: Path to the previews SQLite database.
+-   `--longedge <pixels>`: Target size for previews (e.g., `--longedge 1024 --longedge 300`).
+-   `--host <port>`: Starts the web viewer on the specified port.
+-   `--testone`: Stop after processing the first file found (debugging).
 
-### Example
-Scan a directory, extract metadata, and generate 1024px and 300px previews:
-```bash
-./run.sh \
-  --library raid.db \
-  --updatemd ~/Pictures/raid/2025 \
-  --updatepreviews \
-  --previewdb previews.db \
-  --longedge 1024 \
-  --longedge 300
-```
-
-### Hosting the Viewer
-Start the web viewer on port 8080:
-```bash
-./run.sh \
-  --library raid.db \
-  --previewdb previews.db \
-  --host 8080
-```
+### UI Controls
+-   **Single Click**: Select a photo and load metadata into the sidebar.
+-   **Double Click**: Enter **Loupe View** (full-page preview).
+-   **'G' Key**: Return to **Grid View**.
+-   **Sidebar Resizer**: Drag the left edge of the metadata panel to resize.
 
 ### Helper Scripts
-- `./run.sh`: Wrapper for `dotnet run`.
-- `./test.sh`: Runs a test scan on local sample images and dumps the resulting database tables.
-- `./publish.sh`: Compiles a self-contained, single-file executable for Linux-x64 into the `./dist` folder (includes native libraries).
+-   `./run.sh`: Wrapper for `dotnet run`.
+-   `./test.sh`: Generates a 10-file test set from your library and dumps database tables.
+-   `./testhost.sh`: Quickly launches the web viewer (port 8080) using test data.
+-   `./publish.sh`: Creates a self-contained, single-file Linux-x64 executable in `./dist`.
 
 ## Database Schema
 
-### Table: RootPaths
-Stores the directory hierarchy.
-- `Id`: GUID (Primary Key)
-- `ParentId`: GUID (Self-referencing Foreign Key)
-- `Name`: Folder name (or absolute base path for top-level roots)
-
-### Table: FileEntry
-Stores basic file information.
-- `Id`: GUID (Primary Key)
-- `RootPathId`: Foreign Key to `RootPaths.Id`
-- `FileName`: The name of the file
-- `Size`: File size in bytes
-- `CreatedAt` / `ModifiedAt`: ISO-8601 timestamps
-
-### Table: Metadata
-Stores extracted metadata tags.
-- `FileId`: Foreign Key to `FileEntry.Id`
-- `Directory`: The metadata group (e.g., Exif IFD0, XMP, Sony)
-- `Tag`: The name of the tag (e.g., Model, Exposure Time)
-- `Value`: The string representation of the metadata value
-
-### Table: Previews (in `previewdb`)
-Stores binary image previews.
-- `FileId`: Foreign Key to `FileEntry.Id` (from the main library DB)
-- `LongEdge`: The size of the preview (integer)
-- `Data`: BLOB (Binary JPG data)
+-   **RootPaths**: Recursive folder hierarchy.
+-   **FileEntry**: Core file records (references `RootPaths`).
+-   **Metadata**: Key-Value pairs for all extracted photo data.
+-   **Previews**: Binary JPG blobs indexed by `FileId` and `LongEdge` size.
