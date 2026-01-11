@@ -238,5 +238,27 @@ namespace PhotoLibrary
             }
             return items;
         }
+
+        public IEnumerable<RootPathEntry> GetAllRootPaths()
+        {
+            var items = new List<RootPathEntry>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(new RootPathEntry
+                {
+                    Id = reader.GetString(0),
+                    ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    Name = reader.GetString(2)
+                });
+            }
+            return items;
+        }
     }
 }

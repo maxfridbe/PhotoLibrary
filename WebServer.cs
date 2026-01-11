@@ -37,6 +37,13 @@ namespace PhotoLibrary
                 return Results.Ok(metadata);
             });
 
+            // API: Get Directories
+            app.MapGet("/api/directories", (DatabaseManager db) =>
+            {
+                var roots = db.GetAllRootPaths();
+                return Results.Ok(roots);
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {
