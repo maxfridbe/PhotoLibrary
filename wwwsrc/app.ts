@@ -95,6 +95,7 @@ class App {
 
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => {
                 if (e.key.toLowerCase() === 'g') self.enterGridMode();
+                if (e.key.toLowerCase() === 'l') { if (self.selectedId) self.enterLoupeMode(self.selectedId); }
                 if (e.key.toLowerCase() === 'p') self.togglePick(self.selectedId);
                 if (e.key >= '0' && e.key <= '5') self.setRating(self.selectedId, parseInt(e.key));
             });
@@ -431,6 +432,10 @@ class App {
 document.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() === 'g') {
         (window as any).app.enterGridMode();
+    }
+    if (e.key.toLowerCase() === 'l') {
+        const app = (window as any).app;
+        if (app.selectedId) app.enterLoupeMode(app.selectedId);
     }
 });
 
