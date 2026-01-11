@@ -101,9 +101,10 @@ namespace PhotoLibrary
             return Convert.ToInt32(command.ExecuteScalar());
         }
 
-        public IEnumerable<FileEntry> GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
+        public PagedPhotosResponse GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null)
         {
-            var entries = new List<FileEntry>();
+            var result = new PagedPhotosResponse();
+            var entries = new List<PhotoResponse>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             
@@ -136,7 +137,7 @@ namespace PhotoLibrary
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                entries.Add(new FileEntry {
+                entries.Add(new PhotoResponse {
                     Id = reader.GetString(0),
                     RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
                     FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
@@ -147,8 +148,12 @@ namespace PhotoLibrary
                     Rating = reader.GetInt32(7)
                 });
             }
-            return entries;
+            result.Photos = entries;
+            result.Total = GetTotalPhotoCount(rootId, pickedOnly, rating, specificIds);
+            return result;
         }
+
+        // --- Collections ---
 
         public string CreateCollection(string name)
         {
@@ -197,9 +202,9 @@ namespace PhotoLibrary
             transaction.Commit();
         }
 
-        public IEnumerable<(string Id, string Name, int Count)> GetCollections()
+        public IEnumerable<CollectionResponse> GetCollections()
         {
-            var list = new List<(string, string, int)>();
+            var list = new List<CollectionResponse>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
@@ -210,7 +215,7 @@ namespace PhotoLibrary
                 GROUP BY c.Id, c.Name 
                 ORDER BY c.Name";
             using var reader = command.ExecuteReader();
-            while (reader.Read()) list.Add((reader.GetString(0), reader.GetString(1), reader.GetInt32(2)));
+            while (reader.Read()) list.Add(new CollectionResponse { Id = reader.GetString(0), Name = reader.GetString(1), Count = reader.GetInt32(2) });
             return list;
         }
 
@@ -362,21 +367,16 @@ namespace PhotoLibrary
             transaction.Commit();
         }
 
-        public IEnumerable<FileEntry> GetAllPhotos()
+        public IEnumerable<RootPathResponse> GetAllRootPaths()
         {
-            return GetPhotosPaged(1000, 0);
-        }
-
-        public IEnumerable<RootPathEntry> GetAllRootPaths()
-        {
-            var items = new List<RootPathEntry>();
+            var items = new List<RootPathResponse>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
             using var reader = command.ExecuteReader();
             while (reader.Read()) {
-                items.Add(new RootPathEntry {
+                items.Add(new RootPathResponse {
                     Id = reader.GetString(0),
                     ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
                     Name = reader.GetString(2)
@@ -385,9 +385,9 @@ namespace PhotoLibrary
             return items;
         }
 
-        public IEnumerable<MetadataItem> GetMetadata(string fileId)
+        public IEnumerable<MetadataItemResponse> GetMetadata(string fileId)
         {
-            var items = new List<MetadataItem>();
+            var items = new List<MetadataItemResponse>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var command = connection.CreateCommand();
@@ -395,7 +395,7 @@ namespace PhotoLibrary
             command.Parameters.AddWithValue("$FileId", fileId);
             using var reader = command.ExecuteReader();
             while (reader.Read()) {
-                items.Add(new MetadataItem {
+                items.Add(new MetadataItemResponse {
                     Directory = reader.IsDBNull(0) ? null : reader.GetString(0),
                     Tag = reader.IsDBNull(1) ? null : reader.GetString(1),
                     Value = reader.IsDBNull(2) ? null : reader.GetString(2)
@@ -449,28 +449,18 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var stats = new StatsResponse();
-
             var pickedCmd = connection.CreateCommand();
             pickedCmd.CommandText = "SELECT COUNT(*) FROM PickedImages";
             stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
-
             var ratingCmd = connection.CreateCommand();
             ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
             using var reader = ratingCmd.ExecuteReader();
-            while (reader.Read())
-            {
+            while (reader.Read()) {
                 int r = reader.GetInt32(0);
                 int count = reader.GetInt32(1);
                 if (r >= 1 && r <= 5) stats.RatingCounts[r - 1] = count;
             }
-
             return stats;
-        }
-
-        public class StatsResponse
-        {
-            public int PickedCount { get; set; }
-            public int[] RatingCounts { get; set; } = new int[5]; // 1, 2, 3, 4, 5
         }
     }
 }

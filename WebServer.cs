@@ -35,9 +35,8 @@ namespace PhotoLibrary
             {
                 var req = await context.Request.ReadFromJsonAsync<PagedPhotosRequest>();
                 if (req == null) return Results.BadRequest();
-                var photos = db.GetPhotosPaged(req.limit ?? 100, req.offset ?? 0, req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
-                int total = db.GetTotalPhotoCount(req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
-                return Results.Ok(new { photos, total });
+                var response = db.GetPhotosPaged(req.limit ?? 100, req.offset ?? 0, req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
+                return Results.Ok(response);
             });
 
             app.MapPost("/api/metadata", async (HttpContext context, DatabaseManager db) =>
