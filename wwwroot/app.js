@@ -10,12 +10,15 @@ class App {
         this.photos = [];
         this.photoMap = new Map();
         this.roots = [];
+        this.userCollections = [];
         this.selectedId = null;
         this.selectedRootId = null;
+        this.selectedCollectionId = null;
         this.filterType = 'all';
         this.filterRating = 0;
         this.searchResultIds = [];
         this.searchTitle = '';
+        this.collectionFiles = []; // IDs for current selected collection
         this.isLoupeMode = false;
         this.reconnectAttempts = 0;
         this.maxReconnectDelay = 256000;
@@ -34,6 +37,7 @@ class App {
         this.connectWs();
         this.loadData();
         this.setupGlobalKeyboard();
+        this.setupContextMenu();
     }
     initLayout() {
         const config = {
@@ -95,12 +99,14 @@ class App {
     }
     async loadData() {
         try {
-            const [rootsRes, photosRes] = await Promise.all([
+            const [rootsRes, photosRes, collsRes] = await Promise.all([
                 fetch('/api/directories'),
-                fetch('/api/photos')
+                fetch('/api/photos'),
+                fetch('/api/collections')
             ]);
             this.roots = await rootsRes.json();
             this.photos = await photosRes.json();
+            this.userCollections = await collsRes.json();
             this.photoMap = new Map(this.photos.map(p => [p.id, p]));
             this.renderLibrary();
             this.renderGrid();
@@ -124,12 +130,8 @@ class App {
         const searchInput = document.createElement('input');
         searchInput.className = 'search-input';
         searchInput.placeholder = 'Tag search...';
-        searchInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                // Basic text search on filename for now or similar
-                this.searchPhotos('FileName', searchInput.value);
-            }
-        };
+        searchInput.onkeydown = (e) => { if (e.key === 'Enter')
+            this.searchPhotos('FileName', searchInput.value); };
         searchBox.appendChild(searchInput);
         this.libraryEl.appendChild(searchBox);
         if (this.filterType === 'search') {
@@ -141,8 +143,17 @@ class App {
         collHeader.innerText = 'Collections';
         this.libraryEl.appendChild(collHeader);
         this.addTreeItem(this.libraryEl, 'All Photos', this.photos.length, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
+        // Picked item with context menu
         const pickedCount = this.photos.filter(p => p.isPicked).length;
-        this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
+        // User Collections
+        this.userCollections.forEach(c => {
+            const el = this.addTreeItem(this.libraryEl, '📁 ' + c.name, 0, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
+            // Note: counts for collections could be loaded but keeping it simple for now
+        });
+        // Stars (1+)
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
         // Folders Section
@@ -163,7 +174,7 @@ class App {
         });
         const renderNode = (item, container) => {
             const count = this.photos.filter(p => p.rootPathId === item.node.id).length;
-            const el = this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
+            this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
                 childContainer.className = 'tree-children';
@@ -176,7 +187,7 @@ class App {
     addTreeItem(container, text, count, onClick, isSelected) {
         const el = document.createElement('div');
         el.className = 'tree-item' + (isSelected ? ' selected' : '');
-        el.innerHTML = `<span>${text}</span><span class="count">${count}</span>`;
+        el.innerHTML = `<span>${text}</span><span class="count">${count > 0 ? count : ''}</span>`;
         el.onclick = onClick;
         container.appendChild(el);
         return el;
@@ -185,6 +196,18 @@ class App {
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
+        this.selectedCollectionId = null;
+        this.renderLibrary();
+        this.renderGrid();
+        if (this.isLoupeMode)
+            this.renderFilmstrip();
+    }
+    async setCollectionFilter(c) {
+        this.filterType = 'collection';
+        this.selectedCollectionId = c.id;
+        this.selectedRootId = null;
+        const res = await fetch(`/api/collections/${c.id}/files`);
+        this.collectionFiles = await res.json();
         this.renderLibrary();
         this.renderGrid();
         if (this.isLoupeMode)
@@ -198,22 +221,102 @@ class App {
             list = list.filter(p => p.rating >= this.filterRating);
         else if (this.filterType === 'search')
             list = list.filter(p => this.searchResultIds.includes(p.id));
+        else if (this.filterType === 'collection')
+            list = list.filter(p => this.collectionFiles.includes(p.id));
         if (this.selectedRootId)
             list = list.filter(p => p.rootPathId === this.selectedRootId);
         return list;
     }
-    async searchPhotos(tag, value) {
-        try {
-            const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
-            this.searchResultIds = await res.json();
-            this.searchTitle = `${tag}: ${value}`;
-            this.setFilter('search');
-        }
-        catch (e) {
-            console.error("Search failed", e);
-        }
+    // --- Context Menus ---
+    setupContextMenu() {
+        document.addEventListener('click', () => {
+            const menu = document.getElementById('context-menu');
+            if (menu)
+                menu.style.display = 'none';
+        });
     }
-    // --- Workspace ---
+    showPickedContextMenu(e) {
+        const menu = document.getElementById('context-menu');
+        menu.innerHTML = '';
+        const clear = document.createElement('div');
+        clear.className = 'context-menu-item';
+        clear.innerText = 'Clear All Picked';
+        clear.onclick = () => this.clearAllPicked();
+        menu.appendChild(clear);
+        const divider = document.createElement('div');
+        divider.className = 'context-menu-divider';
+        menu.appendChild(divider);
+        const storeNew = document.createElement('div');
+        storeNew.className = 'context-menu-item';
+        storeNew.innerText = 'Store to new collection...';
+        storeNew.onclick = () => this.storePickedToCollection(null);
+        menu.appendChild(storeNew);
+        this.userCollections.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            item.innerText = `Store to '${c.name}'`;
+            item.onclick = () => this.storePickedToCollection(c.id);
+            menu.appendChild(item);
+        });
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
+    showCollectionContextMenu(e, c) {
+        const menu = document.getElementById('context-menu');
+        menu.innerHTML = '';
+        const del = document.createElement('div');
+        del.className = 'context-menu-item';
+        del.innerText = 'Remove Collection';
+        del.onclick = () => this.deleteCollection(c.id);
+        menu.appendChild(del);
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
+    async clearAllPicked() {
+        await fetch('/api/picked/clear', { method: 'POST' });
+        this.photos.forEach(p => p.isPicked = false);
+        this.renderLibrary();
+        this.renderGrid();
+    }
+    async storePickedToCollection(id) {
+        const pickedIds = this.photos.filter(p => p.isPicked).map(p => p.id);
+        if (pickedIds.length === 0)
+            return;
+        if (id === null) {
+            const name = prompt('New Collection Name:');
+            if (!name)
+                return;
+            const res = await fetch(`/api/collections?name=${encodeURIComponent(name)}`, { method: 'POST' });
+            const coll = await res.json();
+            this.userCollections.push(coll);
+            id = coll.id;
+        }
+        await fetch(`/api/collections/${id}/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pickedIds)
+        });
+        this.renderLibrary();
+    }
+    async deleteCollection(id) {
+        if (!confirm('Are you sure you want to remove this collection?'))
+            return;
+        await fetch(`/api/collections/${id}`, { method: 'DELETE' });
+        this.userCollections = this.userCollections.filter(c => c.id !== id);
+        if (this.selectedCollectionId === id)
+            this.setFilter('all');
+        else
+            this.renderLibrary();
+    }
+    // --- Core Logic ---
+    async searchPhotos(tag, value) {
+        const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
+        this.searchResultIds = await res.json();
+        this.searchTitle = `${tag}: ${value}`;
+        this.setFilter('search');
+    }
     renderGrid() {
         if (!this.gridView || !this.gridHeader)
             return;
@@ -226,26 +329,24 @@ class App {
             headerText = "Collection: Starred";
         else if (this.filterType === 'search')
             headerText = "Search: " + this.searchTitle;
+        else if (this.filterType === 'collection') {
+            const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
+            headerText = "Collection: " + ((c === null || c === void 0 ? void 0 : c.name) || "");
+        }
         else if (this.selectedRootId) {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
         this.gridHeader.querySelector('#header-text').innerHTML = `Showing <b>${headerText}</b>`;
         this.gridHeader.querySelector('#header-count').innerText = `${photos.length} items`;
-        photos.forEach(p => {
-            const card = this.createCard(p, 'grid');
-            this.gridView.appendChild(card);
-        });
+        photos.forEach(p => this.gridView.appendChild(this.createCard(p, 'grid')));
     }
     renderFilmstrip() {
         if (!this.filmstrip)
             return;
         this.filmstrip.innerHTML = '';
         const photos = this.getFilteredPhotos();
-        photos.forEach(p => {
-            const card = this.createCard(p, 'filmstrip');
-            this.filmstrip.appendChild(card);
-        });
+        photos.forEach(p => this.filmstrip.appendChild(this.createCard(p, 'filmstrip')));
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el)
@@ -349,13 +450,7 @@ class App {
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
-        const priorityTags = [
-            'Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value',
-            'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
-            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation',
-            'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size',
-            'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'
-        ];
+        const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
         this.metadataEl.innerHTML = 'Loading...';
         try {
@@ -375,8 +470,7 @@ class App {
             ];
             const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
                 const getMinPriority = (g) => {
-                    const tags = groups[g].map(i => i.tag);
-                    const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
+                    const priorities = groups[g].map(i => priorityTags.indexOf(i.tag)).filter(p => p !== -1);
                     return priorities.length > 0 ? Math.min(...priorities) : 999;
                 };
                 const pa = getMinPriority(a);
@@ -407,10 +501,12 @@ class App {
                 });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
+                    const tagEscaped = m.tag.replace(/'/g, "\\'");
+                    const valEscaped = m.value.replace(/'/g, "\\'");
                     html += `<div class="meta-row">
                         <span class="meta-key">${m.tag}</span>
                         <span class="meta-val">${m.value}</span>
-                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${m.tag.replace(/'/g, "\'")}', '${m.value.replace(/'/g, "\'")}')">🔍</span>
+                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${tagEscaped}', '${valEscaped}')">🔍</span>
                     </div>`;
                 });
                 html += `</div>`;

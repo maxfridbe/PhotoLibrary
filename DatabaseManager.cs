@@ -55,6 +55,17 @@ namespace PhotoLibrary
                     Rating INTEGER,
                     FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
                 );",
+                @"CREATE TABLE IF NOT EXISTS UserCollections (
+                    Id TEXT PRIMARY KEY,
+                    Name TEXT UNIQUE
+                );",
+                @"CREATE TABLE IF NOT EXISTS CollectionFiles (
+                    CollectionId TEXT,
+                    FileId TEXT,
+                    PRIMARY KEY (CollectionId, FileId),
+                    FOREIGN KEY(CollectionId) REFERENCES UserCollections(Id),
+                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                );",
                 @"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);"
             };
 
@@ -66,28 +77,124 @@ namespace PhotoLibrary
             }
         }
 
-        // Creates a top-level root (ParentId IS NULL)
+        // --- Collections ---
+
+        public string CreateCollection(string name)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            string id = Guid.NewGuid().ToString();
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO UserCollections (Id, Name) VALUES ($Id, $Name)";
+            command.Parameters.AddWithValue("$Id", id);
+            command.Parameters.AddWithValue("$Name", name);
+            command.ExecuteNonQuery();
+            return id;
+        }
+
+        public void DeleteCollection(string id)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            
+            var cmd1 = connection.CreateCommand();
+            cmd1.Transaction = transaction;
+            cmd1.CommandText = "DELETE FROM CollectionFiles WHERE CollectionId = $Id";
+            cmd1.Parameters.AddWithValue("$Id", id);
+            cmd1.ExecuteNonQuery();
+
+            var cmd2 = connection.CreateCommand();
+            cmd2.Transaction = transaction;
+            cmd2.CommandText = "DELETE FROM UserCollections WHERE Id = $Id";
+            cmd2.Parameters.AddWithValue("$Id", id);
+            cmd2.ExecuteNonQuery();
+
+            transaction.Commit();
+        }
+
+        public void AddFilesToCollection(string collectionId, IEnumerable<string> fileIds)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+
+            foreach (var fileId in fileIds)
+            {
+                var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "INSERT OR IGNORE INTO CollectionFiles (CollectionId, FileId) VALUES ($CId, $FId)";
+                command.Parameters.AddWithValue("$CId", collectionId);
+                command.Parameters.AddWithValue("$FId", fileId);
+                command.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+
+        public IEnumerable<(string Id, string Name)> GetCollections()
+        {
+            var list = new List<(string, string)>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT Id, Name FROM UserCollections ORDER BY Name";
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) list.Add((reader.GetString(0), reader.GetString(1)));
+            return list;
+        }
+
+        public IEnumerable<string> GetCollectionFiles(string collectionId)
+        {
+            var list = new List<string>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT FileId FROM CollectionFiles WHERE CollectionId = $Id";
+            command.Parameters.AddWithValue("$Id", collectionId);
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) list.Add(reader.GetString(0));
+            return list;
+        }
+
+        public void ClearPicked()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM PickedImages";
+            command.ExecuteNonQuery();
+        }
+
+        public IEnumerable<string> GetPickedIds()
+        {
+            var list = new List<string>();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT FileId FROM PickedImages";
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) list.Add(reader.GetString(0));
+            return list;
+        }
+
+        // --- Existing logic ---
+
         public string GetOrCreateBaseRoot(string absolutePath)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-            
             string id = EnsureRootPathExists(connection, transaction, null, absolutePath);
-            
             transaction.Commit();
             return id;
         }
 
-        // Creates a child node
         public string GetOrCreateChildRoot(string parentId, string name)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-            
             string id = EnsureRootPathExists(connection, transaction, parentId, name);
-            
             transaction.Commit();
             return id;
         }
@@ -96,21 +203,15 @@ namespace PhotoLibrary
         {
             var checkCmd = connection.CreateCommand();
             checkCmd.Transaction = transaction;
-            
-            if (parentId == null)
-            {
+            if (parentId == null) {
                 checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId IS NULL AND Name = $Name";
-            }
-            else
-            {
+            } else {
                 checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId = $ParentId AND Name = $Name";
                 checkCmd.Parameters.AddWithValue("$ParentId", parentId);
             }
             checkCmd.Parameters.AddWithValue("$Name", name);
-            
             var existingId = checkCmd.ExecuteScalar() as string;
             if (existingId != null) return existingId;
-
             string newId = Guid.NewGuid().ToString();
             var insertCmd = connection.CreateCommand();
             insertCmd.Transaction = transaction;
@@ -119,7 +220,6 @@ namespace PhotoLibrary
             insertCmd.Parameters.AddWithValue("$ParentId", (object?)parentId ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("$Name", name);
             insertCmd.ExecuteNonQuery();
-
             return newId;
         }
 
@@ -127,11 +227,9 @@ namespace PhotoLibrary
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-
             using var transaction = connection.BeginTransaction();
             var command = connection.CreateCommand();
             command.Transaction = transaction;
-
             command.CommandText = @"
                 INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
                 VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
@@ -140,7 +238,6 @@ namespace PhotoLibrary
                     CreatedAt = excluded.CreatedAt,
                     ModifiedAt = excluded.ModifiedAt;
             ";
-
             command.Parameters.AddWithValue("$Id", entry.Id);
             command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
@@ -148,23 +245,19 @@ namespace PhotoLibrary
             command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
             command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
             command.ExecuteNonQuery();
-
             var getIdCmd = connection.CreateCommand();
             getIdCmd.Transaction = transaction;
             getIdCmd.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
             getIdCmd.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
             getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
             var actualId = getIdCmd.ExecuteScalar() as string;
-
-            if (actualId != null)
-            {
+            if (actualId != null) {
                 var deleteCmd = connection.CreateCommand();
                 deleteCmd.Transaction = transaction;
                 deleteCmd.CommandText = "DELETE FROM Metadata WHERE FileId = $FileId";
                 deleteCmd.Parameters.AddWithValue("$FileId", actualId);
                 deleteCmd.ExecuteNonQuery();
             }
-            
             transaction.Commit();
         }
 
@@ -184,9 +277,7 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-
-            foreach (var item in items)
-            {
+            foreach (var item in items) {
                 var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = @"
@@ -199,7 +290,6 @@ namespace PhotoLibrary
                 command.Parameters.AddWithValue("$Value", item.Value ?? "");
                 command.ExecuteNonQuery();
             }
-
             transaction.Commit();
         }
 
@@ -208,7 +298,6 @@ namespace PhotoLibrary
             var entries = new List<FileEntry>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
             command.CommandText = @"
                 SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
@@ -218,12 +307,9 @@ namespace PhotoLibrary
                 LEFT JOIN PickedImages p ON f.Id = p.FileId
                 LEFT JOIN ImageRatings r ON f.Id = r.FileId
                 ORDER BY f.CreatedAt DESC LIMIT 1000";
-
             using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                entries.Add(new FileEntry
-                {
+            while (reader.Read()) {
+                entries.Add(new FileEntry {
                     Id = reader.GetString(0),
                     RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
                     FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
@@ -242,15 +328,11 @@ namespace PhotoLibrary
             var items = new List<RootPathEntry>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
-
             using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                items.Add(new RootPathEntry
-                {
+            while (reader.Read()) {
+                items.Add(new RootPathEntry {
                     Id = reader.GetString(0),
                     ParentId = reader.IsDBNull(1) ? null : reader.GetString(1),
                     Name = reader.GetString(2)
@@ -264,16 +346,12 @@ namespace PhotoLibrary
             var items = new List<MetadataItem>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Directory, Tag, Value FROM Metadata WHERE FileId = $FileId";
             command.Parameters.AddWithValue("$FileId", fileId);
-
             using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                items.Add(new MetadataItem
-                {
+            while (reader.Read()) {
+                items.Add(new MetadataItem {
                     Directory = reader.IsDBNull(0) ? null : reader.GetString(0),
                     Tag = reader.IsDBNull(1) ? null : reader.GetString(1),
                     Value = reader.IsDBNull(2) ? null : reader.GetString(2)
@@ -286,16 +364,9 @@ namespace PhotoLibrary
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
-            if (isPicked)
-            {
-                command.CommandText = "INSERT OR IGNORE INTO PickedImages (FileId) VALUES ($Id)";
-            }
-            else
-            {
-                command.CommandText = "DELETE FROM PickedImages WHERE FileId = $Id";
-            }
+            if (isPicked) command.CommandText = "INSERT OR IGNORE INTO PickedImages (FileId) VALUES ($Id)";
+            else command.CommandText = "DELETE FROM PickedImages WHERE FileId = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
             command.ExecuteNonQuery();
         }
@@ -304,19 +375,13 @@ namespace PhotoLibrary
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
-            if (rating > 0)
-            {
+            if (rating > 0) {
                 command.CommandText = @"
                     INSERT INTO ImageRatings (FileId, Rating) VALUES ($Id, $Rating)
                     ON CONFLICT(FileId) DO UPDATE SET Rating = excluded.Rating";
                 command.Parameters.AddWithValue("$Rating", rating);
-            }
-            else
-            {
-                command.CommandText = "DELETE FROM ImageRatings WHERE FileId = $Id";
-            }
+            } else command.CommandText = "DELETE FROM ImageRatings WHERE FileId = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
             command.ExecuteNonQuery();
         }
@@ -326,17 +391,12 @@ namespace PhotoLibrary
             var ids = new List<string>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            
             var command = connection.CreateCommand();
             command.CommandText = "SELECT DISTINCT FileId FROM Metadata WHERE Tag = $Tag AND Value = $Value";
             command.Parameters.AddWithValue("$Tag", tag);
             command.Parameters.AddWithValue("$Value", value);
-
             using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                ids.Add(reader.GetString(0));
-            }
+            while (reader.Read()) ids.Add(reader.GetString(0));
             return ids;
         }
     }

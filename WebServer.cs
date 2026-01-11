@@ -71,6 +71,48 @@ namespace PhotoLibrary
                 return Results.Ok(fileIds);
             });
 
+            // API: Collections
+            app.MapGet("/api/collections", (DatabaseManager db) =>
+            {
+                var list = db.GetCollections().Select(c => new { id = c.Id, name = c.Name });
+                return Results.Ok(list);
+            });
+
+            app.MapPost("/api/collections", (string name, DatabaseManager db) =>
+            {
+                var id = db.CreateCollection(name);
+                return Results.Ok(new { id, name });
+            });
+
+            app.MapDelete("/api/collections/{id}", (string id, DatabaseManager db) =>
+            {
+                db.DeleteCollection(id);
+                return Results.Ok();
+            });
+
+            app.MapPost("/api/collections/{id}/add", (string id, string[] fileIds, DatabaseManager db) =>
+            {
+                db.AddFilesToCollection(id, fileIds);
+                return Results.Ok();
+            });
+
+            app.MapGet("/api/collections/{id}/files", (string id, DatabaseManager db) =>
+            {
+                var fileIds = db.GetCollectionFiles(id);
+                return Results.Ok(fileIds);
+            });
+
+            app.MapPost("/api/picked/clear", (DatabaseManager db) =>
+            {
+                db.ClearPicked();
+                return Results.Ok();
+            });
+
+            app.MapGet("/api/picked/ids", (DatabaseManager db) =>
+            {
+                return Results.Ok(db.GetPickedIds());
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {

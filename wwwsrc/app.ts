@@ -5,6 +5,7 @@ declare var $: any;
 interface Photo { id: string; fileName: string; createdAt: string; rootPathId: string; isPicked: boolean; rating: number; size: number; }
 interface MetadataItem { directory: string; tag: string; value: string; }
 interface RootPath { id: string; parentId: string | null; name: string; }
+interface Collection { id: string; name: string; }
 interface ImageRequest { requestId: number; fileId: string; size: number; }
 
 class App {
@@ -19,12 +20,18 @@ class App {
     private photos: Photo[] = [];
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
+    private userCollections: Collection[] = [];
+    
     public selectedId: string | null = null;
     private selectedRootId: string | null = null;
-    private filterType: 'all' | 'picked' | 'rating' | 'search' = 'all';
+    private selectedCollectionId: string | null = null;
+    private filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
     private filterRating: number = 0;
+    
     private searchResultIds: string[] = [];
     private searchTitle: string = '';
+    private collectionFiles: string[] = []; // IDs for current selected collection
+
     private isLoupeMode = false;
     private reconnectAttempts = 0;
     private readonly maxReconnectDelay = 256000;
@@ -47,6 +54,7 @@ class App {
         this.connectWs();
         this.loadData();
         this.setupGlobalKeyboard();
+        this.setupContextMenu();
     }
 
     initLayout() {
@@ -90,14 +98,12 @@ class App {
                 </div>
             `;
             container.getElement().append(self.workspaceEl);
-            
             self.gridHeader = self.workspaceEl.querySelector('#grid-header');
             self.gridView = self.workspaceEl.querySelector('#grid-view');
             self.loupeView = self.workspaceEl.querySelector('#loupe-view');
             self.filmstrip = self.workspaceEl.querySelector('#filmstrip');
             self.mainPreview = self.workspaceEl.querySelector('#main-preview') as HTMLImageElement;
             self.previewSpinner = self.workspaceEl.querySelector('#preview-spinner');
-
             container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
@@ -115,12 +121,14 @@ class App {
 
     async loadData() {
         try {
-            const [rootsRes, photosRes] = await Promise.all([
+            const [rootsRes, photosRes, collsRes] = await Promise.all([
                 fetch('/api/directories'),
-                fetch('/api/photos')
+                fetch('/api/photos'),
+                fetch('/api/collections')
             ]);
             this.roots = await rootsRes.json();
             this.photos = await photosRes.json();
+            this.userCollections = await collsRes.json();
             this.photoMap = new Map(this.photos.map(p => [p.id, p]));
             this.renderLibrary();
             this.renderGrid();
@@ -137,21 +145,14 @@ class App {
         searchHeader.className = 'tree-section-header';
         searchHeader.innerText = 'Search';
         this.libraryEl.appendChild(searchHeader);
-
         const searchBox = document.createElement('div');
         searchBox.className = 'search-box';
         const searchInput = document.createElement('input');
         searchInput.className = 'search-input';
         searchInput.placeholder = 'Tag search...';
-        searchInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                // Basic text search on filename for now or similar
-                this.searchPhotos('FileName', searchInput.value);
-            }
-        };
+        searchInput.onkeydown = (e) => { if (e.key === 'Enter') this.searchPhotos('FileName', searchInput.value); };
         searchBox.appendChild(searchInput);
         this.libraryEl.appendChild(searchBox);
-
         if (this.filterType === 'search') {
             this.addTreeItem(this.libraryEl, '🔍 ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true);
         }
@@ -163,8 +164,20 @@ class App {
         this.libraryEl.appendChild(collHeader);
 
         this.addTreeItem(this.libraryEl, 'All Photos', this.photos.length, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId);
+        
+        // Picked item with context menu
         const pickedCount = this.photos.filter(p => p.isPicked).length;
-        this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        const pEl = this.addTreeItem(this.libraryEl, '⚑ Picked', pickedCount, () => this.setFilter('picked'), this.filterType === 'picked');
+        pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
+
+        // User Collections
+        this.userCollections.forEach(c => {
+            const el = this.addTreeItem(this.libraryEl!, '📁 ' + c.name, 0, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id);
+            el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
+            // Note: counts for collections could be loaded but keeping it simple for now
+        });
+
+        // Stars (1+)
         const ratedCount = this.photos.filter(p => p.rating > 0).length;
         this.addTreeItem(this.libraryEl, '★ Starred (1+)', ratedCount, () => this.setFilter('rating', 1), this.filterType === 'rating');
 
@@ -173,10 +186,8 @@ class App {
         folderHeader.className = 'tree-section-header';
         folderHeader.innerText = 'Folders';
         this.libraryEl.appendChild(folderHeader);
-
         const treeContainer = document.createElement('div');
         this.libraryEl.appendChild(treeContainer);
-
         const map = new Map<string, { node: RootPath, children: any[] }>();
         this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
         const tree: any[] = [];
@@ -184,10 +195,9 @@ class App {
             if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id));
             else tree.push(map.get(r.id));
         });
-
         const renderNode = (item: any, container: HTMLElement) => {
             const count = this.photos.filter(p => p.rootPathId === item.node.id).length;
-            const el = this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
+            this.addTreeItem(container, item.node.name, count, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id);
             if (item.children.length > 0) {
                 const childContainer = document.createElement('div');
                 childContainer.className = 'tree-children';
@@ -201,7 +211,7 @@ class App {
     addTreeItem(container: HTMLElement, text: string, count: number, onClick: () => void, isSelected: boolean) {
         const el = document.createElement('div');
         el.className = 'tree-item' + (isSelected ? ' selected' : '');
-        el.innerHTML = `<span>${text}</span><span class="count">${count}</span>`;
+        el.innerHTML = `<span>${text}</span><span class="count">${count > 0 ? count : ''}</span>`;
         el.onclick = onClick;
         container.appendChild(el);
         return el;
@@ -211,6 +221,18 @@ class App {
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
+        this.selectedCollectionId = null;
+        this.renderLibrary();
+        this.renderGrid();
+        if (this.isLoupeMode) this.renderFilmstrip();
+    }
+
+    async setCollectionFilter(c: Collection) {
+        this.filterType = 'collection';
+        this.selectedCollectionId = c.id;
+        this.selectedRootId = null;
+        const res = await fetch(`/api/collections/${c.id}/files`);
+        this.collectionFiles = await res.json();
         this.renderLibrary();
         this.renderGrid();
         if (this.isLoupeMode) this.renderFilmstrip();
@@ -221,53 +243,136 @@ class App {
         if (this.filterType === 'picked') list = list.filter(p => p.isPicked);
         else if (this.filterType === 'rating') list = list.filter(p => p.rating >= this.filterRating);
         else if (this.filterType === 'search') list = list.filter(p => this.searchResultIds.includes(p.id));
-        
+        else if (this.filterType === 'collection') list = list.filter(p => this.collectionFiles.includes(p.id));
         if (this.selectedRootId) list = list.filter(p => p.rootPathId === this.selectedRootId);
         return list;
     }
 
-    async searchPhotos(tag: string, value: string) {
-        try {
-            const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
-            this.searchResultIds = await res.json();
-            this.searchTitle = `${tag}: ${value}`;
-            this.setFilter('search');
-        } catch (e) {
-            console.error("Search failed", e);
-        }
+    // --- Context Menus ---
+    setupContextMenu() {
+        document.addEventListener('click', () => {
+            const menu = document.getElementById('context-menu');
+            if (menu) menu.style.display = 'none';
+        });
     }
 
-    // --- Workspace ---
+    showPickedContextMenu(e: MouseEvent) {
+        const menu = document.getElementById('context-menu')!;
+        menu.innerHTML = '';
+        
+        const clear = document.createElement('div');
+        clear.className = 'context-menu-item';
+        clear.innerText = 'Clear All Picked';
+        clear.onclick = () => this.clearAllPicked();
+        menu.appendChild(clear);
+
+        const divider = document.createElement('div');
+        divider.className = 'context-menu-divider';
+        menu.appendChild(divider);
+
+        const storeNew = document.createElement('div');
+        storeNew.className = 'context-menu-item';
+        storeNew.innerText = 'Store to new collection...';
+        storeNew.onclick = () => this.storePickedToCollection(null);
+        menu.appendChild(storeNew);
+
+        this.userCollections.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            item.innerText = `Store to '${c.name}'`;
+            item.onclick = () => this.storePickedToCollection(c.id);
+            menu.appendChild(item);
+        });
+
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
+
+    showCollectionContextMenu(e: MouseEvent, c: Collection) {
+        const menu = document.getElementById('context-menu')!;
+        menu.innerHTML = '';
+        const del = document.createElement('div');
+        del.className = 'context-menu-item';
+        del.innerText = 'Remove Collection';
+        del.onclick = () => this.deleteCollection(c.id);
+        menu.appendChild(del);
+
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
+
+    async clearAllPicked() {
+        await fetch('/api/picked/clear', { method: 'POST' });
+        this.photos.forEach(p => p.isPicked = false);
+        this.renderLibrary();
+        this.renderGrid();
+    }
+
+    async storePickedToCollection(id: string | null) {
+        const pickedIds = this.photos.filter(p => p.isPicked).map(p => p.id);
+        if (pickedIds.length === 0) return;
+
+        if (id === null) {
+            const name = prompt('New Collection Name:');
+            if (!name) return;
+            const res = await fetch(`/api/collections?name=${encodeURIComponent(name)}`, { method: 'POST' });
+            const coll = await res.json();
+            this.userCollections.push(coll);
+            id = coll.id;
+        }
+
+        await fetch(`/api/collections/${id}/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pickedIds)
+        });
+        this.renderLibrary();
+    }
+
+    async deleteCollection(id: string) {
+        if (!confirm('Are you sure you want to remove this collection?')) return;
+        await fetch(`/api/collections/${id}`, { method: 'DELETE' });
+        this.userCollections = this.userCollections.filter(c => c.id !== id);
+        if (this.selectedCollectionId === id) this.setFilter('all');
+        else this.renderLibrary();
+    }
+
+    // --- Core Logic ---
+    async searchPhotos(tag: string, value: string) {
+        const res = await fetch(`/api/search?tag=${encodeURIComponent(tag)}&value=${encodeURIComponent(value)}`);
+        this.searchResultIds = await res.json();
+        this.searchTitle = `${tag}: ${value}`;
+        this.setFilter('search');
+    }
+
     renderGrid() {
         if (!this.gridView || !this.gridHeader) return;
         this.gridView.innerHTML = '';
         const photos = this.getFilteredPhotos();
-
         let headerText = "All Photos";
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
         else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
+        else if (this.filterType === 'collection') {
+            const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
+            headerText = "Collection: " + (c?.name || "");
+        }
         else if (this.selectedRootId) {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
         (this.gridHeader.querySelector('#header-text') as HTMLElement).innerHTML = `Showing <b>${headerText}</b>`;
         (this.gridHeader.querySelector('#header-count') as HTMLElement).innerText = `${photos.length} items`;
-
-        photos.forEach(p => {
-            const card = this.createCard(p, 'grid');
-            this.gridView!.appendChild(card);
-        });
+        photos.forEach(p => this.gridView!.appendChild(this.createCard(p, 'grid')));
     }
 
     renderFilmstrip() {
         if (!this.filmstrip) return;
         this.filmstrip.innerHTML = '';
         const photos = this.getFilteredPhotos();
-        photos.forEach(p => {
-            const card = this.createCard(p, 'filmstrip');
-            this.filmstrip!.appendChild(card);
-        });
+        photos.forEach(p => this.filmstrip!.appendChild(this.createCard(p, 'filmstrip')));
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el) el.scrollIntoView({ behavior: 'auto', inline: 'center' });
@@ -285,7 +390,6 @@ class App {
         imgContainer.appendChild(img);
         this.lazyLoadImage(p.id, img, 300);
         card.appendChild(imgContainer);
-
         if (type === 'grid') {
             const info = document.createElement('div');
             info.className = 'info';
@@ -369,16 +473,8 @@ class App {
         if (!this.metadataEl) return;
         const photo = this.photoMap.get(id);
         if (!photo) return;
-
-        const priorityTags = [
-            'Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value',
-            'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make',
-            'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 
-            'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 
-            'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'
-        ];
+        const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
-
         this.metadataEl.innerHTML = 'Loading...';
         try {
             const res = await fetch(`/api/metadata/${id}`);
@@ -394,40 +490,35 @@ class App {
                 { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
                 { directory: 'File Info', tag: 'ID', value: id }
             ];
-
             const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
                 const getMinPriority = (g: string) => {
-                    const tags = groups[g].map(i => i.tag);
-                    const priorities = tags.map(t => priorityTags.indexOf(t)).filter(p => p !== -1);
+                    const priorities = groups[g].map(i => priorityTags.indexOf(i.tag)).filter(p => p !== -1);
                     return priorities.length > 0 ? Math.min(...priorities) : 999;
                 };
                 const pa = getMinPriority(a);
                 const pb = getMinPriority(b);
                 if (pa !== pb) return pa - pb;
-                let ia = groupOrder.indexOf(a);
-                let ib = groupOrder.indexOf(b);
-                if (ia === -1) ia = 999;
-                if (ib === -1) ib = 999;
+                let ia = groupOrder.indexOf(a); let ib = groupOrder.indexOf(b);
+                if (ia === -1) ia = 999; if (ib === -1) ib = 999;
                 return ia - ib;
             });
-
             let html = `<h2>${photo.fileName} ${photo.isPicked ? '⚑' : ''} ${photo.rating > 0 ? '★'.repeat(photo.rating) : ''}</h2>`;
             for (const k of sortedGroupKeys) {
                 const items = groups[k];
                 items.sort((a, b) => {
-                    let ia = priorityTags.indexOf(a.tag);
-                    let ib = priorityTags.indexOf(b.tag);
-                    if (ia === -1) ia = 999;
-                    if (ib === -1) ib = 999;
+                    let ia = priorityTags.indexOf(a.tag); let ib = priorityTags.indexOf(b.tag);
+                    if (ia === -1) ia = 999; if (ib === -1) ib = 999;
                     if (ia !== ib) return ia - ib;
                     return a.tag.localeCompare(b.tag);
                 });
                 html += `<div class="meta-group"><h3>${k}</h3>`;
                 items.forEach(m => {
+                    const tagEscaped = m.tag.replace(/'/g, "\\'");
+                    const valEscaped = m.value.replace(/'/g, "\\'");
                     html += `<div class="meta-row">
                         <span class="meta-key">${m.tag}</span>
                         <span class="meta-val">${m.value}</span>
-                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${m.tag.replace(/'/g, "\'")}', '${m.value.replace(/'/g, "\'")}')">🔍</span>
+                        <span class="meta-search-btn" title="Search for photos with this value" onclick="app.searchPhotos('${tagEscaped}', '${valEscaped}')">🔍</span>
                     </div>`;
                 });
                 html += `</div>`;
@@ -470,13 +561,8 @@ class App {
         if (key === 'l') { if (this.selectedId) this.enterLoupeMode(this.selectedId); }
         if (key === 'p') this.togglePick(this.selectedId);
         if (key >= '0' && key <= '5') this.setRating(this.selectedId, parseInt(key));
-        if (key === '?' || key === '/') {
-            if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); this.showShortcuts(); }
-        }
-        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
-            e.preventDefault();
-            this.navigate(e.key);
-        }
+        if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); this.showShortcuts(); } }
+        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) { e.preventDefault(); this.navigate(e.key); }
     }
 
     private navigate(key: string) {
@@ -486,7 +572,8 @@ class App {
         if (key === 'ArrowRight') index++;
         else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
-            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; } else {
+            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; }
+            else {
                 const grid = this.gridView!;
                 const cards = grid.children;
                 if (cards.length === 0) return;
@@ -514,7 +601,9 @@ class App {
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
         this.ws.binaryType = 'arraybuffer';
         this.ws.onopen = () => { this.isConnected = true; this.updateStatus(true); this.processPending(); };
-        this.ws.onclose = () => { this.isConnected = false; this.updateStatus(false);
+        this.ws.onclose = () => {
+            this.isConnected = false;
+            this.updateStatus(false);
             const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, this.maxReconnectDelay);
             this.reconnectAttempts++;
             setTimeout(() => this.connectWs(), delay); 
@@ -525,10 +614,9 @@ class App {
     updateStatus(connected: boolean, connecting: boolean = false) {
         const el = document.getElementById('connection-status');
         if (el) {
-            if (connecting) {
-                el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...';
-                el.style.color = '#aaa';
-            } else if (connected) { el.innerText = 'Connected'; el.style.color = '#0f0'; } else { el.innerText = 'Disconnected'; el.style.color = '#f00'; }
+            if (connecting) { el.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; vertical-align:middle; margin-right:5px;"></span> Connecting...'; el.style.color = '#aaa'; }
+            else if (connected) { el.innerText = 'Connected'; el.style.color = '#0f0'; }
+            else { el.innerText = 'Disconnected'; el.style.color = '#f00'; }
         }
     }
 
