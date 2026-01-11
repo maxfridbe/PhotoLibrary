@@ -5,21 +5,25 @@ A high-performance C# application designed to scan photo directories, index meta
 ## Features
 
 -   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
+-   **Smart Stacking (UI-Driven)**: 
+    *   Automatically groups JPG + RAW (ARW) pairs with identical names in the same folder.
+    *   **Prioritized Display**: RAW files are shown as the stack representative by default.
+    *   **Batch Actions**: Flagging or rating a stack representative automatically applies the action to all files in the group.
+    *   **Visual Indicators**: Grouped items show a layered card effect and a count badge (e.g., `(2)`).
+-   **Professional Fullscreen Viewer**:
+    *   **Staged Loading**: Shows an immediate blurred placeholder (1024px) followed by a smooth fade-in of the full-resolution render.
+    *   **On-Demand Rendering**: The backend renders high-quality JPEGs from RAW files instantly when requested.
+    *   **Orientation Aware**: Automatically respects EXIF orientation metadata for all previews and renders.
+    *   **Sticky Navigation**: Browse your entire library with arrow keys while remaining in fullscreen mode.
 -   **High-Performance Web Interface**:
-    -   **Virtualized Grid**: Custom rendering engine that supports hundreds of thousands of images by only rendering what's visible.
-    -   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes during navigation.
-    -   **Loupe View**: High-resolution preview with a reactive filmstrip for quick navigation.
-    -   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
-    -   **WebSocket Streaming**: Binary protocol for ultra-fast, low-overhead image delivery.
--   **Organization & Culling**:
-    -   **Star Ratings**: Rate photos 1-5 with instant sidebar count updates.
-    -   **Flags/Picks**: Flag photos for selection (`⚑`).
-    -   **User Collections**: Create custom collections and group flagged images effortlessly.
--   **Architecture**:
-    -   **Reactive PubSub Hub**: Decoupled UI components using a pattern-matching event system.
-    -   **Surgical Metadata Panel**: Updates only changed values using a DOM-diffing strategy to ensure stability.
-    -   **Type-Safe API**: TypeScript models and functions automatically generated from C# DTOs via a Roslyn-based source generator.
-    -   **Optimistic UI**: Immediate local feedback for ratings and flags, with background synchronization and error reversal.
+    *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images by only rendering visible items.
+    *   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes.
+    *   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
+    *   **Flexible Sorting**: Sort by Date, Name, Rating, or Size directly in the UI.
+    *   **WebSocket Streaming**: Custom binary protocol for ultra-fast image delivery.
+-   **Stability & Feedback**:
+    *   **Connection Tracking**: Status bar shows exact offline duration (e.g., `Disconnected (45s ago)`) during network interruptions.
+    *   **Graceful Shutdown**: Responds instantly to `Ctrl+C` via integrated cancellation tokens.
 
 ## Usage
 
@@ -42,15 +46,16 @@ A high-performance C# application designed to scan photo directories, index meta
 
 ### Shortcuts
 -   **'G'**: Grid View
--   **'L'**: Loupe View (requires a selected image)
--   **'P'**: Toggle Flag (Pick)
--   **'1' - '5'**: Set Star Rating
+-   **'L' / 'Enter' / 'Space'**: Loupe View (requires a selected image)
+-   **'F'**: Toggle Fullscreen High-Res View
+-   **'P'**: Toggle Flag (Pick) - applies to full stack if enabled
+-   **'1' - '5'**: Set Star Rating - applies to full stack if enabled
 -   **'0'**: Clear Star Rating
 -   **'?'**: Show Shortcuts Dialog
--   **Arrows**: Navigate Grid/Filmstrip
+-   **Arrows**: Navigate Grid/Filmstrip/Fullscreen
 
 ### Helper Scripts
--   `./test.sh`: Samples real images from RAID, preserving folder structure, and generates test DBs.
+-   `./test.sh`: Samples 100 real images from RAID, preserving folder structure, and generates test DBs.
 -   `./testhost.sh`: Launches the web viewer (port 8080) using test data.
 -   `./publish.sh`: Creates a self-contained, single-file executable in `./dist`.
 
@@ -59,6 +64,6 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **RootPaths**: Recursive folder hierarchy.
 -   **FileEntry**: Core file records.
 -   **Metadata**: Key-Value pairs for all photo data (Exif, XMP, etc.).
--   **PickedImages / ImageRatings**: User culling data.
+-   **images_picked / ImageRatings**: User culling data.
 -   **UserCollections / CollectionFiles**: Custom user grouping logic.
 -   **Previews**: Binary JPG blobs stored in a separate `previews.db`.

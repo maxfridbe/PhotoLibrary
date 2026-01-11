@@ -13,9 +13,13 @@ type RootPath = Res.RootPathResponse;
 type Collection = Res.CollectionResponse;
 type Stats = Res.StatsResponse;
 
+type SortOption = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'rating-desc' | 'size-desc';
+
 class App {
     public layout: any;
-    public photos: (Photo | null)[] = []; 
+    private allPhotosFlat: Photo[] = []; 
+    public photos: Photo[] = []; // Processed list
+    
     private photoMap: Map<string, Photo> = new Map();
     private roots: RootPath[] = [];
     public userCollections: Collection[] = [];
@@ -30,6 +34,8 @@ class App {
     public selectedCollectionId: string | null = null;
     public filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
     public filterRating: number = 0;
+    public stackingEnabled: boolean = false;
+    public sortBy: SortOption = 'date-desc';
     
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
@@ -42,6 +48,19 @@ class App {
     private isLoadingChunk = new Set<number>();
 
     public isLoupeMode = false;
+    
+    // Connection State
+    private disconnectedAt: number | null = null;
+    private isConnected: boolean = false;
+    private isConnecting: boolean = false;
+    private statusInterval: any = null;
+
+    // Fullscreen state
+    private isFullscreen: boolean = false;
+    private fullscreenOverlay: HTMLElement | null = null;
+    private fullscreenImgPlaceholder: HTMLImageElement | null = null;
+    private fullscreenImgHighRes: HTMLImageElement | null = null;
+    private fullscreenSpinner: HTMLElement | null = null;
 
     public libraryEl: HTMLElement | null = null;
     public workspaceEl: HTMLElement | null = null;
@@ -63,6 +82,7 @@ class App {
         this.setupGlobalKeyboard();
         this.setupContextMenu();
         this.initPubSub();
+        this.startStatusTimer();
     }
 
     private initPubSub() {
@@ -70,8 +90,16 @@ class App {
             this.selectedId = data.id;
             this.updateSelectionUI(data.id);
             this.loadMetadata(data.id);
-            if (this.isLoupeMode) this.loadMainPreview(data.id);
-            else this.scrollToPhoto(data.id);
+            
+            if (this.isFullscreen) {
+                this.updateFullscreenImage(data.id);
+            } else if (this.isLoupeMode) {
+                this.loadMainPreview(data.id);
+            } else {
+                this.scrollToPhoto(data.id);
+            }
+            
+            if (this.workspaceEl) this.workspaceEl.focus();
         });
 
         hub.sub('view.mode.changed', (data) => {
@@ -93,42 +121,122 @@ class App {
         hub.sub('shortcuts.show', () => document.getElementById('shortcuts-modal')?.classList.add('active'));
 
         hub.sub('ui.layout.changed', () => this.updateVirtualGrid());
-        hub.sub('connection.changed', (data) => this.updateStatusUI(data.connected, data.connecting));
+        
+        hub.sub('connection.changed', (data) => {
+            this.isConnected = data.connected;
+            this.isConnecting = data.connecting;
+            if (this.isConnected) {
+                this.disconnectedAt = null;
+            } else if (this.disconnectedAt === null) {
+                this.disconnectedAt = Date.now();
+            }
+            this.updateStatusUI();
+        });
+
         hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
+    }
+
+    private startStatusTimer() {
+        this.statusInterval = setInterval(() => {
+            if (this.disconnectedAt !== null) {
+                this.updateStatusUI();
+            }
+        }, 1000);
+    }
+
+    public toggleStacking(enabled: boolean) {
+        this.stackingEnabled = enabled;
+        this.processUIStacks();
+    }
+
+    public setSort(sort: SortOption) {
+        this.sortBy = sort;
+        this.processUIStacks();
     }
 
     private handlePhotoUpdate(photo: Photo) {
         this.photoMap.set(photo.id, photo);
-        const idx = this.photos.findIndex(p => p?.id === photo.id);
+        const updateTargets = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [photo.id];
         
-        let stillPasses = true;
-        if (this.filterType === 'picked' && !photo.isPicked) stillPasses = false;
-        else if (this.filterType === 'rating' && photo.rating !== this.filterRating) stillPasses = false;
-        else if (this.selectedRootId && photo.rootPathId !== this.selectedRootId) stillPasses = false;
-
-        if (stillPasses) {
-            if (idx !== -1) this.photos[idx] = photo;
-            this.updatePhotoCardUI(photo);
-        } else {
-            if (idx !== -1) {
-                this.photos.splice(idx, 1);
-                this.totalPhotos--;
-                this.cardCache.delete(photo.id);
-                this.renderGrid();
-                if (this.isLoupeMode) this.renderFilmstrip();
-                if (this.selectedId === photo.id) {
-                    const nextId = this.photos[idx]?.id || this.photos[idx-1]?.id || null;
-                    if (nextId) {
-                        const nextPhoto = this.photoMap.get(nextId);
-                        if (nextPhoto) hub.pub('photo.selected', { id: nextId, photo: nextPhoto });
-                    } else {
-                        this.selectedId = null;
-                        this.clearMetadata();
-                    }
-                }
+        this.allPhotosFlat.forEach(p => {
+            if (p && updateTargets.includes(p.id)) {
+                p.isPicked = photo.isPicked;
+                p.rating = photo.rating;
             }
+        });
+
+        this.processUIStacks();
+        
+        const rep = this.photos.find(p => p.id === photo.id || (p.stackFileIds && p.stackFileIds.includes(photo.id)));
+        if (rep) {
+            this.updatePhotoCardUI(rep);
         }
+        
         if (this.selectedId === photo.id) this.loadMetadata(photo.id);
+    }
+
+    private processUIStacks() {
+        let result: Photo[] = [];
+
+        if (!this.stackingEnabled) {
+            result = this.allPhotosFlat.map(p => ({
+                ...p, 
+                stackCount: 1, 
+                stackFileIds: [p.id], 
+                stackExtensions: p.fileName!.split('.').pop()?.toUpperCase()
+            }));
+        } else {
+            const groups = new Map<string, Photo[]>();
+            this.allPhotosFlat.forEach(p => {
+                const extIdx = p.fileName?.lastIndexOf('.') || -1;
+                const base = extIdx > 0 ? p.fileName!.substring(0, extIdx) : p.fileName!;
+                const key = `${p.rootPathId}|${base}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key)!.push(p);
+            });
+
+            result = Array.from(groups.values()).map(group => {
+                group.sort((a, b) => {
+                    const getRank = (fn: string) => {
+                        const ext = fn.split('.').pop()?.toUpperCase();
+                        if (ext === 'ARW') return 0;
+                        if (ext === 'JPG' || ext === 'JPEG') return 1;
+                        return 2;
+                    };
+                    return getRank(a.fileName!) - getRank(b.fileName!);
+                });
+
+                const rep = { ...group[0] };
+                rep.stackCount = group.length;
+                rep.stackFileIds = group.map(p => p.id);
+                rep.isPicked = group.some(p => p.isPicked);
+                rep.rating = Math.max(...group.map(p => p.rating));
+                
+                const exts = Array.from(new Set(group.map(p => p.fileName!.split('.').pop()?.toUpperCase())));
+                exts.sort();
+                rep.stackExtensions = exts.join(' + ');
+
+                return rep;
+            });
+        }
+
+        result.sort((a, b) => {
+            switch (this.sortBy) {
+                case 'date-desc': return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                case 'date-asc': return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                case 'name-asc': return (a.fileName || '').localeCompare(b.fileName || '');
+                case 'name-desc': return (b.fileName || '').localeCompare(a.fileName || '');
+                case 'rating-desc': return b.rating - a.rating;
+                case 'size-desc': return b.size - a.size;
+                default: return 0;
+            }
+        });
+
+        this.photos = result;
+        this.totalPhotos = this.photos.length;
+        
+        this.renderGrid();
+        if (this.isLoupeMode) this.renderFilmstrip();
     }
 
     private clearMetadata() {
@@ -156,28 +264,33 @@ class App {
         }, 3000);
     }
 
-    private updateStatusUI(connected: boolean, connecting: boolean = false) {
+    private updateStatusUI() {
         const el = document.getElementById('connection-status');
-        if (el) {
-            if (connecting) {
-                el.innerHTML = '';
-                const s = document.createElement('span');
-                s.className = 'spinner';
-                s.style.display = 'inline-block';
-                s.style.width = '10px';
-                s.style.height = '10px';
-                s.style.verticalAlign = 'middle';
-                s.style.marginRight = '5px';
-                el.appendChild(s);
-                el.appendChild(document.createTextNode(' Connecting...'));
-                el.style.color = '#aaa';
-            } else if (connected) {
-                el.textContent = 'Connected';
-                el.style.color = '#0f0';
-            } else {
-                el.textContent = 'Disconnected';
-                el.style.color = '#f00';
-            }
+        if (!el) return;
+
+        if (this.isConnected) {
+            el.textContent = 'Connected';
+            el.style.color = '#0f0';
+            return;
+        }
+
+        const secs = this.disconnectedAt ? Math.floor((Date.now() - this.disconnectedAt) / 1000) : 0;
+        let time = secs + 's';
+        if (secs > 60) time = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+
+        if (this.isConnecting) {
+            el.innerHTML = '';
+            const s = document.createElement('span');
+            s.className = 'spinner';
+            s.style.display = 'inline-block';
+            s.style.width = '10px'; s.style.height = '10px';
+            s.style.verticalAlign = 'middle'; s.style.marginRight = '5px';
+            el.appendChild(s);
+            el.appendChild(document.createTextNode(`Connecting... (${time} offline)`));
+            el.style.color = '#aaa';
+        } else {
+            el.textContent = `Disconnected (${time} ago)`;
+            el.style.color = '#f00';
         }
     }
 
@@ -214,24 +327,27 @@ class App {
     }
 
     async refreshPhotos() {
+        this.allPhotosFlat = [];
         this.photos = [];
         this.cardCache.clear();
         this.isLoadingChunk.clear();
+        
         const params: Req.PagedPhotosRequest = { 
-            limit: 100, offset: 0, 
+            limit: 100000, offset: 0, 
             rootId: this.selectedRootId || undefined, 
             pickedOnly: this.filterType === 'picked', 
             rating: this.filterRating, 
             specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
         };
         const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats({}) ]);
-        this.totalPhotos = data.total;
+        
+        this.allPhotosFlat = data.photos as Photo[];
+        this.photoMap.clear();
+        this.allPhotosFlat.forEach(p => this.photoMap.set(p.id, p));
+        
         this.stats = stats;
-        this.photos = new Array(this.totalPhotos).fill(null);
-        data.photos.forEach((p: Photo, i: number) => { this.photos[i] = p; this.photoMap.set(p.id, p); });
         this.renderLibrary();
-        this.renderGrid();
-        if (this.isLoupeMode) this.renderFilmstrip();
+        this.processUIStacks();
     }
 
     initLayout() {
@@ -265,11 +381,56 @@ class App {
             const headerText = document.createElement('span');
             headerText.id = 'header-text';
             headerText.textContent = 'All Photos';
+            
+            const headerRight = document.createElement('div');
+            headerRight.style.display = 'flex';
+            headerRight.style.alignItems = 'center';
+            headerRight.style.gap = '15px';
+
+            const sortLabel = document.createElement('label');
+            sortLabel.className = 'control-item';
+            sortLabel.textContent = 'Sort: ';
+            const sortSelect = document.createElement('select');
+            sortSelect.style.background = '#111'; sortSelect.style.color = '#ccc'; sortSelect.style.border = '1px solid #444'; sortSelect.style.fontSize = '0.9em';
+            const options: {val: SortOption, text: string}[] = [
+                { val: 'date-desc', text: 'Date (Newest)' },
+                { val: 'date-asc', text: 'Date (Oldest)' },
+                { val: 'name-asc', text: 'Name (A-Z)' },
+                { val: 'name-desc', text: 'Name (Z-A)' },
+                { val: 'rating-desc', text: 'Rating' },
+                { val: 'size-desc', text: 'Size' }
+            ];
+            options.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.val; opt.textContent = o.text;
+                if (o.val === self.sortBy) opt.selected = true;
+                sortSelect.appendChild(opt);
+            });
+            sortSelect.onchange = (e) => self.setSort((e.target as HTMLSelectElement).value as SortOption);
+            sortLabel.appendChild(sortSelect);
+
+            const stackLabel = document.createElement('label');
+            stackLabel.className = 'control-item';
+            stackLabel.title = 'Stack JPG/ARW files with same name';
+            const stackCheck = document.createElement('input');
+            stackCheck.type = 'checkbox';
+            stackCheck.checked = self.stackingEnabled;
+            stackCheck.onchange = (e) => self.toggleStacking((e.target as HTMLInputElement).checked);
+            const stackSpan = document.createElement('span');
+            stackSpan.textContent = 'Stacked';
+            stackLabel.appendChild(stackCheck);
+            stackLabel.appendChild(stackSpan);
+
             const headerCount = document.createElement('span');
             headerCount.id = 'header-count';
             headerCount.textContent = '0 items';
+            
+            headerRight.appendChild(sortLabel);
+            headerRight.appendChild(stackLabel);
+            headerRight.appendChild(headerCount);
+
             header.appendChild(headerText);
-            header.appendChild(headerCount);
+            header.appendChild(headerRight);
             self.workspaceEl.appendChild(header);
 
             const gridContainer = document.createElement('div');
@@ -325,7 +486,6 @@ class App {
             self.previewSpinner = spinner;
 
             gridContainer.onscroll = () => self.updateVirtualGrid();
-            container.getElement().get(0).addEventListener('keydown', (e: KeyboardEvent) => self.handleKey(e));
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
         });
@@ -378,6 +538,31 @@ class App {
             el.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
             if (photo.rating > 0) el.classList.add('has-rating'); else el.classList.remove('has-rating');
         }
+        
+        const nameEl = card.querySelector('.filename');
+        if (nameEl) {
+            let displayName = photo.fileName || '';
+            if (photo.stackExtensions && (this.stackingEnabled || photo.stackCount > 1)) {
+                const extIdx = displayName.lastIndexOf('.');
+                const base = extIdx > 0 ? displayName.substring(0, extIdx) : displayName;
+                displayName = `${base} (${photo.stackExtensions})`;
+            }
+            nameEl.textContent = displayName;
+        }
+
+        if (photo.stackCount > 1 && this.stackingEnabled) {
+            card.classList.add('is-stacked');
+            let badge = card.querySelector('.stack-badge');
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 'stack-badge';
+                card.appendChild(badge);
+            }
+            badge.textContent = photo.stackCount.toString();
+        } else {
+            card.classList.remove('is-stacked');
+            card.querySelector('.stack-badge')?.remove();
+        }
     }
 
     private updatePhotoCardUI(photo: Photo) {
@@ -405,7 +590,6 @@ class App {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.renderVisiblePhotos();
         }
-        this.checkMissingChunks(startIndex, endIndex);
     }
 
     renderVisiblePhotos() {
@@ -421,6 +605,8 @@ class App {
                 if (!card) {
                     card = this.createCard(photo, 'grid');
                     this.cardCache.set(photo.id, card);
+                } else {
+                    this.syncCardData(card, photo);
                 }
                 fragment.appendChild(card);
             } else {
@@ -438,35 +624,6 @@ class App {
         }
         this.gridView.innerHTML = '';
         this.gridView.appendChild(fragment);
-    }
-
-    async checkMissingChunks(start: number, end: number) {
-        const chunkSize = 100;
-        const startChunk = Math.floor(start / chunkSize);
-        const endChunk = Math.floor(end / chunkSize);
-        for (let c = startChunk; c <= endChunk; c++) {
-            const offset = c * chunkSize;
-            if (!this.isLoadingChunk.has(offset) && !this.photos[offset]) this.loadChunk(offset, chunkSize);
-        }
-    }
-
-    async loadChunk(offset: number, limit: number) {
-        this.isLoadingChunk.add(offset);
-        try {
-            const params: Req.PagedPhotosRequest = { 
-                limit, offset, 
-                rootId: this.selectedRootId || undefined, 
-                pickedOnly: this.filterType === 'picked', 
-                rating: this.filterRating, 
-                specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
-            };
-            const data = await Api.api_photos(params);
-            data.photos.forEach((p: Photo, i: number) => { 
-                this.photos[offset + i] = p; 
-                this.photoMap.set(p.id, p); 
-            });
-            this.renderVisiblePhotos();
-        } finally { this.isLoadingChunk.delete(offset); }
     }
 
     renderLibrary() {
@@ -601,7 +758,7 @@ class App {
         this.setFilter('search');
     }
 
-    public getFilteredPhotos(): Photo[] { return this.photos.filter(p => p !== null) as Photo[]; }
+    public getFilteredPhotos(): Photo[] { return this.photos; }
 
     renderGrid() {
         this.updateVirtualGrid(true);
@@ -640,31 +797,47 @@ class App {
         card.className = 'card';
         if (this.selectedId === p.id) card.classList.add('selected');
         card.dataset.id = p.id;
+        
         const imgContainer = document.createElement('div');
         imgContainer.className = 'img-container';
         const img = document.createElement('img');
         imgContainer.appendChild(img);
         this.lazyLoadImage(p.id, img, 300);
         card.appendChild(imgContainer);
+        
+        const info = document.createElement('div');
+        info.className = 'info';
+        
+        const top = document.createElement('div');
+        top.className = 'info-top';
+        const name = document.createElement('span'); name.className = 'filename'; 
+        top.appendChild(name);
+        
+        const pick = document.createElement('span'); pick.className = 'pick-btn' + (p.isPicked ? ' picked' : ''); pick.textContent = '\u2691';
+        pick.onclick = (e) => { e.stopPropagation(); server.togglePick(p); };
+        top.appendChild(pick);
+        
+        const mid = document.createElement('div');
+        mid.className = 'info-mid';
+        mid.textContent = new Date(p.createdAt).toISOString().split('T')[0];
+        
+        const bottom = document.createElement('div');
+        bottom.className = 'info-bottom';
+        const stars = document.createElement('span'); stars.className = 'stars' + (p.rating > 0 ? ' has-rating' : '');
+        stars.textContent = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
+        bottom.appendChild(stars);
+        
+        info.appendChild(top); 
+        info.appendChild(mid);
+        info.appendChild(bottom);
+        card.appendChild(info);
+        
         if (type === 'grid') {
-            const info = document.createElement('div');
-            info.className = 'info';
-            const top = document.createElement('div');
-            top.className = 'info-top';
-            const name = document.createElement('span'); name.textContent = p.fileName || '';
-            const pick = document.createElement('span'); pick.className = 'pick-btn' + (p.isPicked ? ' picked' : ''); pick.textContent = '\u2691';
-            pick.onclick = (e) => { e.stopPropagation(); server.togglePick(p); };
-            top.appendChild(name); top.appendChild(pick);
-            const bottom = document.createElement('div');
-            bottom.className = 'info-bottom';
-            const stars = document.createElement('span'); stars.className = 'stars' + (p.rating > 0 ? ' has-rating' : '');
-            stars.textContent = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
-            bottom.appendChild(stars);
-            info.appendChild(top); info.appendChild(bottom);
-            card.appendChild(info);
             card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
         }
         card.addEventListener('click', () => hub.pub('photo.selected', { id: p.id, photo: p }));
+        
+        this.syncCardData(card, p); 
         return card;
     }
 
@@ -698,7 +871,8 @@ class App {
         this.selectedId = id;
         this.updateSelectionUI(id);
         this.loadMetadata(id);
-        if (this.isLoupeMode) this.loadMainPreview(id);
+        if (this.isFullscreen) this.updateFullscreenImage(id);
+        else if (this.isLoupeMode) this.loadMainPreview(id);
     }
 
     scrollToPhoto(id: string) {
@@ -773,6 +947,97 @@ class App {
         });
     }
 
+    private updateFullscreenImage(id: string) {
+        if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner) return;
+        
+        // Reset states
+        this.fullscreenImgHighRes.classList.remove('loaded');
+        this.fullscreenSpinner.style.display = 'block';
+        
+        const lowResKey = id + '-1024';
+        
+        const requestFullRes = () => {
+            // 2. Request Full Res (size 0)
+            server.requestImage(id, 0).then(blob => {
+                if (this.selectedId === id && this.isFullscreen) {
+                    const url = URL.createObjectURL(blob);
+                    this.fullscreenImgHighRes!.src = url;
+                    this.fullscreenImgHighRes!.onload = () => {
+                        if (this.selectedId === id) {
+                            this.fullscreenImgHighRes!.classList.add('loaded');
+                            this.fullscreenSpinner!.style.display = 'none';
+                        }
+                    };
+                }
+            });
+        };
+
+        // 1. Stretched Placeholder (Large Preview 1024)
+        if (this.imageUrlCache.has(lowResKey)) {
+            this.fullscreenImgPlaceholder.src = this.imageUrlCache.get(lowResKey)!;
+            this.fullscreenImgPlaceholder.style.display = 'block';
+            requestFullRes();
+        } else {
+            this.fullscreenImgPlaceholder.style.display = 'none';
+            // Explicitly request 1024 first
+            server.requestImage(id, 1024).then(blob => {
+                const url = URL.createObjectURL(blob);
+                this.imageUrlCache.set(lowResKey, url);
+                if (this.selectedId === id && this.isFullscreen) {
+                    this.fullscreenImgPlaceholder!.src = url;
+                    this.fullscreenImgPlaceholder!.style.display = 'block';
+                    requestFullRes();
+                }
+            });
+        }
+    }
+
+    private toggleFullscreen() {
+        if (this.isFullscreen) {
+            this.fullscreenOverlay?.remove();
+            this.fullscreenOverlay = null;
+            this.fullscreenImgPlaceholder = null;
+            this.fullscreenImgHighRes = null;
+            this.fullscreenSpinner = null;
+            this.isFullscreen = false;
+            return;
+        }
+
+        if (!this.selectedId) return;
+        
+        this.isFullscreen = true;
+        const overlay = document.createElement('div');
+        overlay.className = 'fullscreen-overlay';
+        
+        const spinner = document.createElement('div'); spinner.className = 'spinner'; 
+        overlay.appendChild(spinner);
+        this.fullscreenSpinner = spinner;
+
+        // Placeholder Image (Blurred / Stretched)
+        const imgP = document.createElement('img'); 
+        imgP.className = 'fullscreen-img placeholder';
+        overlay.appendChild(imgP);
+        this.fullscreenImgPlaceholder = imgP;
+
+        // High-Res Image (Fades In)
+        const imgH = document.createElement('img');
+        imgH.className = 'fullscreen-img highres';
+        overlay.appendChild(imgH);
+        this.fullscreenImgHighRes = imgH;
+        
+        document.body.appendChild(overlay);
+        this.fullscreenOverlay = overlay;
+        
+        const closeBtn = document.createElement('div');
+        closeBtn.className = 'fullscreen-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.onclick = (e) => { e.stopPropagation(); this.toggleFullscreen(); };
+        overlay.appendChild(closeBtn);
+
+        overlay.onclick = () => this.toggleFullscreen();
+        this.updateFullscreenImage(this.selectedId);
+    }
+
     async loadMetadata(id: string) {
         if (!this.metadataEl || !id) return;
         const photo = this.photoMap.get(id);
@@ -800,7 +1065,6 @@ class App {
                 return ia - ib;
             });
 
-            // 1. Update Title surgically
             if (!this.metaTitleEl) {
                 this.metaTitleEl = document.createElement('h2');
                 this.metadataEl.appendChild(this.metaTitleEl);
@@ -809,7 +1073,6 @@ class App {
             const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
             this.metaTitleEl.textContent = `${photo.fileName} ${pickText} ${starsText}`;
 
-            // 2. Track which groups we use to remove leftovers
             const seenGroups = new Set<string>();
 
             for (const k of sortedGroupKeys) {
@@ -844,14 +1107,12 @@ class App {
                         groupInfo.container.appendChild(row);
                         groupInfo.rows.set(tagKey, row);
                     }
-                    // Only update the value part
                     const valSpan = row.querySelector('.meta-val') as HTMLElement;
                     valSpan.textContent = m.value || '';
                     const searchBtn = row.querySelector('.meta-search-btn') as HTMLElement;
                     searchBtn.onclick = () => hub.pub('search.triggered', { tag: m.tag!, value: m.value! });
                 }
 
-                // Cleanup rows no longer present in this group
                 for (const [tag, rowEl] of groupInfo.rows.entries()) {
                     if (!seenRows.has(tag)) {
                         rowEl.remove();
@@ -860,7 +1121,6 @@ class App {
                 }
             }
 
-            // Cleanup groups no longer present
             for (const [groupName, info] of this.metaGroups.entries()) {
                 if (!seenGroups.has(groupName)) {
                     info.container.remove();
@@ -875,39 +1135,64 @@ class App {
     }
 
     private handleKey(e: KeyboardEvent) {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+        
         const key = e.key.toLowerCase();
-        if (key === 'g') hub.pub('view.mode.changed', { mode: 'grid' });
-        if (key === 'l') { if (this.selectedId) hub.pub('view.mode.changed', { mode: 'loupe', id: this.selectedId }); }
+        if (key === 'escape') {
+            if (this.isFullscreen) this.toggleFullscreen();
+        }
+        if (key === 'g') {
+            if (this.isFullscreen) this.toggleFullscreen();
+            hub.pub('view.mode.changed', { mode: 'grid' });
+        }
+        if (key === 'l' || key === 'enter' || e.key === ' ') {
+            e.preventDefault();
+            if (this.isFullscreen) this.toggleFullscreen();
+            hub.pub('view.mode.changed', { mode: 'loupe', id: this.selectedId || undefined });
+        }
+        if (key === 'f') {
+            e.preventDefault();
+            this.toggleFullscreen();
+        }
         if (key === 'p') {
             if (this.selectedId) {
-                const p = this.photoMap.get(this.selectedId);
+                const p = this.photos.find(x => x.id === this.selectedId);
                 if (p) server.togglePick(p);
             }
         }
         if (key >= '0' && key <= '5') {
             if (this.selectedId) {
-                const p = this.photoMap.get(this.selectedId);
+                const p = this.photos.find(x => x.id === this.selectedId);
                 if (p) server.setRating(p, parseInt(key));
             }
         }
         if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); hub.pub('shortcuts.show', {}); } }
-        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) { e.preventDefault(); this.navigate(e.key); }
+        
+        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
+            e.preventDefault();
+            this.navigate(e.key);
+        }
     }
 
     private navigate(key: string) {
-        const photos = this.photos.filter(p => p !== null) as Photo[];
-        if (photos.length === 0) return;
-        let index = this.selectedId ? photos.findIndex(p => p?.id === this.selectedId) : -1;
-        if (key === 'ArrowRight') index++; else if (key === 'ArrowLeft') index--;
+        if (this.photos.length === 0) return;
+        
+        let index = this.selectedId ? this.photos.findIndex(p => p?.id === this.selectedId) : -1;
+        
+        if (key === 'ArrowRight') index++; 
+        else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
-            if (this.isLoupeMode) { if (key === 'ArrowDown') index++; else index--; }
+            if (this.isLoupeMode || this.isFullscreen) { if (key === 'ArrowDown') index++; else index--; }
             else { if (key === 'ArrowDown') index += this.cols; else index -= this.cols; }
         }
-        if (index >= 0 && index < photos.length) { const target = photos[index]; if (target) hub.pub('photo.selected', { id: target.id, photo: target }); }
+        
+        index = Math.max(0, Math.min(this.photos.length - 1, index));
+        const target = this.photos[index];
+        if (target) hub.pub('photo.selected', { id: target.id, photo: target });
     }
 
     private setupGlobalKeyboard() {
-        document.addEventListener('keydown', (e) => { if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return; if (e.key === '?' || (e.key === '/' && e.shiftKey)) hub.pub('shortcuts.show', {}); });
+        document.addEventListener('keydown', (e) => this.handleKey(e));
     }
 }
 

@@ -13,6 +13,9 @@ namespace PhotoLibrary
         public DateTime ModifiedAt { get; set; }
         public bool IsPicked { get; set; }
         public int Rating { get; set; }
+        public int StackCount { get; set; }
+        public string? StackExtensions { get; set; }
+        public List<string> StackFileIds { get; set; } = new();
     }
 
     public class PagedPhotosResponse

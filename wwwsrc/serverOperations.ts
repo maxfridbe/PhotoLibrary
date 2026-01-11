@@ -78,14 +78,15 @@ class ServerOperations {
         const newStatus = !original;
         photo.isPicked = newStatus;
         
-        // 1. Instant local visual update (card flag)
+        // 1. Instant local visual update (representative card)
         hub.pub('photo.updated', { id: photo.id, photo });
 
         try {
-            // 2. Wait for server confirmation
-            await Api.api_pick({ id: photo.id, isPicked: newStatus });
+            // 2. Perform actions for all IDs in stack
+            const ids = photo.stackFileIds || [photo.id];
+            await Promise.all(ids.map(id => Api.api_pick({ id, isPicked: newStatus })));
             
-            // 3. Trigger global stats refresh ONLY after DB is updated
+            // 3. Trigger global stats refresh
             if (newStatus) hub.pub('photo.picked.added', { id: photo.id });
             else hub.pub('photo.picked.removed', { id: photo.id });
         } catch {
@@ -99,15 +100,16 @@ class ServerOperations {
         const prev = photo.rating;
         if (prev === rating) return;
 
-        // 1. Instant local visual update (card stars)
+        // 1. Instant local visual update (representative card)
         photo.rating = rating;
         hub.pub('photo.updated', { id: photo.id, photo });
 
         try {
-            // 2. Wait for server confirmation
-            await Api.api_rate({ id: photo.id, rating: rating });
+            // 2. Perform actions for all IDs in stack
+            const ids = photo.stackFileIds || [photo.id];
+            await Promise.all(ids.map(id => Api.api_rate({ id, rating })));
 
-            // 3. Trigger global stats refresh ONLY after DB is updated
+            // 3. Trigger global stats refresh
             if (prev === 0 && rating > 0) hub.pub('photo.starred.added', { id: photo.id, rating });
             else if (prev > 0 && rating === 0) hub.pub('photo.starred.removed', { id: photo.id, previousRating: prev });
             else hub.pub('photo.starred.changed', { id: photo.id, rating, previousRating: prev });

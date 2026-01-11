@@ -32,6 +32,7 @@ namespace PhotoLibrary
                     Id TEXT PRIMARY KEY,
                     RootPathId TEXT,
                     FileName TEXT,
+                    BaseName TEXT,
                     Size INTEGER,
                     CreatedAt TEXT,
                     ModifiedAt TEXT,
@@ -145,7 +146,8 @@ namespace PhotoLibrary
                     CreatedAt = DateTime.Parse(reader.GetString(4)),
                     ModifiedAt = DateTime.Parse(reader.GetString(5)),
                     IsPicked = reader.GetInt32(6) == 1,
-                    Rating = reader.GetInt32(7)
+                    Rating = reader.GetInt32(7),
+                    StackCount = 1 // Default flat
                 });
             }
             result.Photos = entries;
@@ -305,14 +307,18 @@ namespace PhotoLibrary
             using var transaction = connection.BeginTransaction();
             var command = connection.CreateCommand();
             command.Transaction = transaction;
+            
+            string baseName = Path.GetFileNameWithoutExtension(entry.FileName ?? "");
+
             command.CommandText = @"
-                INSERT INTO FileEntry (Id, RootPathId, FileName, Size, CreatedAt, ModifiedAt)
-                VALUES ($Id, $RootPathId, $FileName, $Size, $CreatedAt, $ModifiedAt)
-                ON CONFLICT(RootPathId, FileName) DO UPDATE SET Size = excluded.Size, CreatedAt = excluded.CreatedAt, ModifiedAt = excluded.ModifiedAt;
+                INSERT INTO FileEntry (Id, RootPathId, FileName, BaseName, Size, CreatedAt, ModifiedAt)
+                VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt)
+                ON CONFLICT(RootPathId, FileName) DO UPDATE SET Size = excluded.Size, CreatedAt = excluded.CreatedAt, ModifiedAt = excluded.ModifiedAt, BaseName = excluded.BaseName;
             ";
             command.Parameters.AddWithValue("$Id", entry.Id);
             command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$BaseName", baseName);
             command.Parameters.AddWithValue("$Size", entry.Size);
             command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
             command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
@@ -332,6 +338,45 @@ namespace PhotoLibrary
                 deleteCmd.ExecuteNonQuery();
             }
             transaction.Commit();
+        }
+
+        public string? GetFullFilePath(string fileId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = @"
+                WITH RECURSIVE PathParts(Id, ParentId, Name) AS (
+                    SELECT r.Id, r.ParentId, r.Name 
+                    FROM RootPaths r
+                    JOIN FileEntry f ON f.RootPathId = r.Id
+                    WHERE f.Id = $FileId
+                    UNION ALL
+                    SELECT r.Id, r.ParentId, r.Name
+                    FROM RootPaths r
+                    JOIN PathParts p ON r.Id = p.ParentId
+                )
+                SELECT Name, (SELECT FileName FROM FileEntry WHERE Id = $FileId) as FileName
+                FROM PathParts";
+            
+            command.Parameters.AddWithValue("$FileId", fileId);
+            
+            var parts = new List<string>();
+            string? fileName = null;
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                parts.Add(reader.GetString(0));
+                fileName = reader.GetString(1);
+            }
+
+            if (parts.Count == 0 || fileName == null) return null;
+
+            parts.Reverse();
+            var allParts = parts.Append(fileName).ToArray();
+            return Path.Combine(allParts);
         }
 
         public string? GetFileId(string rootPathId, string fileName)

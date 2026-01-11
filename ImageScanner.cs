@@ -71,7 +71,6 @@ namespace PhotoLibrary
 
         private void ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
         {
-            // Resolve Directory
             string? dirPath = file.DirectoryName;
             if (dirPath == null) return;
 
@@ -125,11 +124,9 @@ namespace PhotoLibrary
 
             if (fileId != null)
             {
-                // Metadata (1MB header)
                 var metadata = ExtractMetadata(file);
                 _db.InsertMetadata(fileId, metadata);
 
-                // Previews (Full file / Sidecar)
                 if (_previewManager != null && _longEdges.Length > 0)
                 {
                     GeneratePreviews(file, fileId);
@@ -139,7 +136,6 @@ namespace PhotoLibrary
 
         private void GeneratePreviews(FileInfo file, string fileId)
         {
-            // Check if we need previews
             bool missingAny = false;
             foreach (var size in _longEdges)
             {
@@ -152,13 +148,11 @@ namespace PhotoLibrary
 
             if (!missingAny) return;
 
-            // Determine Source: Use JPG sidecar if available to save bandwidth/loading time
             FileInfo sourceFile = file;
             string ext = file.Extension;
             string nameNoExt = Path.GetFileNameWithoutExtension(file.Name);
             string dir = file.DirectoryName!;
             
-            // If current is NOT jpg, look for jpg
             if (!ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && 
                 !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
             {
@@ -173,17 +167,15 @@ namespace PhotoLibrary
 
             try
             {
-                // We use Magick.NET
                 using (var image = new MagickImage(sourceFile.FullName))
                 {
-                    // For each size
+                    image.AutoOrient();
                     foreach (var size in _longEdges)
                     {
                         if (_previewManager!.HasPreview(fileId, size)) continue;
 
                         using (var clone = image.Clone())
                         {
-                            // Resize logic: Long edge to size
                             if (clone.Width > clone.Height)
                             {
                                 clone.Resize((uint)size, 0);

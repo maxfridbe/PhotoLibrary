@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-11T15:33:44.4891542-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-11T16:47:24.8392648-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -37,6 +37,7 @@ export interface PagedPhotosRequest {
     pickedOnly?: boolean;
     rating?: number;
     specificIds?: string[];
+    stacked?: boolean;
 }
 
 export interface ImageRequest {

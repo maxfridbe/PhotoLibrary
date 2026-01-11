@@ -22,11 +22,13 @@ namespace PhotoLibrary
 
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseUrls($"http://*:{port}");
+            builder.Services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(2));
 
             builder.Services.AddSingleton(dbManager);
             builder.Services.AddSingleton(previewManager);
 
             var app = builder.Build();
+            var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
             app.UseWebSockets();
 
             // --- API Endpoints ---
@@ -139,7 +141,7 @@ namespace PhotoLibrary
                     if (context.WebSockets.IsWebSocketRequest)
                     {
                         var ws = await context.WebSockets.AcceptWebSocketAsync();
-                        await HandleWebSocket(ws, context.RequestServices.GetRequiredService<PreviewManager>());
+                        await HandleWebSocket(ws, context.RequestServices.GetRequiredService<DatabaseManager>(), context.RequestServices.GetRequiredService<PreviewManager>(), lifetime.ApplicationStopping);
                     }
                     else context.Response.StatusCode = 400;
                 }
@@ -170,47 +172,55 @@ namespace PhotoLibrary
             return Results.Stream(stream, contentType);
         }
 
-        private static async Task HandleWebSocket(WebSocket ws, PreviewManager pm)
+        private static async Task HandleWebSocket(WebSocket ws, DatabaseManager db, PreviewManager pm, CancellationToken ct)
         {
             var buffer = new byte[1024 * 4];
-            while (ws.State == WebSocketState.Open)
+            while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Text)
-                {
-                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    try
+                try {
+                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                    if (result.MessageType == WebSocketMessageType.Text)
                     {
+                        var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
                         var req = JsonSerializer.Deserialize<ImageRequest>(json);
                         if (req != null)
                         {
-                            var data = pm.GetPreviewData(req.fileId, req.size);
-                            if (data != null)
+                            byte[]? data = null;
+                            if (req.size == 0) // Full Resolution Request
+                            {
+                                string? fullPath = db.GetFullFilePath(req.fileId);
+                                if (fullPath != null && File.Exists(fullPath))
+                                {
+                                    string ext = Path.GetExtension(fullPath).ToUpper();
+                                    if (ext == ".ARW")
+                                    {
+                                        using var image = new ImageMagick.MagickImage(fullPath);
+                                        image.AutoOrient();
+                                        image.Format = ImageMagick.MagickFormat.Jpg;
+                                        image.Quality = 90;
+                                        data = image.ToByteArray();
+                                    }
+                                    else data = await File.ReadAllBytesAsync(fullPath, ct);
+                                }
+                            }
+                            else data = pm.GetPreviewData(req.fileId, req.size);
+
+                            if (data != null && !ct.IsCancellationRequested)
                             {
                                 var response = new byte[4 + data.Length];
                                 BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
                                 data.CopyTo(response, 4);
-                                await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, CancellationToken.None);
+                                await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, ct);
                             }
                         }
                     }
-                    catch (Exception ex) { Console.WriteLine($"WS Error: {ex.Message}"); }
-                }
-                else if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed", CancellationToken.None);
-                }
+                    else if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed", ct);
+                    }
+                } catch (OperationCanceledException) { break; }
+                catch (Exception ex) { if (ws.State == WebSocketState.Open) Console.WriteLine($"WS Error: {ex.Message}"); }
             }
         }
-
-        // --- DTOs ---
-        public record IdRequest(string id);
-        public record NameRequest(string name);
-        public record PickRequest(string id, bool isPicked);
-        public record RateRequest(string id, int rating);
-        public record SearchRequest(string tag, string value);
-        public record CollectionAddRequest(string collectionId, string[] fileIds);
-        public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificIds);
-        public class ImageRequest { public int requestId { get; set; } public string fileId { get; set; } = ""; public int size { get; set; } }
     }
 }
