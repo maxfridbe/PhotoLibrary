@@ -66,8 +66,11 @@ namespace PhotoLibrary
             });
 
             // Static Files (Embedded)
+            app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
+            
             app.MapGet("/{*path}", (string path) => {
-                if (string.IsNullOrEmpty(path)) path = "index.html";
+                if (string.IsNullOrEmpty(path)) return Results.NotFound(); // Should be caught by "/" but just in case
+                
                 string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
                 
                 string contentType = "application/octet-stream";
