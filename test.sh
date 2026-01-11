@@ -36,3 +36,11 @@ if [ -f "previews.db" ]; then
 else
     echo "Failure: Preview Database not created."
 fi
+
+if [ -f "test.db" ]; then
+    echo ""
+    echo "=========================================="
+    echo "Dumping Table: Metadata"
+    echo "=========================================="
+    sqlite3 -header -column test.db "SELECT * FROM Metadata LIMIT 50;"
+fi
