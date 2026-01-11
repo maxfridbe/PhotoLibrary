@@ -22,18 +22,23 @@ namespace PhotoLibrary
                 description: "Directory to scan and update metadata for")
             { IsRequired = true };
 
+            var testOneOption = new Option<bool>(
+                name: "--testone",
+                description: "Only process one file and exit");
+
             rootCommand.AddOption(libraryOption);
             rootCommand.AddOption(updateMdOption);
+            rootCommand.AddOption(testOneOption);
 
-            rootCommand.SetHandler((libraryPath, scanDir) =>
+            rootCommand.SetHandler((libraryPath, scanDir, testOne) =>
             {
-                RunScan(libraryPath, scanDir);
-            }, libraryOption, updateMdOption);
+                RunScan(libraryPath, scanDir, testOne);
+            }, libraryOption, updateMdOption, testOneOption);
 
             return await rootCommand.InvokeAsync(args);
         }
 
-        static void RunScan(string libraryPath, string scanDir)
+        static void RunScan(string libraryPath, string scanDir, bool testOne)
         {
             try
             {
@@ -52,12 +57,13 @@ namespace PhotoLibrary
                 
                 Console.WriteLine($"Library: {libraryPath}");
                 Console.WriteLine($"Scanning: {scanDir}");
+                if (testOne) Console.WriteLine("Test One Mode: Active");
 
                 var dbManager = new DatabaseManager(libraryPath);
                 dbManager.Initialize();
 
                 var scanner = new ImageScanner(dbManager);
-                scanner.Scan(scanDir);
+                scanner.Scan(scanDir, testOne);
             }
             catch (Exception ex)
             {

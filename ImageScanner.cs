@@ -16,7 +16,7 @@ namespace PhotoLibrary
             _db = db;
         }
 
-        public void Scan(string directoryPath)
+        public void Scan(string directoryPath, bool testOne = false)
         {
             var root = new DirectoryInfo(directoryPath);
             if (!root.Exists)
@@ -41,6 +41,12 @@ namespace PhotoLibrary
                     ProcessFile(file, directoryPath);
                     count++;
                     if (count % 10 == 0) Console.Write(".");
+
+                    if (testOne)
+                    {
+                        Console.WriteLine($"\nProcessed single file: {file.Name}");
+                        break;
+                    }
                 }
                 catch (Exception ex)
                 {
