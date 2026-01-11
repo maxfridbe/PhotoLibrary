@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using ImageMagick;
 using MetadataExtractor;
 
 namespace PhotoLibrary
@@ -9,13 +10,16 @@ namespace PhotoLibrary
     public class ImageScanner
     {
         private readonly DatabaseManager _db;
+        private readonly PreviewManager? _previewManager;
+        private readonly int[] _longEdges;
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
-        // Cache to avoid hitting DB for every file in same dir
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
-        public ImageScanner(DatabaseManager db)
+        public ImageScanner(DatabaseManager db, PreviewManager? previewManager = null, int[]? longEdges = null)
         {
             _db = db;
+            _previewManager = previewManager;
+            _longEdges = longEdges ?? Array.Empty<int>();
         }
 
         public void Scan(string directoryPath, bool testOne = false)
@@ -29,29 +33,15 @@ namespace PhotoLibrary
 
             Console.WriteLine($"Scanning {directoryPath}...");
             
-            // Setup the Root Base
-            // Logic: 
-            // 1. Identify Parent of the scan target (Base Root)
-            // 2. Identify Name of scan target (Child Root) 
-            
-            string fullScanPath = root.FullName; // Absolute path
+            string fullScanPath = root.FullName;
             string? parentDir = Path.GetDirectoryName(fullScanPath);
             string targetName = root.Name;
 
-            if (parentDir == null)
-            {
-                // Scanning system root?
-                parentDir = fullScanPath; 
-                // Special case logic might be needed, but assuming user scans a folder.
-            }
+            if (parentDir == null) parentDir = fullScanPath;
 
-            // Ensure Base Root exists
             string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
-            
-            // Ensure Target Root exists
             string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
             
-            // Cache the target root ID for the full scan path
             _pathCache[fullScanPath] = targetRootId;
 
             int count = 0;
@@ -81,28 +71,21 @@ namespace PhotoLibrary
 
         private void ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
         {
+            // Resolve Directory
             string? dirPath = file.DirectoryName;
             if (dirPath == null) return;
 
-            // Resolve the correct RootPathId for this file
             string rootPathId;
-
             if (dirPath == scanRootPath)
             {
                 rootPathId = scanRootId;
             }
             else
             {
-                // Subdirectory logic
                 if (!_pathCache.TryGetValue(dirPath, out rootPathId!))
                 {
-                    // Recursively build up to the scan root
-                    // This is complex because we need to link back to scanRootId
-                    // Simplification: We assume dirPath starts with scanRootPath
-                    
                     if (dirPath.StartsWith(scanRootPath))
                     {
-                        // Get path relative to scan root
                         string relative = Path.GetRelativePath(scanRootPath, dirPath);
                         string[] parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
                         
@@ -124,11 +107,7 @@ namespace PhotoLibrary
                         }
                         rootPathId = currentId;
                     }
-                    else
-                    {
-                        // File is outside scan root? Should not happen with EnumerateFiles
-                        return; 
-                    }
+                    else return; 
                 }
             }
 
@@ -146,8 +125,86 @@ namespace PhotoLibrary
 
             if (fileId != null)
             {
+                // Metadata (1MB header)
                 var metadata = ExtractMetadata(file);
                 _db.InsertMetadata(fileId, metadata);
+
+                // Previews (Full file / Sidecar)
+                if (_previewManager != null && _longEdges.Length > 0)
+                {
+                    GeneratePreviews(file, fileId);
+                }
+            }
+        }
+
+        private void GeneratePreviews(FileInfo file, string fileId)
+        {
+            // Check if we need previews
+            bool missingAny = false;
+            foreach (var size in _longEdges)
+            {
+                if (!_previewManager!.HasPreview(fileId, size))
+                {
+                    missingAny = true;
+                    break;
+                }
+            }
+
+            if (!missingAny) return;
+
+            // Determine Source: Use JPG sidecar if available to save bandwidth/loading time
+            FileInfo sourceFile = file;
+            string ext = file.Extension;
+            string nameNoExt = Path.GetFileNameWithoutExtension(file.Name);
+            string dir = file.DirectoryName!;
+            
+            // If current is NOT jpg, look for jpg
+            if (!ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && 
+                !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+            {
+                string jpgPath = Path.Combine(dir, nameNoExt + ".JPG");
+                if (File.Exists(jpgPath)) sourceFile = new FileInfo(jpgPath);
+                else
+                {
+                    jpgPath = Path.Combine(dir, nameNoExt + ".jpg");
+                    if (File.Exists(jpgPath)) sourceFile = new FileInfo(jpgPath);
+                }
+            }
+
+            try
+            {
+                // We use Magick.NET
+                using (var image = new MagickImage(sourceFile.FullName))
+                {
+                    // For each size
+                    foreach (var size in _longEdges)
+                    {
+                        if (_previewManager!.HasPreview(fileId, size)) continue;
+
+                        using (var clone = image.Clone())
+                        {
+                            // Resize logic: Long edge to size
+                            if (clone.Width > clone.Height)
+                            {
+                                clone.Resize((uint)size, 0);
+                            }
+                            else
+                            {
+                                clone.Resize(0, (uint)size);
+                            }
+
+                            clone.Format = MagickFormat.Jpg;
+                            clone.Quality = 85; 
+                            
+                            byte[] data = clone.ToByteArray();
+                            _previewManager.SavePreview(fileId, size, data);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to generate preview for {file.Name}: {ex.Message}");
             }
         }
 
@@ -170,9 +227,7 @@ namespace PhotoLibrary
                         foreach (var tag in directory.Tags)
                         {
                             if (tag.Name.StartsWith("Unknown tag", StringComparison.OrdinalIgnoreCase))
-                            {
                                 continue;
-                            }
 
                             items.Add(new MetadataItem
                             {

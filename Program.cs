@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
@@ -26,43 +27,67 @@ namespace PhotoLibrary
                 name: "--testone",
                 description: "Only process one file and exit");
 
+            var updatePreviewsOption = new Option<bool>(
+                name: "--updatepreviews",
+                description: "Generate previews for the scanned files");
+
+            var previewDbOption = new Option<string>(
+                name: "--previewdb",
+                description: "Path to the SQLite database for previews");
+
+            var longEdgeOption = new Option<int[]>(
+                name: "--longedge",
+                description: "Long edge size for previews (can be specified multiple times)")
+            { AllowMultipleArgumentsPerToken = true };
+
             rootCommand.AddOption(libraryOption);
             rootCommand.AddOption(updateMdOption);
             rootCommand.AddOption(testOneOption);
+            rootCommand.AddOption(updatePreviewsOption);
+            rootCommand.AddOption(previewDbOption);
+            rootCommand.AddOption(longEdgeOption);
 
-            rootCommand.SetHandler((libraryPath, scanDir, testOne) =>
+            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges) =>
             {
-                RunScan(libraryPath, scanDir, testOne);
-            }, libraryOption, updateMdOption, testOneOption);
+                RunScan(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges);
+            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption);
 
             return await rootCommand.InvokeAsync(args);
         }
 
-        static void RunScan(string libraryPath, string scanDir, bool testOne)
+        static void RunScan(string libraryPath, string scanDir, bool testOne, bool updatePreviews, string previewDb, int[] longEdges)
         {
             try
             {
                 // Resolve paths
-                if (libraryPath.StartsWith("~"))
+                libraryPath = ResolvePath(libraryPath);
+                scanDir = ResolvePath(scanDir);
+                if (!string.IsNullOrEmpty(previewDb))
                 {
-                    libraryPath = libraryPath.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-                }
-                
-                if (scanDir.StartsWith("~"))
-                {
-                    scanDir = scanDir.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+                    previewDb = ResolvePath(previewDb);
                 }
 
-                scanDir = Path.GetFullPath(scanDir);
-                
                 Console.WriteLine($"Library: {libraryPath}");
                 Console.WriteLine($"Scanning: {scanDir}");
                 if (testOne) Console.WriteLine("Test One Mode: Active");
+                if (updatePreviews)
+                {
+                    Console.WriteLine("Update Previews: Active");
+                    Console.WriteLine($"Preview DB: {previewDb}");
+                    Console.WriteLine($"Sizes: {string.Join(", ", longEdges)}");
+                }
 
                 var dbManager = new DatabaseManager(libraryPath);
                 dbManager.Initialize();
 
-                var scanner = new ImageScanner(dbManager);
+                PreviewManager? previewManager = null;
+                if (updatePreviews && !string.IsNullOrEmpty(previewDb))
+                {
+                    previewManager = new PreviewManager(previewDb);
+                    previewManager.Initialize();
+                }
+
+                var scanner = new ImageScanner(dbManager, previewManager, longEdges);
                 scanner.Scan(scanDir, testOne);
             }
             catch (Exception ex)
@@ -70,6 +95,15 @@ namespace PhotoLibrary
                 Console.WriteLine($"An error occurred: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
             }
+        }
+
+        static string ResolvePath(string path)
+        {
+            if (path.StartsWith("~"))
+            {
+                return path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            }
+            return Path.GetFullPath(path);
         }
     }
 }
