@@ -1,10 +1,16 @@
 #!/bin/bash
 # Setup test environment
+rm -f test.db
 TEST_DIR="./test_images"
+rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
-echo "dummy content" > "$TEST_DIR/test1.txt"
 
-# Run with --testone
+# Copy real test images
+echo "Copying test images..."
+cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.ARW" "$TEST_DIR/"
+cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.JPG" "$TEST_DIR/"
+
+# Run with --testone (Note: --testone only processes ONE file, so it will pick one of them)
 echo "Running test with --testone..."
 ./run.sh --library test.db --updatemd "$TEST_DIR" --testone
 
@@ -20,7 +26,7 @@ if [ -f "test.db" ]; then
     echo "=========================================="
     echo "Dumping Table: Metadata"
     echo "=========================================="
-    sqlite3 -header -column test.db "SELECT * FROM Metadata;"
+    sqlite3 -header -column test.db "SELECT * FROM Metadata LIMIT 50;"
 else
     echo "Failure: Database not created."
 fi
