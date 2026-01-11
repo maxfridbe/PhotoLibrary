@@ -3,3 +3,17 @@ obj/
 *.db
 *.sqlite
 test_images/
+*.jpg
+*.JPG
+*.jpeg
+*.JPEG
+*.arw
+*.ARW
+*.png
+*.PNG
+*.heic
+*.HEIC
+*.tif
+*.tiff
+*.TIF
+*.TIFF
