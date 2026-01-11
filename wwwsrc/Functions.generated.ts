@@ -1,6 +1,6 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-11T13:41:56.5263995-06:00
-import * as Req from './Requests.generated';
-import * as Res from './Responses.generated';
+// Generated from WebServer.cs via Roslyn at 2026-01-11T13:45:25.5356799-06:00
+import * as Req from './Requests.generated.js';
+import * as Res from './Responses.generated.js';
 
 async function post<T>(url: string, data: any = {}): Promise<T> {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });

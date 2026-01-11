@@ -28,6 +28,8 @@ namespace TypeGen
 
             var sb = new StringBuilder();
             sb.AppendLine($"// Generated from {inputFile} via Roslyn at {DateTime.Now:O}");
+            sb.AppendLine("import * as Req from './Requests.generated.js';");
+            sb.AppendLine("import * as Res from './Responses.generated.js';");
             sb.AppendLine();
 
             foreach (var record in root.DescendantNodes().OfType<RecordDeclarationSyntax>())
@@ -80,8 +82,8 @@ namespace TypeGen
 
             var sb = new StringBuilder();
             sb.AppendLine($"// Generated from {inputFile} via Roslyn at {DateTime.Now:O}");
-            sb.AppendLine("import * as Req from './Requests.generated';");
-            sb.AppendLine("import * as Res from './Responses.generated';");
+            sb.AppendLine("import * as Req from './Requests.generated.js';");
+            sb.AppendLine("import * as Res from './Responses.generated.js';");
             sb.AppendLine();
             sb.AppendLine("async function post<T>(url: string, data: any = {}): Promise<T> {");
             sb.AppendLine("    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });");

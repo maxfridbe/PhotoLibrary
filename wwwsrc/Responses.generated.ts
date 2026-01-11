@@ -1,4 +1,6 @@
-// Generated from Responses.cs via Roslyn at 2026-01-11T13:41:56.4934978-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-11T13:45:25.5012353-06:00
+import * as Req from './Requests.generated.js';
+import * as Res from './Responses.generated.js';
 
 export interface PhotoResponse {
     id: string;

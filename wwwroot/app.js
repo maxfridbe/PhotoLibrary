@@ -1,4 +1,4 @@
-import * as Api from './Functions.generated';
+import * as Api from './Functions.generated.js';
 class App {
     constructor() {
         this.ws = null;
@@ -422,7 +422,7 @@ class App {
             headerText = "Search: " + this.searchTitle;
         else if (this.filterType === 'collection') {
             const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
-            headerText = "Collection: " + ((c === null || c === void 0 ? void 0 : c.name) || "");
+            headerText = "Collection: " + (c?.name || "");
         }
         else if (this.selectedRootId) {
             const root = this.roots.find(r => r.id === this.selectedRootId);
@@ -476,7 +476,7 @@ class App {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     this.requestImage(id, size).then(blob => {
-                        img.onload = () => { var _a; return (_a = img.parentElement) === null || _a === void 0 ? void 0 : _a.classList.add('loaded'); };
+                        img.onload = () => img.parentElement?.classList.add('loaded');
                         img.src = URL.createObjectURL(blob);
                     });
                     observer.disconnect();
@@ -486,20 +486,18 @@ class App {
         observer.observe(target);
     }
     selectPhoto(id) {
-        var _a, _b;
         if (this.selectedId === id)
             return;
-        const oldSel = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll('.card.selected');
-        oldSel === null || oldSel === void 0 ? void 0 : oldSel.forEach(e => e.classList.remove('selected'));
+        const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
+        oldSel?.forEach(e => e.classList.remove('selected'));
         this.selectedId = id;
-        const newSel = (_b = this.workspaceEl) === null || _b === void 0 ? void 0 : _b.querySelectorAll(`.card[data-id="${id}"]`);
-        newSel === null || newSel === void 0 ? void 0 : newSel.forEach(e => e.classList.add('selected'));
+        const newSel = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
+        newSel?.forEach(e => e.classList.add('selected'));
         this.loadMetadata(id);
         if (this.isLoupeMode)
             this.loadMainPreview(id);
     }
     enterLoupeMode(id) {
-        var _a, _b;
         this.isLoupeMode = true;
         if (this.workspaceEl) {
             this.workspaceEl.querySelector('#grid-container').style.display = 'none';
@@ -508,14 +506,13 @@ class App {
             this.gridHeader.style.display = 'none';
         if (this.loupeView)
             this.loupeView.style.display = 'flex';
-        (_a = document.getElementById('nav-grid')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
-        (_b = document.getElementById('nav-loupe')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
+        document.getElementById('nav-grid')?.classList.remove('active');
+        document.getElementById('nav-loupe')?.classList.add('active');
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
     enterGridMode() {
-        var _a, _b;
         this.isLoupeMode = false;
         if (this.loupeView)
             this.loupeView.style.display = 'none';
@@ -524,10 +521,10 @@ class App {
         }
         if (this.gridHeader)
             this.gridHeader.style.display = 'flex';
-        (_a = document.getElementById('nav-loupe')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
-        (_b = document.getElementById('nav-grid')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
+        document.getElementById('nav-loupe')?.classList.remove('active');
+        document.getElementById('nav-grid')?.classList.add('active');
         if (this.selectedId) {
-            const index = this.photos.findIndex(p => (p === null || p === void 0 ? void 0 : p.id) === this.selectedId);
+            const index = this.photos.findIndex(p => p?.id === this.selectedId);
             if (index !== -1) {
                 const row = Math.floor(index / this.cols);
                 this.gridView.parentElement.scrollTop = row * this.rowHeight - 100;
@@ -616,20 +613,19 @@ class App {
             }
             this.metadataEl.innerHTML = html;
         }
-        catch (_a) {
+        catch {
             this.metadataEl.innerHTML = 'Error';
         }
     }
     async togglePick(id) {
-        var _a;
         if (!id)
             return;
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
         photo.isPicked = !photo.isPicked;
-        const picks = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
-        picks === null || picks === void 0 ? void 0 : picks.forEach(p => { if (photo.isPicked)
+        const picks = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .pick-btn`);
+        picks?.forEach(p => { if (photo.isPicked)
             p.classList.add('picked');
         else
             p.classList.remove('picked'); });
@@ -639,20 +635,19 @@ class App {
         try {
             await Api.api_pick({ id, isPicked: photo.isPicked });
         }
-        catch (_b) {
+        catch {
             photo.isPicked = !photo.isPicked;
         }
     }
     async setRating(id, rating) {
-        var _a;
         if (!id)
             return;
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
         photo.rating = rating;
-        const stars = (_a = this.workspaceEl) === null || _a === void 0 ? void 0 : _a.querySelectorAll(`.card[data-id="${id}"] .stars`);
-        stars === null || stars === void 0 ? void 0 : stars.forEach(s => {
+        const stars = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"] .stars`);
+        stars?.forEach(s => {
             const el = s;
             el.innerText = '★'.repeat(rating) || '☆☆☆☆☆';
             if (rating > 0)
@@ -666,7 +661,7 @@ class App {
         try {
             await Api.api_rate({ id, rating });
         }
-        catch (_b) {
+        catch {
             console.error('Failed to set rating');
         }
     }
@@ -697,7 +692,7 @@ class App {
         const photos = this.photos.filter(p => p !== null);
         if (photos.length === 0)
             return;
-        let index = this.selectedId ? photos.findIndex(p => (p === null || p === void 0 ? void 0 : p.id) === this.selectedId) : -1;
+        let index = this.selectedId ? photos.findIndex(p => p?.id === this.selectedId) : -1;
         if (key === 'ArrowRight')
             index++;
         else if (key === 'ArrowLeft')
@@ -722,7 +717,7 @@ class App {
                 this.selectPhoto(target.id);
         }
     }
-    showShortcuts() { var _a; (_a = document.getElementById('shortcuts-modal')) === null || _a === void 0 ? void 0 : _a.classList.add('active'); }
+    showShortcuts() { document.getElementById('shortcuts-modal')?.classList.add('active'); }
     setupGlobalKeyboard() {
         document.addEventListener('keydown', (e) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
@@ -783,9 +778,8 @@ class App {
         });
     }
     processPending() {
-        var _a;
         while (this.pendingRequests.length && this.isConnected) {
-            (_a = this.ws) === null || _a === void 0 ? void 0 : _a.send(JSON.stringify(this.pendingRequests.shift()));
+            this.ws?.send(JSON.stringify(this.pendingRequests.shift()));
         }
     }
 }

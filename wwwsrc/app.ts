@@ -1,9 +1,9 @@
 declare var GoldenLayout: any;
 declare var $: any;
 
-import * as Req from './Requests.generated';
-import * as Res from './Responses.generated';
-import * as Api from './Functions.generated';
+import * as Req from './Requests.generated.js';
+import * as Res from './Responses.generated.js';
+import * as Api from './Functions.generated.js';
 
 // Types (aliases for convenience)
 type Photo = Res.PhotoResponse;

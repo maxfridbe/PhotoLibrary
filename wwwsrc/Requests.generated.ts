@@ -1,4 +1,6 @@
-// Generated from Requests.cs via Roslyn at 2026-01-11T13:41:56.4486806-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-11T13:45:25.4592503-06:00
+import * as Req from './Requests.generated.js';
+import * as Res from './Responses.generated.js';
 
 export interface IdRequest {
     id: string;
