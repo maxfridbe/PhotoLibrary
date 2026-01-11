@@ -288,6 +288,10 @@ class App {
         this.gridView!.style.display = 'none';
         this.gridHeader!.style.display = 'none';
         this.loupeView!.style.display = 'flex';
+        
+        document.getElementById('nav-grid')?.classList.remove('active');
+        document.getElementById('nav-loupe')?.classList.add('active');
+
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
@@ -298,6 +302,10 @@ class App {
         this.loupeView!.style.display = 'none';
         this.gridView!.style.display = 'grid';
         this.gridHeader!.style.display = 'flex';
+
+        document.getElementById('nav-loupe')?.classList.remove('active');
+        document.getElementById('nav-grid')?.classList.add('active');
+
         if (this.selectedId) {
             const el = this.gridView?.querySelector(`.card[data-id="${this.selectedId}"]`);
             el?.scrollIntoView({ behavior: 'auto', block: 'center' });

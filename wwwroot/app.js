@@ -264,22 +264,27 @@ class App {
             this.loadMainPreview(id);
     }
     enterLoupeMode(id) {
+        var _a, _b;
         this.isLoupeMode = true;
         this.gridView.style.display = 'none';
         this.gridHeader.style.display = 'none';
         this.loupeView.style.display = 'flex';
+        (_a = document.getElementById('nav-grid')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
+        (_b = document.getElementById('nav-loupe')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
     enterGridMode() {
-        var _a;
+        var _a, _b, _c;
         this.isLoupeMode = false;
         this.loupeView.style.display = 'none';
         this.gridView.style.display = 'grid';
         this.gridHeader.style.display = 'flex';
+        (_a = document.getElementById('nav-loupe')) === null || _a === void 0 ? void 0 : _a.classList.remove('active');
+        (_b = document.getElementById('nav-grid')) === null || _b === void 0 ? void 0 : _b.classList.add('active');
         if (this.selectedId) {
-            const el = (_a = this.gridView) === null || _a === void 0 ? void 0 : _a.querySelector(`.card[data-id="${this.selectedId}"]`);
+            const el = (_c = this.gridView) === null || _c === void 0 ? void 0 : _c.querySelector(`.card[data-id="${this.selectedId}"]`);
             el === null || el === void 0 ? void 0 : el.scrollIntoView({ behavior: 'auto', block: 'center' });
         }
     }
