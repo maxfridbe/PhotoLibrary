@@ -5,18 +5,14 @@ TEST_DIR="./test_images"
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
 
-# Copy real test images
-echo "Copying test images..."
-if [ ! -f "$TEST_DIR/MAX01109.ARW" ]; then
-    cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.ARW" "$TEST_DIR/"
-fi
-if [ ! -f "$TEST_DIR/MAX01109.JPG" ]; then
-    cp "/var/home/maxfridbe/Pictures/raid/2025/2025-12-19/MAX01109.JPG" "$TEST_DIR/"
-fi
+# Find and copy 10 real test images
+echo "Copying 10 test images..."
+LATEST_DIR=$(ls -d ~/Pictures/raid/2025/* | sort -r | head -n 1)
+find "$LATEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.arw" \) | head -n 10 | xargs -I {} cp {} "$TEST_DIR/"
 
-# Run with --testone AND --updatepreviews
-echo "Running test with --testone and --updatepreviews..."
-./run.sh --library test.db --updatemd "$TEST_DIR" --testone --updatepreviews --previewdb previews.db --longedge 1024 --longedge 300
+# Run with --updatepreviews (No --testone to process all 10)
+echo "Running test with --updatepreviews..."
+./run.sh --library test.db --updatemd "$TEST_DIR" --updatepreviews --previewdb previews.db --longedge 1024 --longedge 300
 
 # Check if db was created
 if [ -f "test.db" ]; then
@@ -29,7 +25,7 @@ if [ -f "test.db" ]; then
 
     echo ""
     echo "=========================================="
-    echo "Dumping Table: FileEntry"
+    echo "Dumping Table: FileEntry (Count: $(sqlite3 test.db "SELECT count(*) FROM FileEntry;"))"
     echo "=========================================="
     sqlite3 -header -column test.db "SELECT * FROM FileEntry;"
 else
@@ -40,9 +36,10 @@ if [ -f "previews.db" ]; then
     echo ""
     echo "Success: Preview Database created."
     echo "=========================================="
-    echo "Dumping Table: Previews (Schema & Stats)"
+    echo "Dumping Table: Previews (Count: $(sqlite3 previews.db "SELECT count(*) FROM Previews;"))"
     echo "=========================================="
-    sqlite3 -header -column previews.db "SELECT FileId, LongEdge, length(Data) as SizeBytes FROM Previews;"
+    # Only show top 20 to avoid clutter, but show stats
+    sqlite3 -header -column previews.db "SELECT FileId, LongEdge, length(Data) as SizeBytes FROM Previews LIMIT 20;"
 else
     echo "Failure: Preview Database not created."
 fi
@@ -50,7 +47,7 @@ fi
 if [ -f "test.db" ]; then
     echo ""
     echo "=========================================="
-    echo "Dumping Table: Metadata"
+    echo "Dumping Table: Metadata (Sample)"
     echo "=========================================="
-    sqlite3 -header -column test.db "SELECT * FROM Metadata LIMIT 50;"
+    sqlite3 -header -column test.db "SELECT * FROM Metadata LIMIT 20;"
 fi
