@@ -22,6 +22,9 @@ class App {
     public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0,0,0,0,0] };
     public totalPhotos = 0;
     
+    private cardCache: Map<string, HTMLElement> = new Map();
+    private imageUrlCache: Map<string, string> = new Map();
+
     public selectedId: string | null = null;
     public selectedRootId: string | null = null;
     public selectedCollectionId: string | null = null;
@@ -51,6 +54,9 @@ class App {
     public mainPreview: HTMLImageElement | null = null;
     public previewSpinner: HTMLElement | null = null;
 
+    private metaTitleEl: HTMLHeadingElement | null = null;
+    private metaGroups: Map<string, { container: HTMLElement, rows: Map<string, HTMLElement> }> = new Map();
+
     constructor() {
         this.initLayout();
         this.loadData();
@@ -65,6 +71,7 @@ class App {
             this.updateSelectionUI(data.id);
             this.loadMetadata(data.id);
             if (this.isLoupeMode) this.loadMainPreview(data.id);
+            else this.scrollToPhoto(data.id);
         });
 
         hub.sub('view.mode.changed', (data) => {
@@ -106,6 +113,7 @@ class App {
             if (idx !== -1) {
                 this.photos.splice(idx, 1);
                 this.totalPhotos--;
+                this.cardCache.delete(photo.id);
                 this.renderGrid();
                 if (this.isLoupeMode) this.renderFilmstrip();
                 if (this.selectedId === photo.id) {
@@ -115,12 +123,18 @@ class App {
                         if (nextPhoto) hub.pub('photo.selected', { id: nextId, photo: nextPhoto });
                     } else {
                         this.selectedId = null;
-                        if (this.metadataEl) this.metadataEl.innerHTML = '';
+                        this.clearMetadata();
                     }
                 }
             }
         }
         if (this.selectedId === photo.id) this.loadMetadata(photo.id);
+    }
+
+    private clearMetadata() {
+        if (this.metadataEl) this.metadataEl.innerHTML = '';
+        this.metaTitleEl = null;
+        this.metaGroups.clear();
     }
 
     private showNotification(message: string, type: 'info' | 'error' | 'success') {
@@ -174,8 +188,8 @@ class App {
 
     private updateSidebarCountsOnly() {
         if (!this.libraryEl) return;
-        const allPhotosCountEl = this.libraryEl.querySelector('.tree-item[data-type="all"] .count');
-        if (allPhotosCountEl) allPhotosCountEl.textContent = this.stats.totalCount.toString();
+        const allCountEl = this.libraryEl.querySelector('.tree-item[data-type="all"] .count');
+        if (allCountEl) allCountEl.textContent = this.stats.totalCount.toString();
 
         const pickedCountEl = this.libraryEl.querySelector('.tree-item[data-type="picked"] .count');
         if (pickedCountEl) pickedCountEl.textContent = this.stats.pickedCount.toString();
@@ -201,6 +215,7 @@ class App {
 
     async refreshPhotos() {
         this.photos = [];
+        this.cardCache.clear();
         this.isLoadingChunk.clear();
         const params: Req.PagedPhotosRequest = { 
             limit: 100, offset: 0, 
@@ -354,18 +369,23 @@ class App {
         }
     }
 
+    private syncCardData(card: HTMLElement, photo: Photo) {
+        const pBtn = card.querySelector('.pick-btn');
+        if (pBtn) { if (photo.isPicked) pBtn.classList.add('picked'); else pBtn.classList.remove('picked'); }
+        const stars = card.querySelector('.stars');
+        if (stars) {
+            const el = stars as HTMLElement;
+            el.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
+            if (photo.rating > 0) el.classList.add('has-rating'); else el.classList.remove('has-rating');
+        }
+    }
+
     private updatePhotoCardUI(photo: Photo) {
-        const cards = this.workspaceEl?.querySelectorAll(`.card[data-id="${photo.id}"]`);
-        cards?.forEach(card => {
-            const pBtn = card.querySelector('.pick-btn');
-            if (pBtn) { if (photo.isPicked) pBtn.classList.add('picked'); else pBtn.classList.remove('picked'); }
-            const stars = card.querySelector('.stars');
-            if (stars) {
-                const el = stars as HTMLElement;
-                el.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
-                if (photo.rating > 0) el.classList.add('has-rating'); else el.classList.remove('has-rating');
-            }
-        });
+        const cached = this.cardCache.get(photo.id);
+        if (cached) this.syncCardData(cached, photo);
+        
+        const inDom = this.workspaceEl?.querySelectorAll(`.card[data-id="${photo.id}"]`);
+        inDom?.forEach(card => this.syncCardData(card as HTMLElement, photo));
     }
 
     updateVirtualGrid(force: boolean = false) {
@@ -390,13 +410,20 @@ class App {
 
     renderVisiblePhotos() {
         if (!this.gridView) return;
-        this.gridView.innerHTML = '';
         const startRow = Math.floor(this.visibleRange.start / this.cols);
         this.gridView.style.transform = `translateY(${startRow * this.rowHeight}px)`;
+
+        const fragment = document.createDocumentFragment();
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
-            if (photo) this.gridView.appendChild(this.createCard(photo, 'grid'));
-            else {
+            if (photo) {
+                let card = this.cardCache.get(photo.id);
+                if (!card) {
+                    card = this.createCard(photo, 'grid');
+                    this.cardCache.set(photo.id, card);
+                }
+                fragment.appendChild(card);
+            } else {
                 const placeholder = document.createElement('div');
                 placeholder.className = 'card placeholder';
                 placeholder.style.height = (this.rowHeight - 10) + 'px';
@@ -406,9 +433,11 @@ class App {
                 spin.className = 'spinner';
                 cont.appendChild(spin);
                 placeholder.appendChild(cont);
-                this.gridView.appendChild(placeholder);
+                fragment.appendChild(placeholder);
             }
         }
+        this.gridView.innerHTML = '';
+        this.gridView.appendChild(fragment);
     }
 
     async checkMissingChunks(start: number, end: number) {
@@ -432,7 +461,10 @@ class App {
                 specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
             };
             const data = await Api.api_photos(params);
-            data.photos.forEach((p: Photo, i: number) => { this.photos[offset + i] = p; this.photoMap.set(p.id, p); });
+            data.photos.forEach((p: Photo, i: number) => { 
+                this.photos[offset + i] = p; 
+                this.photoMap.set(p.id, p); 
+            });
             this.renderVisiblePhotos();
         } finally { this.isLoadingChunk.delete(offset); }
     }
@@ -637,13 +669,22 @@ class App {
     }
 
     lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
+        const cacheKey = id + '-' + size;
+        if (this.imageUrlCache.has(cacheKey)) {
+            img.src = this.imageUrlCache.get(cacheKey)!;
+            img.parentElement?.classList.add('loaded');
+            return;
+        }
+
         const target = img.parentElement || img;
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     server.requestImage(id, size).then(blob => {
+                        const url = URL.createObjectURL(blob);
+                        this.imageUrlCache.set(cacheKey, url);
                         img.onload = () => img.parentElement?.classList.add('loaded');
-                        img.src = URL.createObjectURL(blob);
+                        img.src = url;
                     });
                     observer.disconnect();
                 }
@@ -654,13 +695,29 @@ class App {
 
     selectPhoto(id: string) {
         if (this.selectedId === id) return;
-        const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
-        oldSel?.forEach(e => e.classList.remove('selected'));
         this.selectedId = id;
-        const newSel = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
-        newSel?.forEach(e => e.classList.add('selected'));
+        this.updateSelectionUI(id);
         this.loadMetadata(id);
         if (this.isLoupeMode) this.loadMainPreview(id);
+    }
+
+    scrollToPhoto(id: string) {
+        const index = this.photos.findIndex(p => p?.id === id);
+        if (index === -1) return;
+        const row = Math.floor(index / this.cols);
+        const gridContainer = this.gridView?.parentElement as HTMLElement;
+        if (!gridContainer) return;
+
+        const currentScroll = gridContainer.scrollTop;
+        const viewHeight = gridContainer.clientHeight;
+        const targetTop = row * this.rowHeight;
+        
+        if (targetTop < currentScroll || targetTop + this.rowHeight > currentScroll + viewHeight) {
+            gridContainer.scrollTo({
+                top: targetTop - (viewHeight / 2) + (this.rowHeight / 2),
+                behavior: 'smooth'
+            });
+        }
     }
 
     enterLoupeMode(id: string) {
@@ -688,14 +745,7 @@ class App {
         if (this.gridHeader) this.gridHeader.style.display = 'flex';
         document.getElementById('nav-loupe')?.classList.remove('active');
         document.getElementById('nav-grid')?.classList.add('active');
-        if (this.selectedId) {
-            const index = this.photos.findIndex(p => p?.id === this.selectedId);
-            if (index !== -1) {
-                const row = Math.floor(index / this.cols);
-                const cont = this.gridView?.parentElement as HTMLElement;
-                if (cont) cont.scrollTop = row * this.rowHeight - (cont.clientHeight / 2) + (this.rowHeight / 2);
-            }
-        }
+        if (this.selectedId) this.scrollToPhoto(this.selectedId);
         this.updateVirtualGrid(true);
     }
 
@@ -703,9 +753,20 @@ class App {
         if (!this.mainPreview) return;
         this.mainPreview.style.display = 'none';
         if (this.previewSpinner) this.previewSpinner.style.display = 'block';
+        
+        const cacheKey = id + '-1024';
+        if (this.imageUrlCache.has(cacheKey)) {
+            this.mainPreview.src = this.imageUrlCache.get(cacheKey)!;
+            this.mainPreview.style.display = 'block';
+            if (this.previewSpinner) this.previewSpinner.style.display = 'none';
+            return;
+        }
+
         server.requestImage(id, 1024).then(blob => {
             if (this.selectedId === id) {
-                this.mainPreview!.src = URL.createObjectURL(blob);
+                const url = URL.createObjectURL(blob);
+                this.imageUrlCache.set(cacheKey, url);
+                this.mainPreview!.src = url;
                 this.mainPreview!.style.display = 'block';
                 if (this.previewSpinner) this.previewSpinner.style.display = 'none';
             }
@@ -713,21 +774,23 @@ class App {
     }
 
     async loadMetadata(id: string) {
-        if (!this.metadataEl) return;
+        if (!this.metadataEl || !id) return;
         const photo = this.photoMap.get(id);
         if (!photo) return;
+
         const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
         const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
-        this.metadataEl.innerHTML = '';
+
         try {
             const meta = await Api.api_metadata({ id });
-            const groups: {[k:string]: MetadataItem[]} = {};
+            const groups: { [k: string]: MetadataItem[] } = {};
             meta.forEach(m => { const k = m.directory || 'Unknown'; if (!groups[k]) groups[k] = []; groups[k].push(m); });
             groups['File Info'] = [
                 { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
                 { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
                 { directory: 'File Info', tag: 'ID', value: id }
             ];
+
             const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
                 const getMinPriority = (g: string) => { const priorities = groups[g].map(i => priorityTags.indexOf(i.tag!)).filter(p => p !== -1); return priorities.length > 0 ? Math.min(...priorities) : 999; };
                 const pa = getMinPriority(a); const pb = getMinPriority(b);
@@ -736,29 +799,79 @@ class App {
                 if (ia === -1) ia = 999; if (ib === -1) ib = 999;
                 return ia - ib;
             });
+
+            // 1. Update Title surgically
+            if (!this.metaTitleEl) {
+                this.metaTitleEl = document.createElement('h2');
+                this.metadataEl.appendChild(this.metaTitleEl);
+            }
             const pickText = photo.isPicked ? '\u2691' : '';
             const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
-            const title = document.createElement('h2'); title.textContent = `${photo.fileName} ${pickText} ${starsText}`;
-            this.metadataEl.appendChild(title);
+            this.metaTitleEl.textContent = `${photo.fileName} ${pickText} ${starsText}`;
+
+            // 2. Track which groups we use to remove leftovers
+            const seenGroups = new Set<string>();
 
             for (const k of sortedGroupKeys) {
+                seenGroups.add(k);
+                let groupInfo = this.metaGroups.get(k);
+                if (!groupInfo) {
+                    const container = document.createElement('div');
+                    container.className = 'meta-group';
+                    const h3 = document.createElement('h3');
+                    h3.textContent = k;
+                    container.appendChild(h3);
+                    this.metadataEl.appendChild(container);
+                    groupInfo = { container, rows: new Map() };
+                    this.metaGroups.set(k, groupInfo);
+                }
+
                 const items = groups[k];
                 items.sort((a, b) => { let ia = priorityTags.indexOf(a.tag!); let ib = priorityTags.indexOf(b.tag!); if (ia === -1) ia = 999; if (ib === -1) ib = 999; if (ia !== ib) return ia - ib; return a.tag!.localeCompare(b.tag!); });
-                const groupDiv = document.createElement('div'); groupDiv.className = 'meta-group';
-                const h3 = document.createElement('h3'); h3.textContent = k;
-                groupDiv.appendChild(h3);
-                items.forEach(m => {
-                    const row = document.createElement('div'); row.className = 'meta-row';
-                    const key = document.createElement('span'); key.className = 'meta-key'; key.textContent = m.tag || '';
-                    const val = document.createElement('span'); val.className = 'meta-val'; val.textContent = m.value || '';
-                    const search = document.createElement('span'); search.className = 'meta-search-btn'; search.textContent = '\uD83D\uDD0D'; search.title = 'Search';
-                    search.onclick = () => hub.pub('search.triggered', { tag: m.tag!, value: m.value! });
-                    row.appendChild(key); row.appendChild(val); row.appendChild(search);
-                    groupDiv.appendChild(row);
-                });
-                this.metadataEl.appendChild(groupDiv);
+
+                const seenRows = new Set<string>();
+                for (const m of items) {
+                    const tagKey = m.tag!;
+                    seenRows.add(tagKey);
+                    let row = groupInfo.rows.get(tagKey);
+                    if (!row) {
+                        row = document.createElement('div');
+                        row.className = 'meta-row';
+                        const keySpan = document.createElement('span'); keySpan.className = 'meta-key'; keySpan.textContent = m.tag || '';
+                        const valSpan = document.createElement('span'); valSpan.className = 'meta-val';
+                        const search = document.createElement('span'); search.className = 'meta-search-btn'; search.textContent = '\uD83D\uDD0D'; search.title = 'Search';
+                        row.appendChild(keySpan); row.appendChild(valSpan); row.appendChild(search);
+                        groupInfo.container.appendChild(row);
+                        groupInfo.rows.set(tagKey, row);
+                    }
+                    // Only update the value part
+                    const valSpan = row.querySelector('.meta-val') as HTMLElement;
+                    valSpan.textContent = m.value || '';
+                    const searchBtn = row.querySelector('.meta-search-btn') as HTMLElement;
+                    searchBtn.onclick = () => hub.pub('search.triggered', { tag: m.tag!, value: m.value! });
+                }
+
+                // Cleanup rows no longer present in this group
+                for (const [tag, rowEl] of groupInfo.rows.entries()) {
+                    if (!seenRows.has(tag)) {
+                        rowEl.remove();
+                        groupInfo.rows.delete(tag);
+                    }
+                }
             }
-        } catch { this.metadataEl.textContent = 'Error'; }
+
+            // Cleanup groups no longer present
+            for (const [groupName, info] of this.metaGroups.entries()) {
+                if (!seenGroups.has(groupName)) {
+                    info.container.remove();
+                    this.metaGroups.delete(groupName);
+                }
+            }
+
+        } catch (err) { 
+            console.error(err);
+            if (this.metadataEl) this.metadataEl.textContent = 'Error loading metadata'; 
+        }
     }
 
     private handleKey(e: KeyboardEvent) {

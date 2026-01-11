@@ -7,6 +7,7 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
 -   **High-Performance Web Interface**:
     -   **Virtualized Grid**: Custom rendering engine that supports hundreds of thousands of images by only rendering what's visible.
+    -   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes during navigation.
     -   **Loupe View**: High-resolution preview with a reactive filmstrip for quick navigation.
     -   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
     -   **WebSocket Streaming**: Binary protocol for ultra-fast, low-overhead image delivery.
@@ -16,6 +17,7 @@ A high-performance C# application designed to scan photo directories, index meta
     -   **User Collections**: Create custom collections and group flagged images effortlessly.
 -   **Architecture**:
     -   **Reactive PubSub Hub**: Decoupled UI components using a pattern-matching event system.
+    -   **Surgical Metadata Panel**: Updates only changed values using a DOM-diffing strategy to ensure stability.
     -   **Type-Safe API**: TypeScript models and functions automatically generated from C# DTOs via a Roslyn-based source generator.
     -   **Optimistic UI**: Immediate local feedback for ratings and flags, with background synchronization and error reversal.
 
@@ -48,7 +50,7 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **Arrows**: Navigate Grid/Filmstrip
 
 ### Helper Scripts
--   `./test.sh`: Generates a test set and dumps database tables.
+-   `./test.sh`: Samples real images from RAID, preserving folder structure, and generates test DBs.
 -   `./testhost.sh`: Launches the web viewer (port 8080) using test data.
 -   `./publish.sh`: Creates a self-contained, single-file executable in `./dist`.
 
