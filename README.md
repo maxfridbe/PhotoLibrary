@@ -13,12 +13,13 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **Professional Fullscreen & Loupe Viewers**:
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
-    *   **On-Demand Rendering**: The backend renders high-quality JPEGs from RAW files instantly when requested.
-    *   **Orientation Aware**: Automatically respects EXIF orientation metadata for all previews and renders.
-    *   **Sticky Navigation**: Browse your entire library with arrow keys while remaining in fullscreen or loupe mode.
+-   **Library Maintenance Mode**:
+    *   **Background Scanning**: Add new directories to your library directly from the UI.
+    *   **Preview Pre-generation**: Optionally generate low (300px) and medium (1024px) previews during the scan to ensure instant viewing later.
+    *   **Database Stats**: Real-time tracking of image counts and database file sizes (Metadata and Preview DBs).
 -   **High-Performance Web Interface**:
     *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images by only rendering visible items.
-    *   **Dynamic Theming**: Centralized color palette managed in TypeScript and injected via CSS variables for a consistent, modern aesthetic.
+    *   **Dynamic Theming**: Choose from over 20 built-in themes including popular VS Code palettes (One Dark Pro, Dracula, Tokyo Night, GitHub Light, etc.).
     *   **Typographically Sound**: Uses `em`-based scaling for professional, consistent proportions across all screen sizes.
     *   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes.
     *   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).

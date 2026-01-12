@@ -74,6 +74,10 @@ namespace PhotoLibrary
                     FOREIGN KEY({Column.CollectionFiles.CollectionId}) REFERENCES {TableName.UserCollections}({Column.UserCollections.Id}),
                     FOREIGN KEY({Column.CollectionFiles.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
+                @"CREATE TABLE IF NOT EXISTS Settings (
+                    Key TEXT PRIMARY KEY,
+                    Value TEXT
+                );",
                 $@"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON {TableName.Metadata}({Column.Metadata.FileId});",
                 $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON {TableName.FileEntry}({Column.FileEntry.CreatedAt});",
                 $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_RootPathId ON {TableName.FileEntry}({Column.FileEntry.RootPathId});"
@@ -87,6 +91,74 @@ namespace PhotoLibrary
                     command.ExecuteNonQuery();
                 }
             }
+        }
+
+        public string? GetSetting(string key)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Value FROM Settings WHERE Key = $Key";
+                command.Parameters.AddWithValue("$Key", key);
+                return command.ExecuteScalar() as string;
+            }
+        }
+
+        public void SetSetting(string key, string value)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO Settings (Key, Value) VALUES ($Key, $Value) ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value";
+                command.Parameters.AddWithValue("$Key", key);
+                command.Parameters.AddWithValue("$Value", value);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public LibraryInfoResponse GetLibraryInfo(string previewDbPath)
+        {
+            var info = new LibraryInfoResponse();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            // Total Images
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry}";
+                info.TotalImages = Convert.ToInt32(cmd.ExecuteScalar());
+            }
+
+            // DB Sizes
+            info.DbSize = new FileInfo(connection.DataSource).Length;
+            if (File.Exists(previewDbPath))
+            {
+                info.PreviewDbSize = new FileInfo(previewDbPath).Length;
+            }
+
+            // Folders
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = $@"
+                    SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.Name}, 
+                           (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}) as Count
+                    FROM {TableName.RootPaths} r
+                    ORDER BY r.{Column.RootPaths.Name}";
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    info.Folders.Add(new LibraryFolderResponse
+                    {
+                        Id = reader.GetString(0),
+                        Path = reader.GetString(1),
+                        ImageCount = reader.GetInt32(2)
+                    });
+                }
+            }
+
+            return info;
         }
 
         public StatsResponse GetGlobalStats()

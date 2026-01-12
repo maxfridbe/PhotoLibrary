@@ -1,36 +1,20 @@
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
 import { server } from './serverOperations.js';
-const defaultTheme = {
-    'bg-main': '#1e1e1e',
-    'bg-header': '#2d2d2d',
-    'bg-panel': '#252526',
-    'bg-panel-alt': '#252525',
-    'bg-grid-header': '#333',
-    'bg-dark': '#111',
-    'bg-black': '#000',
-    'bg-card': '#2b2b2b',
-    'bg-card-selected': '#4a4a4a',
-    'bg-hover': '#333',
-    'bg-active': '#383838',
-    'bg-input': '#111',
-    'text-main': '#ddd',
-    'text-muted': '#888',
-    'text-dim': '#666',
-    'text-bright': '#fff',
-    'text-header': '#ccc',
-    'text-label': '#aaa',
-    'text-input': '#eee',
-    'accent': '#0078d7',
-    'accent-gold': '#ffd700',
-    'border-main': '#333',
-    'border-dim': '#111',
-    'border-light': '#444',
-    'border-focus': '#555',
-    'border-card-stack': '#444'
-};
+import { themes } from './themes.js';
+async function post(url, data) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok)
+        return null;
+    return await res.json();
+}
 class App {
     constructor() {
+        this.currentTheme = 'dark';
         this.allPhotosFlat = [];
         this.photos = []; // Processed list
         this.photoMap = new Map();
@@ -56,6 +40,7 @@ class App {
         this.visibleRange = { start: 0, end: 0 };
         this.isLoadingChunk = new Set();
         this.isLoupeMode = false;
+        this.isLibraryMode = false;
         // Connection State
         this.disconnectedAt = null;
         this.isConnected = false;
@@ -80,17 +65,63 @@ class App {
         this.previewSpinner = null;
         this.metaTitleEl = null;
         this.metaGroups = new Map();
+        this.loadSettings().then(() => {
+            this.populateThemes();
+            this.applyTheme();
+            this.initLayout();
+            this.loadData();
+            this.setupGlobalKeyboard();
+            this.setupContextMenu();
+            this.initPubSub();
+            this.startStatusTimer();
+            // Check initial connection state
+            if (server.isConnected) {
+                this.isConnected = true;
+                this.updateStatusUI();
+            }
+        });
+    }
+    populateThemes() {
+        const select = document.getElementById('theme-select');
+        if (!select)
+            return;
+        select.innerHTML = '';
+        Object.keys(themes).forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            if (name === this.currentTheme)
+                opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+    async loadSettings() {
+        try {
+            const res = await post('/api/settings/get', { key: 'ui-theme' });
+            if (res && res.value && themes[res.value]) {
+                this.currentTheme = res.value;
+            }
+        }
+        catch (e) {
+            console.error("Failed to load settings", e);
+        }
+    }
+    async setTheme(themeName) {
+        if (!themes[themeName])
+            return;
+        this.currentTheme = themeName;
         this.applyTheme();
-        this.initLayout();
-        this.loadData();
-        this.setupGlobalKeyboard();
-        this.setupContextMenu();
-        this.initPubSub();
-        this.startStatusTimer();
+        try {
+            await post('/api/settings/set', { key: 'ui-theme', value: themeName });
+        }
+        catch (e) {
+            console.error("Failed to save theme setting", e);
+        }
     }
     applyTheme() {
         const root = document.documentElement;
-        Object.entries(defaultTheme).forEach(([key, value]) => {
+        const theme = themes[this.currentTheme] || themes['dark'];
+        Object.entries(theme).forEach(([key, value]) => {
             root.style.setProperty(`--${key}`, value);
         });
     }
@@ -526,31 +557,6 @@ class App {
             const stripItem = this.filmstrip?.querySelector(`.card[data-id="${id}"]`);
             if (stripItem)
                 stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-        }
-    }
-    updateViewModeUI() {
-        const gridCont = this.workspaceEl?.querySelector('#grid-container');
-        if (this.isLoupeMode) {
-            if (gridCont)
-                gridCont.style.display = 'none';
-            if (this.gridHeader)
-                this.gridHeader.style.display = 'none';
-            if (this.loupeView)
-                this.loupeView.style.display = 'flex';
-            document.getElementById('nav-grid')?.classList.remove('active');
-            document.getElementById('nav-loupe')?.classList.add('active');
-            this.renderFilmstrip();
-        }
-        else {
-            if (this.loupeView)
-                this.loupeView.style.display = 'none';
-            if (gridCont)
-                gridCont.style.display = 'flex';
-            if (this.gridHeader)
-                this.gridHeader.style.display = 'flex';
-            document.getElementById('nav-loupe')?.classList.remove('active');
-            document.getElementById('nav-grid')?.classList.add('active');
-            this.updateVirtualGrid(true);
         }
     }
     syncCardData(card, photo) {
@@ -1001,37 +1007,154 @@ class App {
     }
     enterLoupeMode(id) {
         this.isLoupeMode = true;
-        if (this.workspaceEl) {
-            const cont = this.workspaceEl.querySelector('#grid-container');
-            if (cont)
-                cont.style.display = 'none';
-        }
-        if (this.gridHeader)
-            this.gridHeader.style.display = 'none';
-        if (this.loupeView)
-            this.loupeView.style.display = 'flex';
-        document.getElementById('nav-grid')?.classList.remove('active');
-        document.getElementById('nav-loupe')?.classList.add('active');
+        this.isLibraryMode = false;
+        this.updateViewModeUI();
         this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
     enterGridMode() {
         this.isLoupeMode = false;
-        if (this.loupeView)
-            this.loupeView.style.display = 'none';
-        if (this.workspaceEl) {
-            const cont = this.workspaceEl.querySelector('#grid-container');
-            if (cont)
-                cont.style.display = 'flex';
-        }
-        if (this.gridHeader)
-            this.gridHeader.style.display = 'flex';
-        document.getElementById('nav-loupe')?.classList.remove('active');
-        document.getElementById('nav-grid')?.classList.add('active');
+        this.isLibraryMode = false;
+        this.updateViewModeUI();
         if (this.selectedId)
             this.scrollToPhoto(this.selectedId);
         this.updateVirtualGrid(true);
+    }
+    enterLibraryMode() {
+        this.isLoupeMode = false;
+        this.isLibraryMode = true;
+        this.updateViewModeUI();
+        if (!this.libraryLayout) {
+            this.initLibraryLayout();
+        }
+        this.loadLibraryInfo();
+    }
+    updateViewModeUI() {
+        const layoutCont = document.getElementById('layout-container');
+        const libraryView = document.getElementById('library-view');
+        document.querySelectorAll('.lr-nav-item').forEach(el => el.classList.remove('active'));
+        if (this.isLibraryMode) {
+            layoutCont.style.display = 'none';
+            libraryView.style.display = 'block';
+            document.getElementById('nav-library')?.classList.add('active');
+        }
+        else {
+            layoutCont.style.display = 'block';
+            libraryView.style.display = 'none';
+            const gridCont = this.workspaceEl?.querySelector('#grid-container');
+            if (this.isLoupeMode) {
+                if (gridCont)
+                    gridCont.style.display = 'none';
+                if (this.gridHeader)
+                    this.gridHeader.style.display = 'none';
+                if (this.loupeView)
+                    this.loupeView.style.display = 'flex';
+                document.getElementById('nav-loupe')?.classList.add('active');
+            }
+            else {
+                if (this.loupeView)
+                    this.loupeView.style.display = 'none';
+                if (gridCont)
+                    gridCont.style.display = 'flex';
+                if (this.gridHeader)
+                    this.gridHeader.style.display = 'flex';
+                document.getElementById('nav-grid')?.classList.add('active');
+                this.updateVirtualGrid(true);
+            }
+        }
+    }
+    initLibraryLayout() {
+        const config = {
+            settings: { showPopoutIcon: false },
+            content: [{
+                    type: 'row',
+                    content: [
+                        { type: 'component', componentName: 'folders', width: 40, title: 'Library Folders' },
+                        { type: 'component', componentName: 'actions', width: 60, title: 'Maintenance & Stats' }
+                    ]
+                }]
+        };
+        this.libraryLayout = new GoldenLayout(config, '#library-view');
+        const self = this;
+        this.libraryLayout.registerComponent('folders', function (container) {
+            const el = document.createElement('div');
+            el.id = 'library-folders-list';
+            el.className = 'gl-component';
+            el.style.padding = '1em';
+            el.style.overflowY = 'auto';
+            container.getElement().append(el);
+        });
+        this.libraryLayout.registerComponent('actions', function (container) {
+            const el = document.createElement('div');
+            el.id = 'library-actions-panel';
+            el.className = 'gl-component';
+            el.style.padding = '2em';
+            el.innerHTML = `
+                <div style="margin-bottom: 2em;">
+                    <h3>Library Statistics</h3>
+                    <div id="lib-stats-content">Loading...</div>
+                </div>
+                <div style="margin-bottom: 2em; display: flex; flex-direction: column; gap: 1em; max-width: 400px;">
+                    <h3>Find New Images</h3>
+                    <input type="text" id="scan-path-input" placeholder="Path to scan..." style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.5em; border-radius: 4px;">
+                    <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
+                        <input type="checkbox" id="gen-low-check" checked> Pre-generate Low Previews (300px)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
+                        <input type="checkbox" id="gen-med-check" checked> Pre-generate Medium Previews (1024px)
+                    </label>
+                    <button id="start-scan-btn" style="padding: 0.8em; background: var(--accent); color: var(--text-bright); border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                        START SCAN
+                    </button>
+                </div>
+            `;
+            container.getElement().append(el);
+            const btn = el.querySelector('#start-scan-btn');
+            btn.onclick = () => self.triggerScan();
+        });
+        this.libraryLayout.init();
+    }
+    async loadLibraryInfo() {
+        const info = await post('/api/library/info', {});
+        if (!info)
+            return;
+        const foldersList = document.getElementById('library-folders-list');
+        if (foldersList) {
+            foldersList.innerHTML = '<h3>Registered Folders</h3>';
+            info.folders.forEach((f) => {
+                const item = document.createElement('div');
+                item.style.padding = '0.5em 0';
+                item.style.borderBottom = '1px solid var(--border-main)';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.innerHTML = `<span>${f.path}</span><span style="color: var(--text-muted)">${f.imageCount} images</span>`;
+                foldersList.appendChild(item);
+            });
+        }
+        const statsContent = document.getElementById('lib-stats-content');
+        if (statsContent) {
+            statsContent.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1em;">
+                    <div>Total Images:</div><div style="text-align: right; font-weight: bold;">${info.totalImages}</div>
+                    <div>Metadata DB Size:</div><div style="text-align: right; font-weight: bold;">${(info.dbSize / (1024 * 1024)).toFixed(2)} MB</div>
+                    <div>Preview DB Size:</div><div style="text-align: right; font-weight: bold;">${(info.previewDbSize / (1024 * 1024)).toFixed(2)} MB</div>
+                </div>
+            `;
+        }
+    }
+    async triggerScan() {
+        const path = document.getElementById('scan-path-input').value;
+        const low = document.getElementById('gen-low-check').checked;
+        const med = document.getElementById('gen-med-check').checked;
+        if (!path) {
+            this.showNotification("Please provide a path to scan", "error");
+            return;
+        }
+        const res = await post('/api/library/scan', { path, generateLow: low, generateMedium: med });
+        if (res) {
+            this.showNotification("Scan started in background", "success");
+        }
     }
     loadMainPreview(id) {
         if (!this.mainPreview || !this.loupePreviewPlaceholder || !this.previewSpinner)

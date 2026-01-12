@@ -137,6 +137,53 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
+            app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
+            {
+                var info = db.GetLibraryInfo(pm.DbPath);
+                return Results.Ok(info);
+            });
+
+            app.MapPost("/api/library/scan", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<ScanLibraryRequest>();
+                if (req == null) return Results.BadRequest();
+
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        var sizes = new List<int>();
+                        if (req.generateLow) sizes.Add(300);
+                        if (req.generateMedium) sizes.Add(1024);
+
+                        var scanner = new ImageScanner(db, pm, sizes.ToArray());
+                        scanner.Scan(req.path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Background scan failed: {ex.Message}");
+                    }
+                });
+
+                return Results.Ok(new { message = "Scan started in background" });
+            });
+
+            app.MapPost("/api/settings/get", async (HttpContext context, DatabaseManager db) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<SettingRequest>();
+                if (req == null) return Results.BadRequest();
+                var val = db.GetSetting(req.key);
+                return Results.Ok(new { value = val });
+            });
+
+            app.MapPost("/api/settings/set", async (HttpContext context, DatabaseManager db) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<SettingRequest>();
+                if (req == null) return Results.BadRequest();
+                db.SetSetting(req.key, req.value);
+                return Results.Ok(new { });
+            });
+
             app.MapGet("/api/download/{fileId}", (string fileId, DatabaseManager db) =>
             {
                 string? fullPath = db.GetFullFilePath(fileId);

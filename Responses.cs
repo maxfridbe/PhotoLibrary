@@ -51,4 +51,19 @@ namespace PhotoLibrary
         public int PickedCount { get; set; }
         public int[] RatingCounts { get; set; } = new int[5];
     }
+
+    public class LibraryFolderResponse
+    {
+        public string Id { get; set; } = "";
+        public string Path { get; set; } = "";
+        public int ImageCount { get; set; }
+    }
+
+    public class LibraryInfoResponse
+    {
+        public int TotalImages { get; set; }
+        public long DbSize { get; set; }
+        public long PreviewDbSize { get; set; }
+        public List<LibraryFolderResponse> Folders { get; set; } = new();
+    }
 }

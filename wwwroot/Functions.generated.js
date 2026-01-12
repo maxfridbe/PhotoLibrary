@@ -47,6 +47,18 @@ export async function api_picked_ids(data) {
 export async function api_stats(data) {
     return await post('/api/stats', data);
 }
+export async function api_library_info(data) {
+    return await post('/api/library/info', data);
+}
+export async function api_library_scan(data) {
+    return await post('/api/library/scan', data);
+}
+export async function api_settings_get(data) {
+    return await post('/api/settings/get', data);
+}
+export async function api_settings_set(data) {
+    return await post('/api/settings/set', data);
+}
 export async function api_export_prepare(data) {
     return await post('/api/export/prepare', data);
 }

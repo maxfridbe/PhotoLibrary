@@ -13,8 +13,10 @@
         
         /* Lightroom Header */
         .lr-header { height: 2.5em; background: var(--bg-header); display: flex; align-items: center; padding: 0 1.25em; border-bottom: 1px solid var(--border-dim); user-select: none; }
-        .lr-logo { font-size: 1.1em; color: var(--text-header); letter-spacing: 1px; margin-right: 2.5em; }
+        .lr-logo { font-size: 1.1em; color: var(--text-header); letter-spacing: 1px; margin-right: 2.5em; display: flex; align-items: center; gap: 0.5em; }
         .lr-logo b { color: var(--text-bright); }
+        .settings-trigger { cursor: pointer; opacity: 0.5; transition: opacity 0.2s, transform 0.3s; font-size: 1.2em; line-height: 1; }
+        .settings-trigger:hover { opacity: 1; transform: rotate(45deg); }
         .lr-nav { display: flex; height: 100%; gap: 2px; }
         .lr-nav-item { height: 100%; display: flex; align-items: center; padding: 0 1.25em; color: var(--text-muted); font-size: 0.75em; font-weight: 700; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent; }
         .lr-nav-item:hover { color: var(--text-header); background: var(--bg-hover); }
@@ -142,12 +144,23 @@
         .context-menu-item { padding: 0.5em 1em; font-size: 0.9em; color: var(--text-input); cursor: pointer; transition: background 0.2s; }
         .context-menu-item:hover { background: var(--accent); color: var(--text-bright); }
         .context-menu-divider { height: 1px; background: var(--border-light); margin: 0.35em 0; }
+
+        /* Golden Layout Overrides */
+        .lm_header { background: var(--bg-header) !important; }
+        .lm_header .lm_tab { background: var(--bg-header) !important; color: var(--text-muted) !important; border: none !important; margin-right: 2px !important; padding-top: 2px !important; }
+        .lm_header .lm_tab.lm_active { background: var(--bg-panel) !important; color: var(--text-bright) !important; border-top: 2px solid var(--accent) !important; }
+        .lm_header .lm_tab:hover { color: var(--text-bright) !important; }
+        .lm_content { background: var(--bg-main) !important; border: 1px solid var(--border-dim) !important; }
+        .lm_splitter { background: var(--bg-black) !important; opacity: 0.5; }
+        .lm_splitter:hover { opacity: 1; background: var(--accent) !important; }
+        .lm_root { background: var(--bg-black) !important; }
     </style>
 </head>
 <body>
     <div class="lr-header">
-        <div class="lr-logo">Photo<b>Library</b></div>
+        <div class="lr-logo">Photo<b>Library</b><span class="settings-trigger" onclick="document.getElementById('settings-modal').classList.add('active')">&#9881;</span></div>
         <div class="lr-nav">
+            <div class="lr-nav-item" id="nav-library" onclick="app.enterLibraryMode()">LIBRARY</div>
             <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
             <div class="lr-nav-item" id="nav-loupe" onclick="if(app.selectedId) app.enterLoupeMode(app.selectedId)">LOUPE</div>
         </div>
@@ -158,7 +171,26 @@
 
     <div id="layout-container" style="width: 100%; height: calc(100% - 40px);"></div>
 
+    <div id="library-view" style="display: none; width: 100%; height: calc(100% - 40px); background: var(--bg-main);"></div>
+
     <div class="context-menu" id="context-menu"></div>
+
+    <div class="modal-overlay" id="settings-modal">
+        <div class="shortcuts-dialog">
+            <h2>Application Settings</h2>
+            <div class="shortcut-row">
+                <span class="shortcut-desc">UI Theme</span>
+                <select id="theme-select" onchange="app.setTheme(this.value)" style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.2em 0.5em; border-radius: 4px;">
+                    <option value="dark">Dark (Default)</option>
+                    <option value="light">Light</option>
+                    <option value="oled">True Black (OLED)</option>
+                </select>
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="document.getElementById('settings-modal').classList.remove('active')" style="padding: 5px 15px; cursor: pointer; background: var(--border-light); color: var(--text-bright); border: none; border-radius: 4px;">Close</button>
+            </div>
+        </div>
+    </div>
 
     <div class="modal-overlay" id="shortcuts-modal">
         <div class="shortcuts-dialog">

@@ -7,7 +7,7 @@ class ServerOperations {
     private ws: WebSocket | null = null;
     private requestMap: Map<number, (blob: Blob) => void> = new Map();
     private nextRequestId = 1;
-    private isConnected = false;
+    public isConnected = false;
     private pendingRequests: Req.ImageRequest[] = [];
     private reconnectAttempts = 0;
     private readonly maxReconnectDelay = 256000;

@@ -8,9 +8,11 @@ namespace PhotoLibrary
     public class PreviewManager
     {
         private readonly string _connectionString;
+        public string DbPath { get; private set; }
 
         public PreviewManager(string dbPath)
         {
+            DbPath = dbPath;
             _connectionString = $"Data Source={dbPath}";
         }
 
