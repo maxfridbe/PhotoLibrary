@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-12T11:54:02.7749617-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-12T13:32:49.2125322-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -9,6 +9,7 @@ export interface PhotoResponse {
     size: number;
     createdAt: string;
     modifiedAt: string;
+    hash?: string;
     isPicked: boolean;
     rating: number;
     stackCount: number;

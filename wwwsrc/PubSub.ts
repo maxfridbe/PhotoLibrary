@@ -4,6 +4,7 @@ export interface EventMap {
     'view.mode.changed': { mode: 'grid' | 'loupe' | 'library', id?: string };
     'photo.selected': { id: string, photo: Res.PhotoResponse };
     'photo.updated': { id: string, photo: Res.PhotoResponse };
+    'photo.rotated': { id: string, rotation: number };
     
     // Status Events
     'photo.picked.added': { id: string };

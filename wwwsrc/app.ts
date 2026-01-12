@@ -53,6 +53,7 @@ class App {
     private cols = 1;
     private visibleRange = { start: 0, end: 0 };
     private isLoadingChunk = new Set<number>();
+    private rotationMap = new Map<string, number>();
 
     public isLoupeMode = false;
     public isLibraryMode = false;
@@ -188,6 +189,17 @@ class App {
 
         hub.sub('photo.updated', (data) => {
             this.handlePhotoUpdate(data.photo);
+        });
+
+        hub.sub('photo.rotated', (data) => {
+            this.rotationMap.set(data.id, data.rotation);
+            // Update grid card
+            const gridCard = this.gridView?.querySelector(`.card[data-id="${data.id}"] img`) as HTMLElement;
+            if (gridCard) gridCard.style.transform = `rotate(${data.rotation}deg)`;
+            
+            // Update filmstrip card
+            const filmCard = this.filmstrip?.querySelector(`.card[data-id="${data.id}"] img`) as HTMLElement;
+            if (filmCard) filmCard.style.transform = `rotate(${data.rotation}deg)`;
         });
 
         hub.subPattern('photo.picked.*', () => this.refreshStatsOnly());
@@ -515,7 +527,18 @@ class App {
         }
     }
 
-    initLayout() {
+    public resetLayout() {
+        if (this.layout) {
+            this.layout.destroy();
+            this.layout = null;
+        }
+        document.getElementById('layout-container')!.innerHTML = '';
+        this.initLayout();
+        document.getElementById('settings-modal')?.classList.remove('active');
+        this.showNotification('Layout reset to default', 'success');
+    }
+
+    private initLayout() {
         const config = {
             settings: { showPopoutIcon: false },
             content: [{
@@ -530,9 +553,45 @@ class App {
         this.layout = new GoldenLayout(config, '#layout-container');
         const self = this;
         this.layout.registerComponent('library', function(container: any) {
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.flexDirection = 'column';
+            wrapper.style.height = '100%';
+
+            const libHeader = document.createElement('div');
+            libHeader.style.padding = '5px 10px';
+            libHeader.style.borderBottom = '1px solid var(--border-color)';
+            libHeader.style.display = 'flex';
+            libHeader.style.justifyContent = 'space-between';
+            libHeader.style.alignItems = 'center';
+            libHeader.style.background = 'var(--bg-header)';
+            
+            const title = document.createElement('span');
+            title.textContent = 'Library';
+            title.style.fontWeight = 'bold';
+            
+            const collapseBtn = document.createElement('span');
+            collapseBtn.innerHTML = '&#171;'; // <<
+            collapseBtn.style.cursor = 'pointer';
+            collapseBtn.title = 'Minimize (B)';
+            collapseBtn.onclick = () => self.toggleLibraryPanel();
+
+            libHeader.appendChild(title);
+            libHeader.appendChild(collapseBtn);
+            wrapper.appendChild(libHeader);
+
             self.libraryEl = document.createElement('div');
-            self.libraryEl.className = 'tree-view gl-component';
-            container.getElement().append(self.libraryEl);
+            self.libraryEl.className = 'tree-view';
+            self.libraryEl.style.flex = '1';
+            self.libraryEl.style.overflowY = 'auto';
+            
+            wrapper.appendChild(self.libraryEl);
+            container.getElement().append(wrapper);
+            
+            // Hide the expand button in workspace if library is visible
+            const expandBtn = document.getElementById('lib-expand-btn');
+            if (expandBtn) expandBtn.style.display = 'none';
+
             if (self.photos.length > 0) self.renderLibrary();
         });
         this.layout.registerComponent('workspace', function(container: any) {
@@ -543,9 +602,28 @@ class App {
             const header = document.createElement('div');
             header.id = 'grid-header';
             header.className = 'grid-header';
+            
+            const headerLeft = document.createElement('div');
+            headerLeft.style.display = 'flex';
+            headerLeft.style.alignItems = 'center';
+            headerLeft.style.gap = '10px';
+
+            const expandLibBtn = document.createElement('span');
+            expandLibBtn.id = 'lib-expand-btn';
+            expandLibBtn.innerHTML = '&#187;'; // >>
+            expandLibBtn.style.cursor = 'pointer';
+            expandLibBtn.style.display = 'none'; // Hidden by default as library is open
+            expandLibBtn.style.fontSize = '1.2em';
+            expandLibBtn.style.fontWeight = 'bold';
+            expandLibBtn.title = 'Show Library (B)';
+            expandLibBtn.onclick = () => self.toggleLibraryPanel();
+            
             const headerText = document.createElement('span');
             headerText.id = 'header-text';
             headerText.textContent = 'All Photos';
+
+            headerLeft.appendChild(expandLibBtn);
+            headerLeft.appendChild(headerText);
             
             const headerRight = document.createElement('div');
             headerRight.style.display = 'flex';
@@ -594,7 +672,7 @@ class App {
             headerRight.appendChild(stackLabel);
             headerRight.appendChild(headerCount);
 
-            header.appendChild(headerText);
+            header.appendChild(headerLeft);
             header.appendChild(headerRight);
             self.workspaceEl.appendChild(header);
 
@@ -642,11 +720,271 @@ class App {
             imgH.id = 'main-preview';
             imgH.className = 'loupe-img highres';
             
+            // Zoom Toolbar
+            const zoomToolbar = document.createElement('div');
+            zoomToolbar.className = 'zoom-toolbar';
+            zoomToolbar.style.cssText = 'position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); padding: 5px 15px; border-radius: 20px; display: flex; gap: 15px; align-items: center; color: white; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100; border: 1px solid rgba(255,255,255,0.2);';
+            
+            const btnRotateLeft = document.createElement('span'); btnRotateLeft.innerHTML = '&#8634;'; btnRotateLeft.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 1.2em;'; btnRotateLeft.title = 'Rotate Left ([)';
+            const btnMinus = document.createElement('span'); btnMinus.textContent = '-'; btnMinus.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto;';
+            const zoomLevel = document.createElement('span'); zoomLevel.textContent = '100%'; zoomLevel.style.cssText = 'font-variant-numeric: tabular-nums; width: 3em; text-align: center;';
+            const btnPlus = document.createElement('span'); btnPlus.textContent = '+'; btnPlus.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto;';
+            const btnOneToOne = document.createElement('span'); btnOneToOne.textContent = '1:1'; btnOneToOne.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 0.8em; border: 1px solid white; border-radius: 4px; display: none;'; btnOneToOne.title = 'Zoom to Device Pixels';
+            const btnRotateRight = document.createElement('span'); btnRotateRight.innerHTML = '&#8635;'; btnRotateRight.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 1.2em;'; btnRotateRight.title = 'Rotate Right (])';
+            
+            zoomToolbar.appendChild(btnRotateLeft);
+            zoomToolbar.appendChild(btnMinus);
+            zoomToolbar.appendChild(zoomLevel);
+            zoomToolbar.appendChild(btnPlus);
+            zoomToolbar.appendChild(btnOneToOne);
+            zoomToolbar.appendChild(btnRotateRight);
+
             previewArea.appendChild(spinner);
             previewArea.appendChild(overlay);
             previewArea.appendChild(imgP);
             previewArea.appendChild(imgH);
+            previewArea.appendChild(zoomToolbar);
             
+            // Zoom & Rotate Logic Variables
+            let scale = 1;
+            let rotation = 0;
+            let pX = 0, pY = 0;
+            let isDragging = false;
+            let startX = 0, startY = 0;
+            let zoomTimer: any = null;
+            let isFullResLoaded = false;
+            let savePrefsTimer: any = null;
+
+            const showToolbar = () => {
+                zoomToolbar.style.opacity = '1';
+                if (zoomTimer) clearTimeout(zoomTimer);
+                zoomTimer = setTimeout(() => zoomToolbar.style.opacity = '0', 2000);
+            };
+
+            const saveViewPrefs = () => {
+                if (!self.selectedId) return;
+                const photo = self.photoMap.get(self.selectedId);
+                if (!photo || !photo.hash) return;
+
+                // Don't save if everything is default
+                if (rotation === 0 && scale === 1 && pX === 0 && pY === 0) return;
+
+                const prefs = {
+                    rotation,
+                    zoom: scale,
+                    panL: pX / previewArea.clientWidth,
+                    panT: pY / previewArea.clientHeight
+                };
+
+                Api.api_settings_set({ 
+                    key: `${photo.hash}-pref-img`, 
+                    value: JSON.stringify(prefs) 
+                });
+            };
+
+            const loadFullRes = () => {
+                if (!self.selectedId || isFullResLoaded) return;
+                isFullResLoaded = true; // Mark as requested to prevent dupes
+                
+                const id = self.selectedId;
+                const fullResKey = id + '-full';
+                
+                const applyFullRes = (url: string) => {
+                    imgH.src = url;
+                    // Show 1:1 button when high res is ready
+                    imgH.onload = () => {
+                        if (self.selectedId === id) {
+                            btnOneToOne.style.display = 'inline-block';
+                            showToolbar();
+                        }
+                    };
+                };
+
+                if (self.imageUrlCache.has(fullResKey)) {
+                    applyFullRes(self.imageUrlCache.get(fullResKey)!);
+                    return;
+                }
+
+                // Request size 0 for original
+                server.requestImage(id, 0).then((blob: Blob) => {
+                    if (self.selectedId === id) {
+                        const url = URL.createObjectURL(blob);
+                        self.imageUrlCache.set(fullResKey, url);
+                        applyFullRes(url);
+                    }
+                });
+            };
+
+            const updateTransform = (skipSave = false, skipTransition = false) => {
+                const transform = `translate(${pX}px, ${pY}px) scale(${scale}) rotate(${rotation}deg)`;
+                
+                imgP.style.transition = 'transform 0.2s';
+                imgH.style.transition = 'transform 0.2s';
+                
+                if (isDragging || skipTransition) {
+                    imgP.style.transition = 'none';
+                    imgH.style.transition = 'none';
+                }
+
+                imgP.style.transform = transform;
+                imgH.style.transform = transform;
+                zoomLevel.textContent = Math.round(scale * 100) + '%';
+                
+                // Cursor logic
+                if (scale > 1) previewArea.style.cursor = isDragging ? 'grabbing' : 'grab';
+                else previewArea.style.cursor = 'default';
+
+                // Load full res if zoomed in past 150%
+                if (scale > 1.5 && !isFullResLoaded) {
+                    loadFullRes();
+                }
+
+                if (!skipSave) {
+                    if (savePrefsTimer) clearTimeout(savePrefsTimer);
+                    savePrefsTimer = setTimeout(saveViewPrefs, 1000);
+                }
+            };
+
+            // Expose for restore
+            (self as any).setViewTransform = (r: number, s: number, pl: number, pt: number) => {
+                rotation = r; scale = s;
+                // Restore pan from percentages
+                pX = pl * previewArea.clientWidth;
+                pY = pt * previewArea.clientHeight;
+                updateTransform(true, true); // skip save and transition on restore
+                if (self.selectedId) hub.pub('photo.rotated', { id: self.selectedId, rotation });
+            };
+
+            // Controls
+            const triggerRotate = () => {
+                updateTransform();
+                showToolbar();
+                if (self.selectedId) hub.pub('photo.rotated', { id: self.selectedId, rotation });
+            };
+
+            btnRotateLeft.onclick = (e) => { e.stopPropagation(); rotation -= 90; triggerRotate(); };
+            btnRotateRight.onclick = (e) => { e.stopPropagation(); rotation += 90; triggerRotate(); };
+            btnMinus.onclick = (e) => { e.stopPropagation(); scale = Math.max(0.1, scale - 0.1); if(scale<=1) { pX=0; pY=0; } updateTransform(); showToolbar(); };
+            btnPlus.onclick = (e) => { e.stopPropagation(); scale = Math.min(5, scale + 0.1); updateTransform(); showToolbar(); };
+            
+            btnOneToOne.onclick = (e) => {
+                e.stopPropagation();
+                if (!imgH.complete || imgH.naturalWidth === 0) return;
+
+                // Calculate scale for 1 image pixel : 1 physical device pixel
+                // Current rendered width at scale 1 (Fit)
+                const containerW = previewArea.clientWidth;
+                const containerH = previewArea.clientHeight;
+                const imgW = imgH.naturalWidth;
+                const imgH_h = imgH.naturalHeight;
+                
+                const aspectImg = imgW / imgH_h;
+                const aspectContainer = containerW / containerH;
+                
+                let renderedW, renderedH;
+                if (aspectImg > aspectContainer) {
+                    // Limited by width
+                    renderedW = containerW;
+                    renderedH = containerW / aspectImg;
+                } else {
+                    // Limited by height
+                    renderedH = containerH;
+                    renderedW = containerH * aspectImg;
+                }
+                
+                const scale1to1 = imgW / renderedW; 
+                // devicePixelRatio logic:
+                // logical pixels = physical / devicePixelRatio
+                // we want 1 CSS pixel = 1 image pixel? No, usually 1:1 means 1 image pixel = 1 CSS pixel.
+                // "Zoom to device pixels" means 1 image pixel = 1 physical pixel.
+                // So if DPR is 2 (Retina), we want displayed CSS width = imgW / 2.
+                // Target CSS width = imgW / window.devicePixelRatio
+                // Target Scale = (imgW / window.devicePixelRatio) / renderedW
+                
+                const targetScale = (imgW / window.devicePixelRatio) / renderedW;
+                
+                scale = targetScale;
+                pX = 0; pY = 0; // Center it
+                updateTransform();
+                showToolbar();
+            };
+
+            // Wheel Zoom
+            previewArea.onwheel = (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                const newScale = Math.max(0.1, Math.min(5, scale + delta));
+                
+                if (newScale !== scale) {
+                    const rect = previewArea.getBoundingClientRect();
+                    // Cursor position relative to center
+                    const mx = e.clientX - rect.left - rect.width / 2;
+                    const my = e.clientY - rect.top - rect.height / 2;
+                    
+                    // Adjust pan to keep cursor point fixed
+                    pX -= (mx - pX) * (newScale / scale - 1);
+                    pY -= (my - pY) * (newScale / scale - 1);
+
+                    scale = newScale;
+                    if (scale <= 1) { pX = 0; pY = 0; }
+                    updateTransform();
+                    showToolbar();
+                }
+            };
+
+            // Pan Logic
+            previewArea.onmousedown = (e) => {
+                if (scale > 1 && e.button === 0) {
+                    isDragging = true;
+                    // Adjust for rotation? No, let's keep it simple: pan moves the image in screen space.
+                    // If rotated, the image moves "weirdly" relative to its own axes but correctly relative to screen.
+                    startX = e.clientX - pX;
+                    startY = e.clientY - pY;
+                    previewArea.style.cursor = 'grabbing';
+                    e.preventDefault();
+                }
+            };
+            
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging && scale > 1) {
+                    pX = e.clientX - startX;
+                    pY = e.clientY - startY;
+                    updateTransform();
+                    showToolbar();
+                } else if (self.isLoupeMode && previewArea.contains(e.target as Node)) {
+                    // Show toolbar when hovering near bottom or over the toolbar itself
+                    const rect = previewArea.getBoundingClientRect();
+                    const isBottom = e.clientY > (rect.bottom - 80);
+                    const isToolbar = zoomToolbar.contains(e.target as Node);
+                    
+                    if (isBottom || isToolbar) {
+                        showToolbar();
+                        // Keep it visible if hovering directly
+                        if (isToolbar) {
+                            zoomToolbar.style.opacity = '1';
+                            if (zoomTimer) clearTimeout(zoomTimer);
+                        }
+                    }
+                }
+            });
+            
+            document.addEventListener('mouseup', () => { 
+                if (isDragging) {
+                    isDragging = false;
+                    updateTransform();
+                }
+            });
+
+            // Reset on load
+            hub.sub('photo.selected', () => {
+                scale = 1; rotation = 0; pX = 0; pY = 0; isFullResLoaded = false;
+                updateTransform(true, true); // Skip save AND transition
+            });
+            
+            // Expose rotation handlers for keyboard
+            (self as any).rotateLeft = () => { rotation -= 90; triggerRotate(); };
+            (self as any).rotateRight = () => { rotation += 90; triggerRotate(); };
+
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
             
@@ -1168,6 +1506,11 @@ class App {
         const imgContainer = document.createElement('div');
         imgContainer.className = 'img-container';
         const img = document.createElement('img');
+        
+        // Apply rotation if exists
+        const rot = this.rotationMap.get(p.id);
+        if (rot) img.style.transform = `rotate(${rot}deg)`;
+        
         imgContainer.appendChild(img);
         this.lazyLoadImage(p.id, img, 300);
         card.appendChild(imgContainer);
@@ -1532,6 +1875,22 @@ class App {
             this.selectedMetadata = meta;
             if (this.isLoupeMode) this.updateLoupeOverlay(id);
 
+            // Update hash if provided (lazy computed)
+            const hashItem = meta.find(m => m.tag === 'FileHash');
+            if (hashItem && hashItem.value) {
+                const p = this.photoMap.get(id);
+                if (p) p.hash = hashItem.value;
+            }
+
+            // Restore View Preferences
+            const viewPref = meta.find(m => m.tag === 'ViewPreferences');
+            if (viewPref && viewPref.value && this.isLoupeMode && (this as any).setViewTransform) {
+                try {
+                    const p = JSON.parse(viewPref.value);
+                    (this as any).setViewTransform(p.rotation, p.zoom, p.panL, p.panT);
+                } catch (e) { console.error('Failed to restore view prefs', e); }
+            }
+
             const groups: { [k: string]: MetadataItem[] } = {};
             meta.forEach(m => { const k = m.directory || 'Unknown'; if (!groups[k]) groups[k] = []; groups[k].push(m); });
             groups['File Info'] = [
@@ -1621,36 +1980,11 @@ class App {
     private toggleLibraryPanel() {
         if (!this.layout) return;
         const libraryItem = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'library')[0];
+        const expandBtn = document.getElementById('lib-expand-btn');
         
         if (libraryItem) {
-            const container = libraryItem.parent;
-            // Check current size to determine if we are collapsing or expanding
-            // Note: GoldenLayout widths are percentages in rows
-            const currentWidth = container.config.width;
-            
-            // Hacky state tracking via data-attribute on the element if possible, or just check width logic
-            // Since width is dynamic, let's use a stored property or just check if it's small.
-            
-            if (currentWidth < 5) {
-                // Expand
-                container.setSize(20);
-            } else {
-                // Collapse
-                container.setSize(0); // 0 might hide it completely? Let's try minimizing it or hiding.
-                // GoldenLayout doesn't support 0 width easily without hiding.
-                // Alternative: Remove it and re-add it? No state loss.
-                // Better: Just toggle visibility or set width to minimal.
-                
-                // Let's try 0.1?
-                container.setSize(0.001); 
-                // Actually, if we want to "minimize to left", we can just remove it and re-add it like metadata?
-                // But user wants "minimized", usually meaning a small bar.
-                // Let's try removing it for now as "hiding" is often what people mean by B shortcut in Lightroom (it toggles visibility).
-                
-                // If user wants specific "minimize to icon", that's harder.
-                // Let's implement "Toggle Visibility" first as that is standard 'B' behavior.
-                libraryItem.remove();
-            }
+            libraryItem.remove();
+            if (expandBtn) expandBtn.style.display = 'inline-block';
         } else {
             // Restore Library
             if (this.layout.root.contentItems.length > 0) {
@@ -1663,6 +1997,7 @@ class App {
                     isClosable: false
                 }, 0); // index 0 to put it on left
             }
+            if (expandBtn) expandBtn.style.display = 'none';
         }
     }
 
@@ -1740,6 +2075,13 @@ class App {
         }
         if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); hub.pub('shortcuts.show', {}); } }
         
+        if (key === '[') {
+            if (this.isLoupeMode && (this as any).rotateLeft) (this as any).rotateLeft();
+        }
+        if (key === ']') {
+            if (this.isLoupeMode && (this as any).rotateRight) (this as any).rotateRight();
+        }
+
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
             e.preventDefault();
             this.navigate(e.key);

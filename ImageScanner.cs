@@ -215,9 +215,14 @@ namespace PhotoLibrary
         private void GeneratePreviews(Stream stream, string fileId, string fileName, string extension, string directoryName)
         {
             bool missingAny = false;
+            
+            // Get the hash again (ensure we are consistent)
+            string? hash = _db.GetFileHash(fileId);
+            if (hash == null) return;
+
             foreach (var size in _longEdges)
             {
-                if (!_previewManager!.HasPreview(fileId, size))
+                if (!_previewManager!.HasPreview(hash, size))
                 {
                     missingAny = true;
                     break;
@@ -250,7 +255,7 @@ namespace PhotoLibrary
                     image.AutoOrient();
                     foreach (var size in _longEdges)
                     {
-                        if (_previewManager!.HasPreview(fileId, size)) continue;
+                        if (_previewManager!.HasPreview(hash, size)) continue;
 
                         using (var clone = image.Clone())
                         {
@@ -261,7 +266,7 @@ namespace PhotoLibrary
                             clone.Quality = 85; 
                             
                             byte[] data = clone.ToByteArray();
-                            _previewManager.SavePreview(fileId, size, data);
+                            _previewManager.SavePreview(hash, size, data);
                         }
                     }
                 }
@@ -281,11 +286,6 @@ namespace PhotoLibrary
             var items = new List<MetadataItem>();
             try
             {
-                // We assume we are at the start of the stream or want to read from current position
-                // MetadataExtractor handles streams but we only want to read the header part if possible for speed
-                // however, XxHash already read the WHOLE stream, so it's already in OS cache.
-                
-                // Read a chunk into a memory stream to ensure we don't close the main stream
                 byte[] buffer = new byte[Math.Min(stream.Length, MaxHeaderBytes)];
                 int read = stream.Read(buffer, 0, buffer.Length);
 

@@ -15,6 +15,10 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Batch Actions**: Flagging or rating a stack representative automatically applies the action to all files in the group.
     *   **Visual Indicators**: Grouped items show a layered card effect and a count badge (e.g., `(2)`).
 -   **Professional Fullscreen & Loupe Viewers**:
+    *   **Persistent View State**: Remembers zoom, pan, and rotation for each image, restoring it exactly when you return.
+    *   **Smart Zoom**: Zooms towards the cursor position. Automatically loads full-resolution original image when zooming past 150%.
+    *   **Pixel-Perfect 1:1**: "1:1" button appears when full-res is loaded to zoom to exact device pixels (retina-aware).
+    *   **Rotation**: Rotate images 90° with `[` and `]`, fully synced between Loupe, Grid, and Filmstrip views.
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
 -   **Library Maintenance Mode**:

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.IO.Hashing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using static PhotoLibrary.TableConstants;
@@ -464,7 +465,7 @@ namespace PhotoLibrary
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = $@"
-                    SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, 
+                    SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, f.{Column.FileEntry.Hash},
                            CASE WHEN (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id}) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
                            COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating
                     FROM {TableName.FileEntry} f
@@ -487,8 +488,9 @@ namespace PhotoLibrary
                         Size = reader.GetInt64(3),
                         CreatedAt = DateTime.Parse(reader.GetString(4)),
                         ModifiedAt = DateTime.Parse(reader.GetString(5)),
-                        IsPicked = reader.GetInt32(6) == 1,
-                        Rating = reader.GetInt32(7),
+                        Hash = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        IsPicked = reader.GetInt32(7) == 1,
+                        Rating = reader.GetInt32(8),
                         StackCount = 1
                     });
                 }
@@ -1070,6 +1072,46 @@ namespace PhotoLibrary
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) items.Add(new MetadataItemResponse { Directory = reader.IsDBNull(0) ? null : reader.GetString(0), Tag = reader.IsDBNull(1) ? null : reader.GetString(1), Value = reader.IsDBNull(2) ? null : reader.GetString(2) });
             }
+
+            // Append view preferences if available
+            string? hash = GetFileHash(fileId);
+            if (hash == null)
+            {
+                // Lazy compute hash if missing
+                string? fullPath = GetFullFilePath(fileId);
+                if (fullPath != null && File.Exists(fullPath))
+                {
+                    try 
+                    {
+                        using var stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var hasher = new XxHash64();
+                        hasher.Append(stream);
+                        hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                        
+                        // Save back to DB
+                        using var updateCmd = connection.CreateCommand();
+                        updateCmd.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
+                        updateCmd.Parameters.AddWithValue("$Hash", hash);
+                        updateCmd.Parameters.AddWithValue("$Id", fileId);
+                        updateCmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex) { _logger.LogError(ex, "Failed to lazy-compute hash for {FileId}", fileId); }
+                }
+            }
+
+            if (hash != null)
+            {
+                // Send hash to client so it can update its model for saving future prefs
+                items.Add(new MetadataItemResponse { Directory = "Internal", Tag = "FileHash", Value = hash });
+
+                string key = $"{hash}-pref-img";
+                string? prefs = GetSetting(key);
+                if (prefs != null)
+                {
+                    items.Add(new MetadataItemResponse { Directory = "Application", Tag = "ViewPreferences", Value = prefs });
+                }
+            }
+
             return items;
         }
 
