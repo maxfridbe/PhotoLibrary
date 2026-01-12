@@ -31,6 +31,7 @@ export class LibraryManager {
             this.isIndexing = false;
             this.loadLibraryInfo();
             this.renderImportControls();
+            document.title = 'Photo Library';
         });
     }
 
@@ -183,6 +184,7 @@ export class LibraryManager {
         if (bar) {
             const percent = total > 0 ? (indexedCount / total) * 100 : 0;
             bar.style.width = percent + '%';
+            document.title = `[${Math.round(percent)}%] Indexing - Photo Library`;
         }
         // Update text too if we find it
         const container = document.getElementById('import-controls-container');
