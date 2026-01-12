@@ -171,8 +171,11 @@ namespace PhotoLibrary
 
                 try
                 {
-                    string absPath = Path.GetFullPath(req.name);
-                    if (!Directory.Exists(absPath)) return Results.Ok(new { files = Array.Empty<string>() });
+                    string absPath = PathUtils.ResolvePath(req.name);
+                    if (!Directory.Exists(absPath)) {
+                        Console.WriteLine($"[DEBUG] Directory not found: {absPath}");
+                        return Results.Ok(new { files = Array.Empty<string>() });
+                    }
                     
                     // Lazy enumeration + immediate extension filtering to save IO/Memory
                     var enumerator = Directory.EnumerateFiles(absPath, "*", SearchOption.AllDirectories)
@@ -222,7 +225,7 @@ namespace PhotoLibrary
                             _ = Broadcast(new { type = "file.imported", id, path });
                         };
                         
-                        string absRoot = Path.GetFullPath(req.rootPath);
+                        string absRoot = PathUtils.ResolvePath(req.rootPath);
                         Console.WriteLine($"[BATCH] Resolved Root: {absRoot}");
                         
                         int count = 0;
@@ -430,7 +433,14 @@ namespace PhotoLibrary
         {
             var assembly = Assembly.GetExecutingAssembly();
             var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream == null) return Results.NotFound();
+            if (stream == null) 
+            {
+                Console.WriteLine($"[DEBUG] Resource not found: {resourceName}");
+                var allResources = assembly.GetManifestResourceNames();
+                Console.WriteLine("[DEBUG] Available resources:");
+                foreach (var res in allResources) Console.WriteLine($"  - {res}");
+                return Results.NotFound();
+            }
             return Results.Stream(stream, contentType);
         }
 

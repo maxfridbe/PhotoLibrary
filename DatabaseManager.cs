@@ -222,24 +222,35 @@ namespace PhotoLibrary
             }
 
             // Folders
+            var folderRecords = new List<(string id, string name, string? parentId, int count)>();
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = $@"
                     SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.Name}, r.{Column.RootPaths.ParentId},
                            (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}) as Count
-                    FROM {TableName.RootPaths} r
-                    ORDER BY r.{Column.RootPaths.Name}";
+                    FROM {TableName.RootPaths} r";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
-                    info.Folders.Add(new LibraryFolderResponse
-                    {
-                        Id = reader.GetString(0),
-                        Path = reader.GetString(1),
-                        ParentId = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        ImageCount = reader.GetInt32(3)
-                    });
+                    folderRecords.Add((
+                        reader.GetString(0),
+                        reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetInt32(3)
+                    ));
                 }
+            }
+
+            foreach (var rec in folderRecords)
+            {
+                string? fullPath = GetRootAbsolutePath(connection, rec.id);
+                info.Folders.Add(new LibraryFolderResponse
+                {
+                    Id = rec.id,
+                    Path = fullPath ?? rec.name,
+                    ParentId = rec.parentId,
+                    ImageCount = rec.count
+                });
             }
 
             return info;
@@ -453,6 +464,7 @@ namespace PhotoLibrary
         // --- Directory Logic ---
         public string GetOrCreateBaseRoot(string absolutePath)
         {
+            absolutePath = PathUtils.ResolvePath(absolutePath);
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();

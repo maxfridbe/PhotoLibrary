@@ -95,8 +95,8 @@ namespace PhotoLibrary
                 }
 
                 // Apply CLI overrides to config object
-                if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = ResolvePath(libraryPath);
-                if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = ResolvePath(previewDb);
+                if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = PathUtils.ResolvePath(libraryPath);
+                if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = PathUtils.ResolvePath(previewDb);
                 if (hostPort.HasValue) config.Port = hostPort.Value;
 
                 // If paths are still null (shouldn't happen with defaults but safety first)
@@ -106,14 +106,14 @@ namespace PhotoLibrary
                 // Save updated config
                 File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
-                string finalLibraryPath = ResolvePath(config.LibraryPath);
-                string finalPreviewDbPath = ResolvePath(config.PreviewDbPath);
+                string finalLibraryPath = PathUtils.ResolvePath(config.LibraryPath);
+                string finalPreviewDbPath = PathUtils.ResolvePath(config.PreviewDbPath);
                 string bindAddr = config.Bind == "public" ? "*" : "localhost";
 
                 // CLI/Scanning Mode
                 if (!string.IsNullOrEmpty(scanDir))
                 {
-                    scanDir = ResolvePath(scanDir);
+                    scanDir = PathUtils.ResolvePath(scanDir);
                     Console.WriteLine($"Library: {finalLibraryPath}");
                     Console.WriteLine($"Scanning: {scanDir}");
                     
@@ -145,15 +145,6 @@ namespace PhotoLibrary
                 Console.WriteLine($"An error occurred: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
             }
-        }
-
-        static string ResolvePath(string path)
-        {
-            if (path.StartsWith("~"))
-            {
-                return path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-            }
-            return Path.GetFullPath(path);
         }
     }
 }

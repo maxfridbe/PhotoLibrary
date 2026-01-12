@@ -34,22 +34,29 @@ A high-performance C# application designed to scan photo directories, index meta
 
 ## Usage
 
-### Prerequisites
-- .NET 8.0 SDK
-- TypeScript (`tsc`) for web asset compilation (handled automatically during `dotnet build`)
+### Quick Start (Zero Config)
+The simplest way to use PhotoLibrary is to build the self-contained executable and run it. By default, it will store all its data and configuration in `~/.config/PhotoLibrary/`.
 
-### Commands
+1.  **Build**: `./publish.sh`
+2.  **Run**: `./dist/linux/PhotoLibrary`
+3.  **Browse**: Open `http://localhost:8080` in your browser.
+4.  **Import**: Use the "Maintenance" tab in the UI to add your photo directories.
+
+### Manual Configuration
+You can override any setting via CLI. These overrides are automatically saved to `~/.config/PhotoLibrary/config.json` for future runs.
+
 ```bash
-./run.sh --library <path> --updatemd <dir> [OPTIONS]
+# Example: Using custom database paths and port
+./dist/linux/PhotoLibrary --library ~/my_photos.db --host 9090
 ```
 
-#### Options
+### CLI Options
 -   `--library <path>`: Path to the metadata SQLite database.
--   `--updatemd <path>`: Directory to scan for images.
--   `--updatepreviews`: Enable preview generation.
 -   `--previewdb <path>`: Path to the previews SQLite database.
+-   `--host <port>`: Port to host the web viewer on.
+-   `--updatemd <dir>`: Directory to scan for images (legacy CLI-only import).
+-   `--updatepreviews`: Enable preview generation during CLI scan.
 -   `--longedge <pixels>`: Target size for previews (e.g., `--longedge 1024 --longedge 300`).
--   `--host <port>`: Starts the web viewer on the specified port.
 
 ### Shortcuts
 -   **'G'**: Grid View
@@ -61,10 +68,11 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **'?'**: Show Shortcuts Dialog
 -   **Arrows**: Navigate Grid/Filmstrip/Fullscreen
 
-### Helper Scripts
+### Development Helpers
 -   `./test.sh`: Samples 100 real images from RAID, preserving folder structure, and generates test DBs.
 -   `./testhost.sh`: Launches the web viewer (port 8080) using test data.
--   `./publish.sh`: Creates a self-contained, single-file executable in `./dist`.
+-   `./run.sh`: Runs the application directly via `dotnet run`.
+
 
 ## Database Schema
 
