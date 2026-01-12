@@ -192,15 +192,19 @@ class App {
                     this.refreshDirectories(); // Re-render tree with new counts
                 }
             }
+            this.importedBatchCount++;
             if (this.isIndexing) {
-                // Skip heavy API calls during bulk indexing
+                // Periodically update UI during bulk indexing (every 50 items)
+                if (this.importedBatchCount % 50 === 0) {
+                    this.refreshStatsOnly();
+                    this.refreshPhotos(true);
+                }
                 return;
             }
             this.refreshStatsOnly();
             this.refreshDirectories();
             if (this.isLibraryMode)
                 this.libraryManager.loadLibraryInfo();
-            this.importedBatchCount++;
             if (this.importedBatchTimer)
                 clearTimeout(this.importedBatchTimer);
             this.importedBatchTimer = setTimeout(() => {
@@ -436,7 +440,7 @@ class App {
             console.error("Load failed", e);
         }
     }
-    async refreshPhotos() {
+    async refreshPhotos(keepSelection = false) {
         this.allPhotosFlat = [];
         this.photos = [];
         this.cardCache.clear();
@@ -455,7 +459,7 @@ class App {
         this.stats = stats;
         this.renderLibrary();
         this.processUIStacks();
-        if (this.photos.length > 0) {
+        if (!keepSelection && this.photos.length > 0) {
             hub.pub('photo.selected', { id: this.photos[0].id, photo: this.photos[0] });
         }
     }
