@@ -65,7 +65,11 @@ namespace PhotoLibrary
 
             app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
             {
-                return Results.Ok(db.GetLibraryInfo(pm.DbPath));
+                var info = db.GetLibraryInfo(pm.DbPath);
+                info.IsIndexing = ImageScanner.IsIndexing;
+                info.IndexedCount = ImageScanner.IndexedCount;
+                info.TotalToIndex = ImageScanner.TotalToIndex;
+                return Results.Ok(info);
             });
 
             app.MapPost("/api/pick", async (HttpContext context, DatabaseManager db) =>
@@ -194,6 +198,8 @@ namespace PhotoLibrary
                     try
                     {
                         _logger?.LogInformation("[BATCH] TASK START: Processing {Count} files.", req.relativePaths.Length);
+                        ImageScanner.SetProgress(true, 0, req.relativePaths.Length);
+                        
                         var sizes = new List<int>();
                         if (req.generateLow) sizes.Add(300);
                         if (req.generateMedium) sizes.Add(1024);
@@ -220,6 +226,7 @@ namespace PhotoLibrary
                                 {
                                     scanner.ProcessSingleFile(new FileInfo(fullPath), absRoot);
                                     count++;
+                                    ImageScanner.SetProgress(true, count, req.relativePaths.Length);
                                     if (count % 10 == 0) _logger?.LogInformation("[BATCH] Progress: {Count}/{Total}...", count, req.relativePaths.Length);
                                 }
                                 else
@@ -239,6 +246,10 @@ namespace PhotoLibrary
                     catch (Exception ex)
                     {
                         _logger?.LogCritical(ex, "[BATCH] CRITICAL FAILURE");
+                    }
+                    finally 
+                    {
+                        ImageScanner.SetProgress(false, 0, 0);
                     }
                 });
 

@@ -11,6 +11,10 @@ namespace PhotoLibrary
 {
     public class ImageScanner
     {
+        public static bool IsIndexing { get; private set; }
+        public static int IndexedCount { get; private set; }
+        public static int TotalToIndex { get; private set; }
+
         private readonly DatabaseManager _db;
         private readonly PreviewManager? _previewManager;
         private readonly int[] _longEdges;
@@ -19,6 +23,13 @@ namespace PhotoLibrary
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
         public event Action<string, string>? OnFileProcessed;
+
+        public static void SetProgress(bool isIndexing, int indexed, int total)
+        {
+            IsIndexing = isIndexing;
+            IndexedCount = indexed;
+            TotalToIndex = total;
+        }
 
         public ImageScanner(DatabaseManager db, ILogger<ImageScanner> logger, PreviewManager? previewManager = null, int[]? longEdges = null)
         {

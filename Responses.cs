@@ -68,6 +68,9 @@ namespace PhotoLibrary
         public long DbSize { get; set; }
         public long PreviewDbSize { get; set; }
         public string DbPath { get; set; } = "";
+        public bool IsIndexing { get; set; }
+        public int IndexedCount { get; set; }
+        public int TotalToIndex { get; set; }
         public List<LibraryFolderResponse> Folders { get; set; } = new();
     }
 }

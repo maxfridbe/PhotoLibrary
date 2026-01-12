@@ -249,6 +249,18 @@ export class LibraryManager {
             if (!info) return;
             this.infoCache = info;
 
+            if (info.isIndexing) {
+                this.isIndexing = true;
+                // Hydrate the scanResults with a dummy list of the correct length if we don't have them
+                // This is a visual approximation since we don't persist the file list on server for now
+                if (this.scanResults.length === 0) {
+                    this.scanResults = Array(info.totalToIndex).fill({ path: '...', status: 'pending' });
+                    for(let i=0; i<info.indexedCount; i++) this.scanResults[i] = { path: 'Indexed', status: 'indexed' };
+                }
+                this.renderImportControls();
+                this.updateProgressBar();
+            }
+
             this.renderStats(info);
             this.renderFolders(info);
 
