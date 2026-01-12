@@ -15,6 +15,35 @@ type Stats = Res.StatsResponse;
 
 type SortOption = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'rating-desc' | 'size-desc';
 
+const defaultTheme = {
+    'bg-main': '#1e1e1e',
+    'bg-header': '#2d2d2d',
+    'bg-panel': '#252526',
+    'bg-panel-alt': '#252525',
+    'bg-grid-header': '#333',
+    'bg-dark': '#111',
+    'bg-black': '#000',
+    'bg-card': '#2b2b2b',
+    'bg-card-selected': '#4a4a4a',
+    'bg-hover': '#333',
+    'bg-active': '#383838',
+    'bg-input': '#111',
+    'text-main': '#ddd',
+    'text-muted': '#888',
+    'text-dim': '#666',
+    'text-bright': '#fff',
+    'text-header': '#ccc',
+    'text-label': '#aaa',
+    'text-input': '#eee',
+    'accent': '#0078d7',
+    'accent-gold': '#ffd700',
+    'border-main': '#333',
+    'border-dim': '#111',
+    'border-light': '#444',
+    'border-focus': '#555',
+    'border-card-stack': '#444'
+};
+
 class App {
     public layout: any;
     private allPhotosFlat: Photo[] = []; 
@@ -78,12 +107,20 @@ class App {
     private metaGroups: Map<string, { container: HTMLElement, rows: Map<string, HTMLElement> }> = new Map();
 
     constructor() {
+        this.applyTheme();
         this.initLayout();
         this.loadData();
         this.setupGlobalKeyboard();
         this.setupContextMenu();
         this.initPubSub();
         this.startStatusTimer();
+    }
+
+    private applyTheme() {
+        const root = document.documentElement;
+        Object.entries(defaultTheme).forEach(([key, value]) => {
+            root.style.setProperty(`--${key}`, value);
+        });
     }
 
     private initPubSub() {
@@ -1360,7 +1397,11 @@ class App {
         
         index = Math.max(0, Math.min(this.photos.length - 1, index));
         const target = this.photos[index];
-        if (target) hub.pub('photo.selected', { id: target.id, photo: target });
+        if (target) {
+            hub.pub('photo.selected', { id: target.id, photo: target });
+            // Always scroll to photo in background to keep grid in sync
+            this.scrollToPhoto(target.id);
+        }
     }
 
     private setupGlobalKeyboard() {

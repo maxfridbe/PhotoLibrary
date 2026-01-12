@@ -1,7 +1,11 @@
 bin/
 obj/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
 test_images/
 *.jpg
 *.JPG

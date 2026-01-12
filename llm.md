@@ -25,6 +25,10 @@ The UI is a TypeScript SPA built around stability and instant feedback.
 - **Pattern-Matching PubSub**: A central Hub (`PubSub.ts`) handles all internal communication. Components subscribe to granular events like `photo.starred.*` or `view.mode.changed`. This decouples UI components from the core application logic.
 - **Optimistic UI**: Ratings and flags are updated locally instantly. The application then syncs with the server in the background, reverting state and notifying the user only if the persistence layer fails.
 
+### Dynamic Theming
+- **TS-to-CSS Variable Injection**: The application's color palette is defined in TypeScript and injected as CSS variables at runtime. This ensures a single source of truth for the visual design and allows for easy experimentation or future user-defined themes.
+- **Typographically Sound Scaling**: The UI uses `em` units for almost all measurements, ensuring that the layout scales gracefully with font sizes and maintains professional proportions.
+
 ### Local Business Logic
 - **UI Stacking**: Stacking (grouping ARW + JPG) is implemented as a **UI Construct**. The server provides a flat list of metadata, and the frontend dynamically groups and sorts them based on user preference. This allows for instant toggling between flat and stacked modes.
 

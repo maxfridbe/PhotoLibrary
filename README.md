@@ -18,6 +18,8 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Sticky Navigation**: Browse your entire library with arrow keys while remaining in fullscreen or loupe mode.
 -   **High-Performance Web Interface**:
     *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images by only rendering visible items.
+    *   **Dynamic Theming**: Centralized color palette managed in TypeScript and injected via CSS variables for a consistent, modern aesthetic.
+    *   **Typographically Sound**: Uses `em`-based scaling for professional, consistent proportions across all screen sizes.
     *   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes.
     *   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
     *   **Flexible Sorting**: Sort by Date, Name, Rating, or Size directly in the UI.
