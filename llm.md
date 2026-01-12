@@ -44,7 +44,14 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 - **Speed Culling**: Numerical keys (1-5) for ratings and 'P' for flags are instant and require no mouse movement.
 - **Contextual Workflows**: Context menus are provided for advanced operations (e.g., "Clear all picked", "Add to collection") based on selected state.
 
-## 5. Development Standards
+## 5. Project Structure & Layout
+- **Backend (Root)**: Core .NET 8 application logic. `WebServer.cs` handles the Kestrel/WebSocket layer, `DatabaseManager.cs` manages SQLite state, and `PreviewManager.cs` handles on-the-fly ImageMagick processing.
+- **Frontend Source (`wwwsrc/`)**: The source of truth for all web logic and assets.
+- **Build Output (`wwwroot/`)**: A generated distribution directory. Files here are automatically compiled or synced from `wwwsrc` and are treated as transient artifacts that are ultimately embedded into the C# assembly.
+- **TypeGen Project**: A Roslyn-based C# utility that bridges the two worlds. It reflects over the backend's `Requests.cs` and `Responses.cs` to produce the `*.generated.ts` files in the frontend.
+- **Build Orchestration**: The `.csproj` file acts as the primary task runner. A single `dotnet build` triggers the entire pipeline: `TypeGen` -> `tsc` (TypeScript) -> Asset Syncing -> C# Compilation.
+
+## 6. Development Standards
 - **Standardized DTOs**: All request/response models must be defined in `Requests.cs` or `Responses.cs` to ensure they are picked up by the Roslyn generator.
 - **Surgical DOM**: Avoid `innerHTML` for dynamic content. Use `document.createElement` and `textContent` to maintain stability and prevent XSS or malformed literal issues.
 - **Stateless Server**: The server should remain as stateless as possible, pushing grouping and display logic to the client to maximize scalability.

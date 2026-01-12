@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Microsoft.Data.Sqlite;
+using static PhotoLibrary.TableConstants;
 
 namespace PhotoLibrary
 {
@@ -26,12 +27,12 @@ namespace PhotoLibrary
 
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS Previews (
-                        FileId TEXT,
-                        LongEdge INTEGER,
-                        Data BLOB,
-                        PRIMARY KEY (FileId, LongEdge)
+                command.CommandText = $@"
+                    CREATE TABLE IF NOT EXISTS {TableName.Previews} (
+                        {Column.Previews.FileId} TEXT,
+                        {Column.Previews.LongEdge} INTEGER,
+                        {Column.Previews.Data} BLOB,
+                        PRIMARY KEY ({Column.Previews.FileId}, {Column.Previews.LongEdge})
                     );
                 ";
                 command.ExecuteNonQuery();
@@ -43,12 +44,14 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            var command = connection.CreateCommand();
-            command.CommandText = "SELECT 1 FROM Previews WHERE FileId = $FileId AND LongEdge = $LongEdge";
-            command.Parameters.AddWithValue("$FileId", fileId);
-            command.Parameters.AddWithValue("$LongEdge", longEdge);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $"SELECT 1 FROM {TableName.Previews} WHERE {Column.Previews.FileId} = $FileId AND {Column.Previews.LongEdge} = $LongEdge";
+                command.Parameters.AddWithValue("$FileId", fileId);
+                command.Parameters.AddWithValue("$LongEdge", longEdge);
 
-            return command.ExecuteScalar() != null;
+                return command.ExecuteScalar() != null;
+            }
         }
 
         public void SavePreview(string fileId, int longEdge, byte[] data)
@@ -57,18 +60,20 @@ namespace PhotoLibrary
             connection.Open();
             using var transaction = connection.BeginTransaction();
 
-            var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = @"
-                INSERT INTO Previews (FileId, LongEdge, Data)
-                VALUES ($FileId, $LongEdge, $Data)
-                ON CONFLICT(FileId, LongEdge) DO UPDATE SET Data = excluded.Data;
-            ";
-            command.Parameters.AddWithValue("$FileId", fileId);
-            command.Parameters.AddWithValue("$LongEdge", longEdge);
-            command.Parameters.AddWithValue("$Data", data);
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $@"
+                    INSERT INTO {TableName.Previews} ({Column.Previews.FileId}, {Column.Previews.LongEdge}, {Column.Previews.Data})
+                    VALUES ($FileId, $LongEdge, $Data)
+                    ON CONFLICT({Column.Previews.FileId}, {Column.Previews.LongEdge}) DO UPDATE SET {Column.Previews.Data} = excluded.{Column.Previews.Data};
+                ";
+                command.Parameters.AddWithValue("$FileId", fileId);
+                command.Parameters.AddWithValue("$LongEdge", longEdge);
+                command.Parameters.AddWithValue("$Data", data);
 
-            command.ExecuteNonQuery();
+                command.ExecuteNonQuery();
+            }
             transaction.Commit();
         }
 
@@ -77,12 +82,14 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            var command = connection.CreateCommand();
-            command.CommandText = "SELECT Data FROM Previews WHERE FileId = $FileId AND LongEdge = $LongEdge";
-            command.Parameters.AddWithValue("$FileId", fileId);
-            command.Parameters.AddWithValue("$LongEdge", longEdge);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $"SELECT {Column.Previews.Data} FROM {TableName.Previews} WHERE {Column.Previews.FileId} = $FileId AND {Column.Previews.LongEdge} = $LongEdge";
+                command.Parameters.AddWithValue("$FileId", fileId);
+                command.Parameters.AddWithValue("$LongEdge", longEdge);
 
-            return command.ExecuteScalar() as byte[];
+                return command.ExecuteScalar() as byte[];
+            }
         }
     }
 }

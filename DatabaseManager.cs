@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Data.Sqlite;
+using static PhotoLibrary.TableConstants;
 
 namespace PhotoLibrary
 {
@@ -27,55 +28,55 @@ namespace PhotoLibrary
             }
 
             string[] commands = new[] {
-                @"CREATE TABLE IF NOT EXISTS RootPaths (
-                    Id TEXT PRIMARY KEY,
-                    ParentId TEXT,
-                    Name TEXT,
-                    FOREIGN KEY(ParentId) REFERENCES RootPaths(Id),
-                    UNIQUE(ParentId, Name)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.RootPaths} (
+                    {Column.RootPaths.Id} TEXT PRIMARY KEY,
+                    {Column.RootPaths.ParentId} TEXT,
+                    {Column.RootPaths.Name} TEXT,
+                    FOREIGN KEY({Column.RootPaths.ParentId}) REFERENCES {TableName.RootPaths}({Column.RootPaths.Id}),
+                    UNIQUE({Column.RootPaths.ParentId}, {Column.RootPaths.Name})
                 );",
-                @"CREATE TABLE IF NOT EXISTS FileEntry (
-                    Id TEXT PRIMARY KEY,
-                    RootPathId TEXT,
-                    FileName TEXT,
-                    BaseName TEXT,
-                    Size INTEGER,
-                    CreatedAt TEXT,
-                    ModifiedAt TEXT,
-                    FOREIGN KEY(RootPathId) REFERENCES RootPaths(Id),
-                    UNIQUE(RootPathId, FileName)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.FileEntry} (
+                    {Column.FileEntry.Id} TEXT PRIMARY KEY,
+                    {Column.FileEntry.RootPathId} TEXT,
+                    {Column.FileEntry.FileName} TEXT,
+                    {Column.FileEntry.BaseName} TEXT,
+                    {Column.FileEntry.Size} INTEGER,
+                    {Column.FileEntry.CreatedAt} TEXT,
+                    {Column.FileEntry.ModifiedAt} TEXT,
+                    FOREIGN KEY({Column.FileEntry.RootPathId}) REFERENCES {TableName.RootPaths}({Column.RootPaths.Id}),
+                    UNIQUE({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName})
                 );",
-                @"CREATE TABLE IF NOT EXISTS Metadata (
-                    FileId TEXT,
-                    Directory TEXT,
-                    Tag TEXT,
-                    Value TEXT,
-                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.Metadata} (
+                    {Column.Metadata.FileId} TEXT,
+                    {Column.Metadata.Directory} TEXT,
+                    {Column.Metadata.Tag} TEXT,
+                    {Column.Metadata.Value} TEXT,
+                    FOREIGN KEY({Column.Metadata.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
-                @"CREATE TABLE IF NOT EXISTS images_picked (
-                    FileId TEXT PRIMARY KEY,
-                    PickedAt TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.ImagesPicked} (
+                    {Column.ImagesPicked.FileId} TEXT PRIMARY KEY,
+                    {Column.ImagesPicked.PickedAt} TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY({Column.ImagesPicked.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
-                @"CREATE TABLE IF NOT EXISTS ImageRatings (
-                    FileId TEXT PRIMARY KEY,
-                    Rating INTEGER,
-                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.ImageRatings} (
+                    {Column.ImageRatings.FileId} TEXT PRIMARY KEY,
+                    {Column.ImageRatings.Rating} INTEGER,
+                    FOREIGN KEY({Column.ImageRatings.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
-                @"CREATE TABLE IF NOT EXISTS UserCollections (
-                    Id TEXT PRIMARY KEY,
-                    Name TEXT UNIQUE
+                $@"CREATE TABLE IF NOT EXISTS {TableName.UserCollections} (
+                    {Column.UserCollections.Id} TEXT PRIMARY KEY,
+                    {Column.UserCollections.Name} TEXT UNIQUE
                 );",
-                @"CREATE TABLE IF NOT EXISTS CollectionFiles (
-                    CollectionId TEXT,
-                    FileId TEXT,
-                    PRIMARY KEY (CollectionId, FileId),
-                    FOREIGN KEY(CollectionId) REFERENCES UserCollections(Id),
-                    FOREIGN KEY(FileId) REFERENCES FileEntry(Id)
+                $@"CREATE TABLE IF NOT EXISTS {TableName.CollectionFiles} (
+                    {Column.CollectionFiles.CollectionId} TEXT,
+                    {Column.CollectionFiles.FileId} TEXT,
+                    PRIMARY KEY ({Column.CollectionFiles.CollectionId}, {Column.CollectionFiles.FileId}),
+                    FOREIGN KEY({Column.CollectionFiles.CollectionId}) REFERENCES {TableName.UserCollections}({Column.UserCollections.Id}),
+                    FOREIGN KEY({Column.CollectionFiles.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
-                @"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON Metadata(FileId);",
-                @"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON FileEntry(CreatedAt);",
-                @"CREATE INDEX IF NOT EXISTS IDX_FileEntry_RootPathId ON FileEntry(RootPathId);"
+                $@"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON {TableName.Metadata}({Column.Metadata.FileId});",
+                $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON {TableName.FileEntry}({Column.FileEntry.CreatedAt});",
+                $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_RootPathId ON {TableName.FileEntry}({Column.FileEntry.RootPathId});"
             };
 
             foreach (var cmdText in commands)
@@ -96,19 +97,19 @@ namespace PhotoLibrary
             
             using (var totalCmd = connection.CreateCommand())
             {
-                totalCmd.CommandText = "SELECT COUNT(*) FROM FileEntry";
+                totalCmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry}";
                 stats.TotalCount = Convert.ToInt32(totalCmd.ExecuteScalar());
             }
 
             using (var pickedCmd = connection.CreateCommand())
             {
-                pickedCmd.CommandText = "SELECT COUNT(*) FROM images_picked";
+                pickedCmd.CommandText = $"SELECT COUNT(*) FROM {TableName.ImagesPicked}";
                 stats.PickedCount = Convert.ToInt32(pickedCmd.ExecuteScalar());
             }
             
             using (var ratingCmd = connection.CreateCommand())
             {
-                ratingCmd.CommandText = "SELECT Rating, COUNT(*) FROM ImageRatings GROUP BY Rating";
+                ratingCmd.CommandText = $"SELECT {Column.ImageRatings.Rating}, COUNT(*) FROM {TableName.ImageRatings} GROUP BY {Column.ImageRatings.Rating}";
                 using var reader = ratingCmd.ExecuteReader();
                 while (reader.Read()) {
                     int r = reader.GetInt32(0);
@@ -126,23 +127,23 @@ namespace PhotoLibrary
             connection.Open();
             
             var whereClauses = new List<string>();
-            if (pickedOnly) whereClauses.Add("EXISTS (SELECT 1 FROM images_picked p WHERE p.FileId = f.Id)");
-            if (rating > 0) whereClauses.Add("EXISTS (SELECT 1 FROM ImageRatings r WHERE r.FileId = f.Id AND r.Rating = $Rating)");
-            if (rootId != null) whereClauses.Add("f.RootPathId = $RootId");
+            if (pickedOnly) whereClauses.Add($"EXISTS (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id})");
+            if (rating > 0) whereClauses.Add($"EXISTS (SELECT 1 FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id} AND r.{Column.ImageRatings.Rating} = $Rating)");
+            if (rootId != null) whereClauses.Add($"f.{Column.FileEntry.RootPathId} = $RootId");
             if (specificIds != null && specificIds.Length > 0) 
-                whereClauses.Add($"f.Id IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
+                whereClauses.Add($"f.{Column.FileEntry.Id} IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
 
             string where = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
 
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = $@"
-                    SELECT f.Id, f.RootPathId, f.FileName, f.Size, f.CreatedAt, f.ModifiedAt, 
-                           CASE WHEN (SELECT 1 FROM images_picked p WHERE p.FileId = f.Id) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
-                           COALESCE((SELECT r.Rating FROM ImageRatings r WHERE r.FileId = f.Id), 0) as Rating
-                    FROM FileEntry f
+                    SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, 
+                           CASE WHEN (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id}) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                           COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating
+                    FROM {TableName.FileEntry} f
                     {where}
-                    ORDER BY f.CreatedAt DESC 
+                    ORDER BY f.{Column.FileEntry.CreatedAt} DESC 
                     LIMIT $Limit OFFSET $Offset";
 
                 command.Parameters.AddWithValue("$Limit", limit);
@@ -170,7 +171,7 @@ namespace PhotoLibrary
             
             using (var countCmd = connection.CreateCommand())
             {
-                countCmd.CommandText = $"SELECT COUNT(*) FROM FileEntry f {where}";
+                countCmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} f {where}";
                 if (rating > 0) countCmd.Parameters.AddWithValue("$Rating", rating);
                 if (rootId != null) countCmd.Parameters.AddWithValue("$RootId", rootId);
                 result.Total = Convert.ToInt32(countCmd.ExecuteScalar());
@@ -187,7 +188,7 @@ namespace PhotoLibrary
             string id = Guid.NewGuid().ToString();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "INSERT INTO UserCollections (Id, Name) VALUES ($Id, $Name)";
+                command.CommandText = $"INSERT INTO {TableName.UserCollections} ({Column.UserCollections.Id}, {Column.UserCollections.Name}) VALUES ($Id, $Name)";
                 command.Parameters.AddWithValue("$Id", id);
                 command.Parameters.AddWithValue("$Name", name);
                 command.ExecuteNonQuery();
@@ -203,14 +204,14 @@ namespace PhotoLibrary
             using (var cmd1 = connection.CreateCommand())
             {
                 cmd1.Transaction = transaction;
-                cmd1.CommandText = "DELETE FROM CollectionFiles WHERE CollectionId = $Id";
+                cmd1.CommandText = $"DELETE FROM {TableName.CollectionFiles} WHERE {Column.CollectionFiles.CollectionId} = $Id";
                 cmd1.Parameters.AddWithValue("$Id", id);
                 cmd1.ExecuteNonQuery();
             }
             using (var cmd2 = connection.CreateCommand())
             {
                 cmd2.Transaction = transaction;
-                cmd2.CommandText = "DELETE FROM UserCollections WHERE Id = $Id";
+                cmd2.CommandText = $"DELETE FROM {TableName.UserCollections} WHERE {Column.UserCollections.Id} = $Id";
                 cmd2.Parameters.AddWithValue("$Id", id);
                 cmd2.ExecuteNonQuery();
             }
@@ -226,7 +227,7 @@ namespace PhotoLibrary
                 using (var command = connection.CreateCommand())
                 {
                     command.Transaction = transaction;
-                    command.CommandText = "INSERT OR IGNORE INTO CollectionFiles (CollectionId, FileId) VALUES ($CId, $FId)";
+                    command.CommandText = $"INSERT OR IGNORE INTO {TableName.CollectionFiles} ({Column.CollectionFiles.CollectionId}, {Column.CollectionFiles.FileId}) VALUES ($CId, $FId)";
                     command.Parameters.AddWithValue("$CId", collectionId);
                     command.Parameters.AddWithValue("$FId", fileId);
                     command.ExecuteNonQuery();
@@ -242,11 +243,11 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = @"
-                    SELECT c.Id, c.Name, COUNT(cf.FileId) 
-                    FROM UserCollections c 
-                    LEFT JOIN CollectionFiles cf ON c.Id = cf.CollectionId 
-                    GROUP BY c.Id, c.Name ORDER BY c.Name";
+                command.CommandText = $@"
+                    SELECT c.{Column.UserCollections.Id}, c.{Column.UserCollections.Name}, COUNT(cf.{Column.CollectionFiles.FileId}) 
+                    FROM {TableName.UserCollections} c 
+                    LEFT JOIN {TableName.CollectionFiles} cf ON c.{Column.UserCollections.Id} = cf.{Column.CollectionFiles.CollectionId} 
+                    GROUP BY c.{Column.UserCollections.Id}, c.{Column.UserCollections.Name} ORDER BY c.{Column.UserCollections.Name}";
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) list.Add(new CollectionResponse { Id = reader.GetString(0), Name = reader.GetString(1), Count = reader.GetInt32(2) });
             }
@@ -260,7 +261,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT FileId FROM CollectionFiles WHERE CollectionId = $Id";
+                command.CommandText = $"SELECT {Column.CollectionFiles.FileId} FROM {TableName.CollectionFiles} WHERE {Column.CollectionFiles.CollectionId} = $Id";
                 command.Parameters.AddWithValue("$Id", collectionId);
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) list.Add(reader.GetString(0));
@@ -274,7 +275,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "DELETE FROM images_picked";
+                command.CommandText = $"DELETE FROM {TableName.ImagesPicked}";
                 command.ExecuteNonQuery();
             }
         }
@@ -286,7 +287,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT FileId FROM images_picked";
+                command.CommandText = $"SELECT {Column.ImagesPicked.FileId} FROM {TableName.ImagesPicked}";
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) list.Add(reader.GetString(0));
             }
@@ -319,8 +320,8 @@ namespace PhotoLibrary
             using (var checkCmd = connection.CreateCommand())
             {
                 checkCmd.Transaction = transaction;
-                if (parentId == null) checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId IS NULL AND Name = $Name";
-                else { checkCmd.CommandText = "SELECT Id FROM RootPaths WHERE ParentId = $ParentId AND Name = $Name"; checkCmd.Parameters.AddWithValue("$ParentId", parentId); }
+                if (parentId == null) checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} IS NULL AND {Column.RootPaths.Name} = $Name";
+                else { checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name"; checkCmd.Parameters.AddWithValue("$ParentId", parentId); }
                 checkCmd.Parameters.AddWithValue("$Name", name);
                 var existingId = checkCmd.ExecuteScalar() as string;
                 if (existingId != null) return existingId;
@@ -330,7 +331,7 @@ namespace PhotoLibrary
             using (var insertCmd = connection.CreateCommand())
             {
                 insertCmd.Transaction = transaction;
-                insertCmd.CommandText = "INSERT INTO RootPaths (Id, ParentId, Name) VALUES ($Id, $ParentId, $Name)";
+                insertCmd.CommandText = $"INSERT INTO {TableName.RootPaths} ({Column.RootPaths.Id}, {Column.RootPaths.ParentId}, {Column.RootPaths.Name}) VALUES ($Id, $ParentId, $Name)";
                 insertCmd.Parameters.AddWithValue("$Id", newId);
                 insertCmd.Parameters.AddWithValue("$ParentId", (object?)parentId ?? DBNull.Value);
                 insertCmd.Parameters.AddWithValue("$Name", name);
@@ -350,10 +351,10 @@ namespace PhotoLibrary
             using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
-                command.CommandText = @"
-                    INSERT INTO FileEntry (Id, RootPathId, FileName, BaseName, Size, CreatedAt, ModifiedAt)
+                command.CommandText = $@"
+                    INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt})
                     VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt)
-                    ON CONFLICT(RootPathId, FileName) DO UPDATE SET Size = excluded.Size, CreatedAt = excluded.CreatedAt, ModifiedAt = excluded.ModifiedAt, BaseName = excluded.BaseName;
+                    ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName};
                 ";
                 command.Parameters.AddWithValue("$Id", entry.Id);
                 command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
@@ -369,7 +370,7 @@ namespace PhotoLibrary
             using (var getIdCmd = connection.CreateCommand())
             {
                 getIdCmd.Transaction = transaction;
-                getIdCmd.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
+                getIdCmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootPathId AND {Column.FileEntry.FileName} = $FileName";
                 getIdCmd.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
                 getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
                 actualId = getIdCmd.ExecuteScalar() as string;
@@ -379,7 +380,7 @@ namespace PhotoLibrary
                 using (var deleteCmd = connection.CreateCommand())
                 {
                     deleteCmd.Transaction = transaction;
-                    deleteCmd.CommandText = "DELETE FROM Metadata WHERE FileId = $FileId";
+                    deleteCmd.CommandText = $"DELETE FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
                     deleteCmd.Parameters.AddWithValue("$FileId", actualId);
                     deleteCmd.ExecuteNonQuery();
                 }
@@ -394,18 +395,18 @@ namespace PhotoLibrary
 
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = @"
-                    WITH RECURSIVE PathParts(Id, ParentId, Name) AS (
-                        SELECT r.Id, r.ParentId, r.Name 
-                        FROM RootPaths r
-                        JOIN FileEntry f ON f.RootPathId = r.Id
-                        WHERE f.Id = $FileId
+                command.CommandText = $@"
+                    WITH RECURSIVE PathParts({Column.RootPaths.Id}, {Column.RootPaths.ParentId}, {Column.RootPaths.Name}) AS (
+                        SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name} 
+                        FROM {TableName.RootPaths} r
+                        JOIN {TableName.FileEntry} f ON f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}
+                        WHERE f.{Column.FileEntry.Id} = $FileId
                         UNION ALL
-                        SELECT r.Id, r.ParentId, r.Name
-                        FROM RootPaths r
-                        JOIN PathParts p ON r.Id = p.ParentId
+                        SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name}
+                        FROM {TableName.RootPaths} r
+                        JOIN PathParts p ON r.{Column.RootPaths.Id} = p.{Column.RootPaths.ParentId}
                     )
-                    SELECT Name, (SELECT FileName FROM FileEntry WHERE Id = $FileId) as FileName
+                    SELECT {Column.RootPaths.Name}, (SELECT {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $FileId) as FileName
                     FROM PathParts";
                 
                 command.Parameters.AddWithValue("$FileId", fileId);
@@ -434,7 +435,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id FROM FileEntry WHERE RootPathId = $RootPathId AND FileName = $FileName";
+                command.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootPathId AND {Column.FileEntry.FileName} = $FileName";
                 command.Parameters.AddWithValue("$RootPathId", rootPathId);
                 command.Parameters.AddWithValue("$FileName", fileName);
                 return command.ExecuteScalar() as string;
@@ -450,7 +451,7 @@ namespace PhotoLibrary
                 using (var command = connection.CreateCommand())
                 {
                     command.Transaction = transaction;
-                    command.CommandText = @"INSERT INTO Metadata (FileId, Directory, Tag, Value) VALUES ($FileId, $Directory, $Tag, $Value)";
+                    command.CommandText = $@"INSERT INTO {TableName.Metadata} ({Column.Metadata.FileId}, {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value}) VALUES ($FileId, $Directory, $Tag, $Value)";
                     command.Parameters.AddWithValue("$FileId", fileId);
                     command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
                     command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
@@ -468,7 +469,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id, ParentId, Name FROM RootPaths";
+                command.CommandText = $"SELECT {Column.RootPaths.Id}, {Column.RootPaths.ParentId}, {Column.RootPaths.Name} FROM {TableName.RootPaths}";
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) items.Add(new RootPathResponse { Id = reader.GetString(0), ParentId = reader.IsDBNull(1) ? null : reader.GetString(1), Name = reader.GetString(2) });
             }
@@ -482,7 +483,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Directory, Tag, Value FROM Metadata WHERE FileId = $FileId";
+                command.CommandText = $"SELECT {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value} FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
                 command.Parameters.AddWithValue("$FileId", fileId);
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) items.Add(new MetadataItemResponse { Directory = reader.IsDBNull(0) ? null : reader.GetString(0), Tag = reader.IsDBNull(1) ? null : reader.GetString(1), Value = reader.IsDBNull(2) ? null : reader.GetString(2) });
@@ -496,8 +497,8 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                if (isPicked) command.CommandText = "INSERT OR IGNORE INTO images_picked (FileId) VALUES ($Id)";
-                else command.CommandText = "DELETE FROM images_picked WHERE FileId = $Id";
+                if (isPicked) command.CommandText = $"INSERT OR IGNORE INTO {TableName.ImagesPicked} ({Column.ImagesPicked.FileId}) VALUES ($Id)";
+                else command.CommandText = $"DELETE FROM {TableName.ImagesPicked} WHERE {Column.ImagesPicked.FileId} = $Id";
                 command.Parameters.AddWithValue("$Id", fileId);
                 command.ExecuteNonQuery();
             }
@@ -510,9 +511,9 @@ namespace PhotoLibrary
             using (var command = connection.CreateCommand())
             {
                 if (rating > 0) {
-                    command.CommandText = @"INSERT INTO ImageRatings (FileId, Rating) VALUES ($Id, $Rating) ON CONFLICT(FileId) DO UPDATE SET Rating = excluded.Rating";
+                    command.CommandText = $@"INSERT INTO {TableName.ImageRatings} ({Column.ImageRatings.FileId}, {Column.ImageRatings.Rating}) VALUES ($Id, $Rating) ON CONFLICT({Column.ImageRatings.FileId}) DO UPDATE SET {Column.ImageRatings.Rating} = excluded.{Column.ImageRatings.Rating}";
                     command.Parameters.AddWithValue("$Rating", rating);
-                } else command.CommandText = "DELETE FROM ImageRatings WHERE FileId = $Id";
+                } else command.CommandText = $"DELETE FROM {TableName.ImageRatings} WHERE {Column.ImageRatings.FileId} = $Id";
                 command.Parameters.AddWithValue("$Id", fileId);
                 command.ExecuteNonQuery();
             }
@@ -525,7 +526,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT DISTINCT FileId FROM Metadata WHERE Tag = $Tag AND Value = $Value";
+                command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} = $Tag AND {Column.Metadata.Value} = $Value";
                 command.Parameters.AddWithValue("$Tag", tag);
                 command.Parameters.AddWithValue("$Value", value);
                 using var reader = command.ExecuteReader();

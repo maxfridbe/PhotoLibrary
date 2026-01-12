@@ -10,11 +10,12 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Prioritized Display**: RAW files are shown as the stack representative by default.
     *   **Batch Actions**: Flagging or rating a stack representative automatically applies the action to all files in the group.
     *   **Visual Indicators**: Grouped items show a layered card effect and a count badge (e.g., `(2)`).
--   **Professional Fullscreen Viewer**:
-    *   **Staged Loading**: Shows an immediate blurred placeholder (1024px) followed by a smooth fade-in of the full-resolution render.
+-   **Professional Fullscreen & Loupe Viewers**:
+    *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
+    *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
     *   **On-Demand Rendering**: The backend renders high-quality JPEGs from RAW files instantly when requested.
     *   **Orientation Aware**: Automatically respects EXIF orientation metadata for all previews and renders.
-    *   **Sticky Navigation**: Browse your entire library with arrow keys while remaining in fullscreen mode.
+    *   **Sticky Navigation**: Browse your entire library with arrow keys while remaining in fullscreen or loupe mode.
 -   **High-Performance Web Interface**:
     *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images by only rendering visible items.
     *   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes.

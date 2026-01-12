@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-11T16:55:14.8301937-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-11T18:12:12.4042960-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -63,5 +63,9 @@ export async function api_picked_ids(data: any): Promise<string[]> {
 
 export async function api_stats(data: any): Promise<Res.StatsResponse> {
     return await post<Res.StatsResponse>('/api/stats', data);
+}
+
+export async function api_export_prepare(data: any): Promise<any> {
+    return await post<any>('/api/export/prepare', data);
 }
 

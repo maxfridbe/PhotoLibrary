@@ -47,3 +47,6 @@ export async function api_picked_ids(data) {
 export async function api_stats(data) {
     return await post('/api/stats', data);
 }
+export async function api_export_prepare(data) {
+    return await post('/api/export/prepare', data);
+}

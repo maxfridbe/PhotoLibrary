@@ -7,11 +7,15 @@ using System.Net.WebSockets;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.IO.Compression;
+using System.Collections.Concurrent;
 
 namespace PhotoLibrary
 {
     public static class WebServer
     {
+        private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
+
         public static void Start(int port, string libraryPath, string previewPath)
         {
             var dbManager = new DatabaseManager(libraryPath);
@@ -133,6 +137,88 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
+            app.MapGet("/api/download/{fileId}", (string fileId, DatabaseManager db) =>
+            {
+                string? fullPath = db.GetFullFilePath(fileId);
+                if (fullPath == null || !File.Exists(fullPath)) return Results.NotFound();
+                return Results.File(fullPath, "application/octet-stream", Path.GetFileName(fullPath));
+            });
+
+            // 1. Prepare Export
+            app.MapPost("/api/export/prepare", async (HttpContext context) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<ZipRequest>();
+                if (req == null || req.fileIds == null) return Results.BadRequest();
+                string token = Guid.NewGuid().ToString();
+                _exportCache[token] = req;
+                
+                // Auto-cleanup token after 5 minutes
+                _ = Task.Run(async () => {
+                    await Task.Delay(TimeSpan.FromMinutes(5));
+                    _exportCache.TryRemove(token, out _);
+                });
+
+                return Results.Ok(new { token });
+            });
+
+            // 2. Stream Download (GET)
+            app.MapGet("/api/export/download", async (string token, HttpContext context, DatabaseManager db) =>
+            {
+                if (!_exportCache.TryRemove(token, out var req)) return Results.NotFound();
+
+                string sanitizedName = SanitizeFilename(req.name ?? "export");
+                string zipFileName = $"{sanitizedName}_{req.type}.zip";
+
+                context.Response.ContentType = "application/zip";
+                context.Response.Headers.ContentDisposition = $"attachment; filename={zipFileName}";
+
+                // Use NoCompression for speed since images are already compressed
+                using (var archive = new ZipArchive(context.Response.BodyWriter.AsStream(), ZipArchiveMode.Create))
+                {
+                    var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var id in req.fileIds)
+                    {
+                        string? fullPath = db.GetFullFilePath(id);
+                        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath)) continue;
+
+                        string entryName = Path.GetFileName(fullPath);
+                        if (req.type == "previews") entryName = Path.GetFileNameWithoutExtension(entryName) + ".jpg";
+
+                        string uniqueName = entryName;
+                        int counter = 1;
+                        while (usedNames.Contains(uniqueName))
+                        {
+                            string ext = Path.GetExtension(entryName);
+                            string nameNoExt = Path.GetFileNameWithoutExtension(entryName);
+                            uniqueName = $"{nameNoExt}-{counter}{ext}";
+                            counter++;
+                        }
+                        usedNames.Add(uniqueName);
+
+                        var entry = archive.CreateEntry(uniqueName, CompressionLevel.NoCompression);
+                        using (var entryStream = entry.Open())
+                        {
+                            if (req.type == "previews")
+                            {
+                                using var image = new ImageMagick.MagickImage(fullPath);
+                                image.AutoOrient();
+                                image.Format = ImageMagick.MagickFormat.Jpg;
+                                image.Quality = 85;
+                                image.Write(entryStream);
+                            }
+                            else
+                            {
+                                using var fs = File.OpenRead(fullPath);
+                                await fs.CopyToAsync(entryStream);
+                            }
+                        }
+                        // Flush after every file to keep the browser happy
+                        await context.Response.Body.FlushAsync();
+                    }
+                }
+                return Results.Empty;
+            });
+
             // WebSocket: Image Stream
             app.Use(async (context, next) =>
             {
@@ -162,6 +248,12 @@ namespace PhotoLibrary
 
             Console.WriteLine($"Web server running on port {port}");
             app.Run();
+        }
+
+        private static string SanitizeFilename(string filename)
+        {
+            var invalidChars = Path.GetInvalidFileNameChars();
+            return string.Join("_", filename.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim().Replace(" ", "_");
         }
 
         private static IResult ServeEmbeddedFile(string resourceName, string contentType)

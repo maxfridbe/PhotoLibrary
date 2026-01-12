@@ -47,6 +47,7 @@ class App {
         this.scrollSentinel = null;
         this.loupeView = null;
         this.filmstrip = null;
+        this.loupePreviewPlaceholder = null;
         this.mainPreview = null;
         this.previewSpinner = null;
         this.metaTitleEl = null;
@@ -420,14 +421,22 @@ class App {
             const spinner = document.createElement('div');
             spinner.className = 'spinner center-spinner';
             spinner.id = 'preview-spinner';
-            const img = document.createElement('img');
-            img.id = 'main-preview';
+            const imgP = document.createElement('img');
+            imgP.id = 'loupe-preview-placeholder';
+            imgP.className = 'loupe-img placeholder';
+            const imgH = document.createElement('img');
+            imgH.id = 'main-preview';
+            imgH.className = 'loupe-img highres';
             previewArea.appendChild(spinner);
-            previewArea.appendChild(img);
+            previewArea.appendChild(imgP);
+            previewArea.appendChild(imgH);
+            const resizer = document.createElement('div');
+            resizer.className = 'filmstrip-resizer';
             const filmstrip = document.createElement('div');
             filmstrip.id = 'filmstrip';
             filmstrip.className = 'filmstrip';
             loupeView.appendChild(previewArea);
+            loupeView.appendChild(resizer);
             loupeView.appendChild(filmstrip);
             self.workspaceEl.appendChild(loupeView);
             container.getElement().append(self.workspaceEl);
@@ -436,9 +445,30 @@ class App {
             self.scrollSentinel = sentinel;
             self.loupeView = loupeView;
             self.filmstrip = filmstrip;
-            self.mainPreview = img;
+            self.loupePreviewPlaceholder = imgP;
+            self.mainPreview = imgH;
             self.previewSpinner = spinner;
             gridContainer.onscroll = () => self.updateVirtualGrid();
+            // Filmstrip Resizer Logic
+            let isResizing = false;
+            resizer.onmousedown = (e) => { isResizing = true; e.preventDefault(); };
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing || !self.filmstrip)
+                    return;
+                const offsetTop = self.loupeView.getBoundingClientRect().top;
+                const totalHeight = self.loupeView.clientHeight;
+                const newHeight = totalHeight - (e.clientY - offsetTop);
+                if (newHeight > 100 && newHeight < 500) {
+                    self.filmstrip.style.height = newHeight + 'px';
+                    // Scale cards - we can adjust CSS variable or direct style
+                    const cards = self.filmstrip.querySelectorAll('.card');
+                    cards.forEach((c) => {
+                        c.style.height = (newHeight - 30) + 'px';
+                        c.style.width = ((newHeight - 30) * 1.33) + 'px';
+                    });
+                }
+            });
+            document.addEventListener('mouseup', () => { isResizing = false; });
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0)
                 self.renderGrid();
@@ -693,21 +723,74 @@ class App {
         menu.appendChild(d);
         addItem('Store to new collection...', () => this.storePickedToCollection(null));
         this.userCollections.forEach(c => addItem(`Store to '${c.name}'`, () => this.storePickedToCollection(c.id)));
+        const d2 = document.createElement('div');
+        d2.className = 'context-menu-divider';
+        menu.appendChild(d2);
+        addItem('Download ZIP (Previews)', () => this.downloadZip('previews'));
+        addItem('Download ZIP (Originals)', () => this.downloadZip('originals'));
         menu.style.display = 'block';
-        menu.style.left = e.pageX + 'px';
-        menu.style.top = e.pageY + 'px';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
     }
     showCollectionContextMenu(e, c) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = '';
-        const el = document.createElement('div');
-        el.className = 'context-menu-item';
-        el.textContent = 'Remove Collection';
-        el.onclick = () => this.deleteCollection(c.id);
-        menu.appendChild(el);
+        const addItem = (text, cb) => {
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = cb;
+            menu.appendChild(el);
+        };
+        addItem('Remove Collection', () => this.deleteCollection(c.id));
+        const d = document.createElement('div');
+        d.className = 'context-menu-divider';
+        menu.appendChild(d);
+        addItem('Download ZIP (Previews)', () => this.downloadZip('previews', c.id));
+        addItem('Download ZIP (Originals)', () => this.downloadZip('originals', c.id));
         menu.style.display = 'block';
-        menu.style.left = e.pageX + 'px';
-        menu.style.top = e.pageY + 'px';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+    }
+    async downloadZip(type, collectionId) {
+        hub.pub('ui.notification', { message: 'Preparing download...', type: 'info' });
+        let fileIds = [];
+        let exportName = 'picked';
+        if (collectionId) {
+            const coll = this.userCollections.find(c => c.id === collectionId);
+            exportName = coll?.name || 'collection';
+            fileIds = await Api.api_collections_get_files({ id: collectionId });
+        }
+        else if (this.filterType === 'picked') {
+            fileIds = await Api.api_picked_ids({});
+        }
+        if (fileIds.length === 0)
+            return;
+        if (this.stackingEnabled) {
+            const reps = this.photos.filter(p => fileIds.includes(p.id));
+            fileIds = reps.map(r => r.id);
+        }
+        try {
+            // 1. Get token
+            const prep = await fetch('/api/export/prepare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileIds, type, name: exportName })
+            });
+            if (prep.ok) {
+                const { token } = await prep.json();
+                // 2. Trigger native browser download stream
+                window.location.href = `/api/export/download?token=${token}`;
+                hub.pub('ui.notification', { message: 'Download started', type: 'success' });
+            }
+            else {
+                hub.pub('ui.notification', { message: 'Failed to prepare export', type: 'error' });
+            }
+        }
+        catch (e) {
+            console.error(e);
+            hub.pub('ui.notification', { message: 'Error starting download', type: 'error' });
+        }
     }
     async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub('ui.notification', { message: 'Picked photos cleared', type: 'info' }); }
     async storePickedToCollection(id) {
@@ -916,43 +999,98 @@ class App {
         this.updateVirtualGrid(true);
     }
     loadMainPreview(id) {
-        if (!this.mainPreview)
+        if (!this.mainPreview || !this.loupePreviewPlaceholder || !this.previewSpinner)
             return;
-        this.mainPreview.style.display = 'none';
-        if (this.previewSpinner)
-            this.previewSpinner.style.display = 'block';
-        const cacheKey = id + '-1024';
-        if (this.imageUrlCache.has(cacheKey)) {
-            this.mainPreview.src = this.imageUrlCache.get(cacheKey);
-            this.mainPreview.style.display = 'block';
-            if (this.previewSpinner)
-                this.previewSpinner.style.display = 'none';
+        this.mainPreview.classList.remove('loaded');
+        this.previewSpinner.style.display = 'block';
+        const lowResKey = id + '-300';
+        const highResKey = id + '-1024';
+        const requestHighRes = () => {
+            server.requestImage(id, 1024).then(blob => {
+                if (this.selectedId === id && this.isLoupeMode) {
+                    const url = URL.createObjectURL(blob);
+                    this.imageUrlCache.set(highResKey, url);
+                    this.mainPreview.src = url;
+                    this.mainPreview.onload = () => {
+                        if (this.selectedId === id) {
+                            this.mainPreview.classList.add('loaded');
+                            this.previewSpinner.style.display = 'none';
+                        }
+                    };
+                }
+            });
+        };
+        if (this.imageUrlCache.has(highResKey)) {
+            this.mainPreview.src = this.imageUrlCache.get(highResKey);
+            this.mainPreview.classList.add('loaded');
+            this.previewSpinner.style.display = 'none';
+            this.loupePreviewPlaceholder.style.display = 'none';
             return;
         }
-        server.requestImage(id, 1024).then(blob => {
-            if (this.selectedId === id) {
+        if (this.imageUrlCache.has(lowResKey)) {
+            this.loupePreviewPlaceholder.src = this.imageUrlCache.get(lowResKey);
+            this.loupePreviewPlaceholder.style.display = 'block';
+            requestHighRes();
+        }
+        else {
+            this.loupePreviewPlaceholder.style.display = 'none';
+            server.requestImage(id, 300).then(blob => {
                 const url = URL.createObjectURL(blob);
-                this.imageUrlCache.set(cacheKey, url);
-                this.mainPreview.src = url;
-                this.mainPreview.style.display = 'block';
-                if (this.previewSpinner)
-                    this.previewSpinner.style.display = 'none';
-            }
-        });
+                this.imageUrlCache.set(lowResKey, url);
+                if (this.selectedId === id && this.isLoupeMode) {
+                    this.loupePreviewPlaceholder.src = url;
+                    this.loupePreviewPlaceholder.style.display = 'block';
+                    requestHighRes();
+                }
+            });
+        }
     }
     updateFullscreenImage(id) {
-        if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner)
+        if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner || !this.fullscreenOverlay)
             return;
-        // Reset states
         this.fullscreenImgHighRes.classList.remove('loaded');
         this.fullscreenSpinner.style.display = 'block';
+        const dlOrig = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)');
+        if (dlOrig)
+            dlOrig.href = `/api/download/${id}`;
+        const dlJpg = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(1)');
+        if (dlJpg)
+            dlJpg.removeAttribute('href');
         const lowResKey = id + '-1024';
+        const highResKey = id + '-0';
         const requestFullRes = () => {
-            // 2. Request Full Res (size 0)
+            if (this.imageUrlCache.has(highResKey)) {
+                const url = this.imageUrlCache.get(highResKey);
+                this.fullscreenImgHighRes.src = url;
+                const photo = this.photoMap.get(id);
+                if (dlJpg && photo) {
+                    dlJpg.href = url;
+                    dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
+                }
+                if (this.fullscreenImgHighRes.complete) {
+                    this.fullscreenImgHighRes.classList.add('loaded');
+                    this.fullscreenSpinner.style.display = 'none';
+                }
+                else {
+                    this.fullscreenImgHighRes.onload = () => {
+                        if (this.selectedId === id) {
+                            this.fullscreenImgHighRes.classList.add('loaded');
+                            this.fullscreenSpinner.style.display = 'none';
+                        }
+                    };
+                }
+                return;
+            }
             server.requestImage(id, 0).then(blob => {
                 if (this.selectedId === id && this.isFullscreen) {
                     const url = URL.createObjectURL(blob);
+                    this.imageUrlCache.set(highResKey, url);
                     this.fullscreenImgHighRes.src = url;
+                    const photo = this.photoMap.get(id);
+                    if (dlJpg && photo) {
+                        dlJpg.href = url;
+                        dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
+                    }
                     this.fullscreenImgHighRes.onload = () => {
                         if (this.selectedId === id) {
                             this.fullscreenImgHighRes.classList.add('loaded');
@@ -962,7 +1100,6 @@ class App {
                 }
             });
         };
-        // 1. Stretched Placeholder (Large Preview 1024)
         if (this.imageUrlCache.has(lowResKey)) {
             this.fullscreenImgPlaceholder.src = this.imageUrlCache.get(lowResKey);
             this.fullscreenImgPlaceholder.style.display = 'block';
@@ -970,7 +1107,6 @@ class App {
         }
         else {
             this.fullscreenImgPlaceholder.style.display = 'none';
-            // Explicitly request 1024 first
             server.requestImage(id, 1024).then(blob => {
                 const url = URL.createObjectURL(blob);
                 this.imageUrlCache.set(lowResKey, url);
@@ -1001,12 +1137,10 @@ class App {
         spinner.className = 'spinner';
         overlay.appendChild(spinner);
         this.fullscreenSpinner = spinner;
-        // Placeholder Image (Blurred / Stretched)
         const imgP = document.createElement('img');
         imgP.className = 'fullscreen-img placeholder';
         overlay.appendChild(imgP);
         this.fullscreenImgPlaceholder = imgP;
-        // High-Res Image (Fades In)
         const imgH = document.createElement('img');
         imgH.className = 'fullscreen-img highres';
         overlay.appendChild(imgH);
@@ -1018,6 +1152,21 @@ class App {
         closeBtn.innerHTML = '&times;';
         closeBtn.onclick = (e) => { e.stopPropagation(); this.toggleFullscreen(); };
         overlay.appendChild(closeBtn);
+        const actions = document.createElement('div');
+        actions.className = 'fullscreen-actions';
+        const dlJpg = document.createElement('a');
+        dlJpg.className = 'fullscreen-btn';
+        dlJpg.title = 'Download High-Res JPG Render';
+        dlJpg.textContent = 'JPG';
+        dlJpg.onclick = (e) => e.stopPropagation();
+        const dlOrig = document.createElement('a');
+        dlOrig.className = 'fullscreen-btn';
+        dlOrig.title = 'Download Original Source File';
+        dlOrig.textContent = 'ORIG';
+        dlOrig.onclick = (e) => e.stopPropagation();
+        actions.appendChild(dlJpg);
+        actions.appendChild(dlOrig);
+        overlay.appendChild(actions);
         overlay.onclick = () => this.toggleFullscreen();
         this.updateFullscreenImage(this.selectedId);
     }
