@@ -11,6 +11,8 @@ import { LibraryManager } from './LibraryManager.js';
 import { themes } from './themes.js';
 
 type Photo = Res.PhotoResponse;
+import { visualizeLensData } from './aperatureVis.js';
+
 type MetadataItem = Res.MetadataItemResponse;
 type RootPath = Res.RootPathResponse;
 type Collection = Res.CollectionResponse;
@@ -86,7 +88,8 @@ class App {
     public mainPreview: HTMLImageElement | null = null;
     public previewSpinner: HTMLElement | null = null;
 
-    private metaTitleEl: HTMLHeadingElement | null = null;
+    public metaTitleEl: HTMLElement | null = null;
+    public metaVisEl: HTMLElement | null = null;
     private metaGroups: Map<string, { container: HTMLElement, rows: Map<string, HTMLElement> }> = new Map();
 
     private importedBatchCount = 0;
@@ -1920,6 +1923,23 @@ class App {
             const pickText = photo.isPicked ? '\u2691' : '';
             const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
             this.metaTitleEl.textContent = `${photo.fileName} ${pickText} ${starsText}`;
+
+            if (!this.metaVisEl) {
+                this.metaVisEl = document.createElement('div');
+                this.metaVisEl.id = 'meta-vis-container';
+                this.metaVisEl.style.marginBottom = '1em';
+                this.metaTitleEl.after(this.metaVisEl);
+            }
+
+            // Visualize lens data if possible
+            const hasAperture = meta.some(m => m.tag === 'F-Number' || m.tag === 'Aperture Value');
+            const hasFocal = meta.some(m => m.tag === 'Focal Length');
+            if (hasAperture && hasFocal) {
+                this.metaVisEl.style.display = 'block';
+                visualizeLensData(meta as any, 'meta-vis-container');
+            } else {
+                this.metaVisEl.style.display = 'none';
+            }
 
             const seenGroups = new Set<string>();
 

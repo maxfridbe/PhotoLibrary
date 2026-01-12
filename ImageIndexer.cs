@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace PhotoLibrary
 {
-    public class ImageScanner
+    public class ImageIndexer
     {
         public static bool IsIndexing { get; private set; }
         public static int IndexedCount { get; private set; }
@@ -18,7 +18,7 @@ namespace PhotoLibrary
         private readonly DatabaseManager _db;
         private readonly PreviewManager? _previewManager;
         private readonly int[] _longEdges;
-        private readonly ILogger<ImageScanner> _logger;
+        private readonly ILogger<ImageIndexer> _logger;
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
@@ -31,7 +31,7 @@ namespace PhotoLibrary
             TotalToIndex = total;
         }
 
-        public ImageScanner(DatabaseManager db, ILogger<ImageScanner> logger, PreviewManager? previewManager = null, int[]? longEdges = null)
+        public ImageIndexer(DatabaseManager db, ILogger<ImageIndexer> logger, PreviewManager? previewManager = null, int[]? longEdges = null)
         {
             _db = db;
             _logger = logger;
@@ -102,7 +102,7 @@ namespace PhotoLibrary
 
         public void ProcessSingleFile(FileInfo file, string scanRootPath)
         {
-            _logger.LogDebug("[SCANNER] ProcessSingleFile START: {FileName}", file.Name);
+            _logger.LogDebug("[INDEXER] ProcessSingleFile START: {FileName}", file.Name);
             string fullScanPath = Path.GetFullPath(scanRootPath);
             string? parentDir = Path.GetDirectoryName(fullScanPath);
             string targetName = Path.GetFileName(fullScanPath);
@@ -115,7 +115,7 @@ namespace PhotoLibrary
             _pathCache[fullScanPath] = targetRootId;
             
             ProcessFile(file, fullScanPath, targetRootId);
-            _logger.LogDebug("[SCANNER] ProcessSingleFile END: {FileName}", file.Name);
+            _logger.LogDebug("[INDEXER] ProcessSingleFile END: {FileName}", file.Name);
         }
 
         private bool ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
@@ -245,8 +245,7 @@ namespace PhotoLibrary
             Stream sourceStream = stream;
             bool ownStream = false;
 
-            if (!extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && 
-                !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+            if (TableConstants.RawExtensions.Contains(extension))
             {
                 string nameNoExt = Path.GetFileNameWithoutExtension(fileName);
                 string jpgPath = Path.Combine(directoryName, nameNoExt + ".JPG");
@@ -254,6 +253,7 @@ namespace PhotoLibrary
                 
                 if (File.Exists(jpgPath)) 
                 {
+                    _logger.LogDebug("Found sidecar JPG for {FileName}: {Sidecar}", fileName, jpgPath);
                     sourceStream = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     ownStream = true;
                 }
@@ -263,6 +263,7 @@ namespace PhotoLibrary
             {
                 using (var image = new MagickImage(sourceStream))
                 {
+                    _logger.LogDebug("Loaded {FileName}. Size: {W}x{H}", fileName, image.Width, image.Height);
                     image.AutoOrient();
                     foreach (var size in _longEdges)
                     {

@@ -73,5 +73,10 @@ namespace PhotoLibrary
         {
             ".JPG", ".JPEG", ".ARW", ".NEF", ".PNG", ".HEIC", ".TIF", ".TIFF"
         };
+
+        public static readonly System.Collections.Generic.HashSet<string> RawExtensions = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ".ARW", ".NEF"
+        };
     }
 }

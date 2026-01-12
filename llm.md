@@ -6,7 +6,7 @@ This document outlines the architectural principles, performance strategies, and
 The system is built to handle hundreds of thousands of images over slow network mounts (CIFS/SMB) without sacrificing responsiveness.
 
 ### Efficient Scanning
-- **1MB Header Optimization**: The scanner only reads the first 1MB of large image files (RAW/ARW/NEF) to extract metadata, avoiding massive bandwidth consumption on slow drives.
+- **1MB Header Optimization**: The indexer only reads the first 1MB of large image files (RAW/ARW/NEF) to extract metadata, avoiding massive bandwidth consumption on slow drives.
 - **Path Normalization**: Uses a hierarchical `RootPaths` table to represent directory structures, allowing for library portability and efficient folder-based filtering.
 
 ### Binary Image Streaming
@@ -26,6 +26,7 @@ The UI is a TypeScript SPA broken down into specialized managers to ensure maint
 - **Virtualized Grid**: Only the visible subset of images is rendered. 
 - **DOM Recycling**: Reuses `HTMLElement` nodes via a `cardCache` to prevent "black flashes".
 - **Dynamic Overlays**: Customizable Loupe overlays with support for any metadata via `{MD:tag}` syntax.
+- **Metadata Visualization**: An SVG-based aperture and FOV visualizer (`aperatureVis.ts`) is integrated into the metadata panel, providing real-time feedback on lens and sensor parameters.
 
 ## 3. Backend Architecture: "Minimalist & Normalized"
 The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage.
@@ -34,6 +35,9 @@ The backend is a .NET 8 application focused on providing high-concurrency and ef
 - **Targeted Imports**: Backend supports batch importing specific relative paths to avoid full directory re-scans.
 - **On-the-Fly Generation**: If a requested preview is missing, it's generated live from the source (respecting RAW sidecars) and cached in the database.
 - **Cycle-Safe Paths**: Manual path reconstruction logic with recursive loop detection ensures stability even with complex directory structures.
+
+### Type Generation
+- **Detailed Build Output**: The `TypeGen` utility uses Roslyn to parse C# models and generate TypeScript interfaces, now providing detailed "from -> to" logs during the build process to ensure transparency.
 
 ### Normalized Storage
 - **Decoupled User Data**: User culling data (ratings/picks) is stored in specialized tables.

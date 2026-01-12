@@ -133,8 +133,8 @@ namespace PhotoLibrary
                     _logger.LogInformation("Library: {LibraryPath}", finalLibraryPath);
                     _logger.LogInformation("Scanning: {ScanDir}", scanDir);
                     
-                    var scanner = new ImageScanner(dbManager, _loggerFactory.CreateLogger<ImageScanner>(), previewManager, longEdges);
-                    scanner.Scan(scanDir, testOne);
+                    var indexer = new ImageIndexer(dbManager, _loggerFactory.CreateLogger<ImageIndexer>(), previewManager, longEdges);
+                    indexer.Scan(scanDir, testOne);
                 }
 
                 // Hosting Mode (Always run if no scanDir, or if explicit hostPort)

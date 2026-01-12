@@ -36,6 +36,10 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **20+ VS Code Themes**: Dynamic theming with popular palettes (One Dark Pro, Dracula, Nord, etc.).
     *   **Global Toast Notifications**: Real-time feedback for indexing progress and user actions.
     *   **Customizable Overlays**: Configurable Loupe view overlay with support for any metadata variable (e.g., `{Filename}`, `{MD:Lens Model}`).
+-   **Aperture & Lens Visualization**: 
+    *   **Dynamic SVG Render**: Generates a real-time visualization of the aperture blades and field-of-view cone based on EXIF data.
+    *   **Sensor-Aware**: Automatically detects and displays sensor sizes (Full Frame, APS-C, 1/2.7", etc.) using focal plane resolution and crop factor calculations.
+    *   **Live Metadata Readout**: Displays f-stop, focal length, ISO, and shutter speed in a sleek, integrated dashboard at the top of the metadata panel.
 -   **Stable Backend**:
     *   **Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
     *   **Automatic Configuration**: Zero-config startup with `~/.config/PhotoLibrary/config.json`.

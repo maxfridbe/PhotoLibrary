@@ -3,6 +3,7 @@ import { hub } from './PubSub.js';
 import { server } from './CommunicationManager.js';
 import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
+import { visualizeLensData } from './aperatureVis.js';
 class App {
     constructor() {
         this.allPhotosFlat = [];
@@ -59,6 +60,7 @@ class App {
         this.mainPreview = null;
         this.previewSpinner = null;
         this.metaTitleEl = null;
+        this.metaVisEl = null;
         this.metaGroups = new Map();
         this.importedBatchCount = 0;
         this.importedBatchTimer = null;
@@ -1822,6 +1824,22 @@ class App {
             const pickText = photo.isPicked ? '\u2691' : '';
             const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
             this.metaTitleEl.textContent = `${photo.fileName} ${pickText} ${starsText}`;
+            if (!this.metaVisEl) {
+                this.metaVisEl = document.createElement('div');
+                this.metaVisEl.id = 'meta-vis-container';
+                this.metaVisEl.style.marginBottom = '1em';
+                this.metaTitleEl.after(this.metaVisEl);
+            }
+            // Visualize lens data if possible
+            const hasAperture = meta.some(m => m.tag === 'F-Number' || m.tag === 'Aperture Value');
+            const hasFocal = meta.some(m => m.tag === 'Focal Length');
+            if (hasAperture && hasFocal) {
+                this.metaVisEl.style.display = 'block';
+                visualizeLensData(meta, 'meta-vis-container');
+            }
+            else {
+                this.metaVisEl.style.display = 'none';
+            }
             const seenGroups = new Set();
             for (const k of sortedGroupKeys) {
                 seenGroups.add(k);

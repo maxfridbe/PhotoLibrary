@@ -13,15 +13,21 @@ namespace TypeGen
     {
         public static void Main(string[] args)
         {
-            GenerateTypes("Requests.cs", "wwwsrc/Requests.generated.ts");
-            GenerateTypes("Responses.cs", "wwwsrc/Responses.generated.ts");
-            GenerateFunctions("WebServer.cs", "wwwsrc/Functions.generated.ts");
-            Console.WriteLine("TypeScript types and functions generated via Roslyn parser.");
+            var mappings = new List<(string From, string To)>();
+            
+            if (GenerateTypes("Requests.cs", "wwwsrc/Requests.generated.ts")) mappings.Add(("Requests.cs", "wwwsrc/Requests.generated.ts"));
+            if (GenerateTypes("Responses.cs", "wwwsrc/Responses.generated.ts")) mappings.Add(("Responses.cs", "wwwsrc/Responses.generated.ts"));
+            if (GenerateFunctions("WebServer.cs", "wwwsrc/Functions.generated.ts")) mappings.Add(("WebServer.cs", "wwwsrc/Functions.generated.ts"));
+            
+            foreach (var mapping in mappings)
+            {
+                Console.WriteLine($"Generated: {mapping.From} -> {mapping.To}");
+            }
         }
 
-        private static void GenerateTypes(string inputFile, string outputFile)
+        private static bool GenerateTypes(string inputFile, string outputFile)
         {
-            if (!File.Exists(inputFile)) return;
+            if (!File.Exists(inputFile)) return false;
             string code = File.ReadAllText(inputFile);
             SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
             CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
@@ -71,11 +77,12 @@ namespace TypeGen
             }
 
             File.WriteAllText(outputFile, sb.ToString());
+            return true;
         }
 
-        private static void GenerateFunctions(string inputFile, string outputFile)
+        private static bool GenerateFunctions(string inputFile, string outputFile)
         {
-            if (!File.Exists(inputFile)) return;
+            if (!File.Exists(inputFile)) return false;
             string code = File.ReadAllText(inputFile);
             SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
             var root = tree.GetCompilationUnitRoot();
@@ -140,6 +147,7 @@ namespace TypeGen
             }
 
             File.WriteAllText(outputFile, sb.ToString());
+            return true;
         }
 
         private static string MapType(string csType)

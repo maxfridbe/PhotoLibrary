@@ -66,9 +66,9 @@ namespace PhotoLibrary
             app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
             {
                 var info = db.GetLibraryInfo(pm.DbPath);
-                info.IsIndexing = ImageScanner.IsIndexing;
-                info.IndexedCount = ImageScanner.IndexedCount;
-                info.TotalToIndex = ImageScanner.TotalToIndex;
+                info.IsIndexing = ImageIndexer.IsIndexing;
+                info.IndexedCount = ImageIndexer.IndexedCount;
+                info.TotalToIndex = ImageIndexer.TotalToIndex;
                 return Results.Ok(info);
             });
 
@@ -198,14 +198,14 @@ namespace PhotoLibrary
                     try
                     {
                         _logger?.LogInformation("[BATCH] TASK START: Processing {Count} files.", req.relativePaths.Length);
-                        ImageScanner.SetProgress(true, 0, req.relativePaths.Length);
+                        ImageIndexer.SetProgress(true, 0, req.relativePaths.Length);
                         
                         var sizes = new List<int>();
                         if (req.generateLow) sizes.Add(300);
                         if (req.generateMedium) sizes.Add(1024);
 
-                        var scanner = new ImageScanner(db, logFact.CreateLogger<ImageScanner>(), pm, sizes.ToArray());
-                        scanner.OnFileProcessed += (id, path) => 
+                        var indexer = new ImageIndexer(db, logFact.CreateLogger<ImageIndexer>(), pm, sizes.ToArray());
+                        indexer.OnFileProcessed += (id, path) => 
                         {
                             string? fileRootId = db.GetFileRootId(id);
                             _ = Broadcast(new { type = "file.imported", id, path, rootId = fileRootId });
@@ -224,9 +224,9 @@ namespace PhotoLibrary
                                 
                                 if (File.Exists(fullPath))
                                 {
-                                    scanner.ProcessSingleFile(new FileInfo(fullPath), absRoot);
+                                    indexer.ProcessSingleFile(new FileInfo(fullPath), absRoot);
                                     count++;
-                                    ImageScanner.SetProgress(true, count, req.relativePaths.Length);
+                                    ImageIndexer.SetProgress(true, count, req.relativePaths.Length);
                                     if (count % 10 == 0) _logger?.LogInformation("[BATCH] Progress: {Count}/{Total}...", count, req.relativePaths.Length);
                                 }
                                 else
@@ -249,7 +249,7 @@ namespace PhotoLibrary
                     }
                     finally 
                     {
-                        ImageScanner.SetProgress(false, 0, 0);
+                        ImageIndexer.SetProgress(false, 0, 0);
                     }
                 });
 
@@ -278,7 +278,7 @@ namespace PhotoLibrary
                         int processed = 0;
                         _logger?.LogInformation("Starting thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
 
-                        var scanner = new ImageScanner(db, logFact.CreateLogger<ImageScanner>(), pm, new[] { 300, 1024 });
+                        var indexer = new ImageIndexer(db, logFact.CreateLogger<ImageIndexer>(), pm, new[] { 300, 1024 });
 
                         foreach (var fId in fileIds)
                         {
@@ -296,7 +296,7 @@ namespace PhotoLibrary
                                 string? fullPath = db.GetFullFilePath(fId);
                                 if (fullPath != null && File.Exists(fullPath))
                                 {
-                                    scanner.GeneratePreviews(new FileInfo(fullPath), fId);
+                                    indexer.GeneratePreviews(new FileInfo(fullPath), fId);
                                 }
                             }
 
@@ -489,10 +489,11 @@ namespace PhotoLibrary
                                 string? fullPath = db.GetFullFilePath(req.fileId);
                                 if (fullPath != null && File.Exists(fullPath))
                                 {
-                                    string ext = Path.GetExtension(fullPath).ToUpper();
-                                    if (ext == ".ARW")
+                                    string ext = Path.GetExtension(fullPath);
+                                    if (TableConstants.RawExtensions.Contains(ext))
                                     {
                                         using var image = new ImageMagick.MagickImage(fullPath);
+                                        _logger?.LogDebug("[WS] Converted RAW {FileId} ({Ext}). Dimensions: {W}x{H}", req.fileId, ext, image.Width, image.Height);
                                         image.AutoOrient();
                                         image.Format = ImageMagick.MagickFormat.Jpg;
                                         image.Quality = 90;
@@ -513,25 +514,13 @@ namespace PhotoLibrary
                                     {
                                         try {
                                             string sourcePath = fullPath;
-                                            string ext = Path.GetExtension(fullPath).ToUpper();
-                                            bool isRaw = ext == ".ARW";
+                                            string ext = Path.GetExtension(fullPath);
+                                            bool isRaw = TableConstants.RawExtensions.Contains(ext);
                                             if (isRaw) {
                                                 string sidecar = Path.ChangeExtension(fullPath, ".JPG");
                                                 if (!File.Exists(sidecar)) sidecar = Path.ChangeExtension(fullPath, ".jpg");
                                                 if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
                                             }
-                                            
-                                            // If hash was null (legacy file), we need to compute it now to save properly
-                                            // Ideally ImageScanner handles this, but here we do ad-hoc gen.
-                                            // For safety, we can re-instantiate a mini-scanner or just compute hash here if needed.
-                                            // BUT, ImageScanner.GeneratePreviews handles saving.
-                                            // Let's use ImageScanner if possible, or replicate logic.
-                                            // Simpler: Just rely on ImageScanner to do it right? 
-                                            // No, ImageScanner.GeneratePreviews takes a FileInfo and FileId, but it needs to know the Hash now.
-                                            // Let's update ImageScanner to handle the hashing if missing or pass it.
-                                            
-                                            // Actually, the previous block was manual Magick usage. Let's fix that.
-                                            // We need the hash to save.
                                             
                                             using var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                                             if (hash == null) {
@@ -539,11 +528,10 @@ namespace PhotoLibrary
                                                 hasher.Append(stream);
                                                 hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
                                                 stream.Position = 0;
-                                                // Optional: Save back to DB? Yes, we should.
-                                                // db.UpdateFileHash(req.fileId, hash); // Missing method, maybe skip for now or add.
                                             }
 
                                             using var image = new ImageMagick.MagickImage(stream);
+                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Dimensions: {W}x{H}", req.fileId, ext, image.Width, image.Height);
                                             image.AutoOrient();
                                             if (!isRaw && image.Width <= req.size && image.Height <= req.size) { data = File.ReadAllBytes(sourcePath); }
                                             else {
@@ -554,7 +542,9 @@ namespace PhotoLibrary
                                                 string? rootId = db.GetFileRootId(req.fileId);
                                                 if (rootId != null) _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId });
                                             }
-                                        } catch (Exception ex) { _logger?.LogError(ex, "Live preview gen failed for {FileId}", req.fileId); }
+                                        } catch (Exception ex) { 
+                                            _logger?.LogError(ex, "Live preview gen failed for {FileId} ({FilePath}). Error: {Message}", req.fileId, fullPath, ex.Message); 
+                                        }
                                     }
                                 }
                             }
