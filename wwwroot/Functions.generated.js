@@ -14,6 +14,12 @@ export async function api_metadata(data) {
 export async function api_directories(data) {
     return await post('/api/directories', data);
 }
+export async function api_library_info(data) {
+    return await post('/api/library/info', data);
+}
+export async function api_library_stats(data) {
+    return await post('/api/library/stats', data);
+}
 export async function api_pick(data) {
     return await post('/api/pick', data);
 }
@@ -47,17 +53,17 @@ export async function api_picked_ids(data) {
 export async function api_stats(data) {
     return await post('/api/stats', data);
 }
-export async function api_library_info(data) {
-    return await post('/api/library/info', data);
-}
-export async function api_library_find_files(data) {
-    return await post('/api/library/find-files', data);
-}
 export async function api_library_find_new_files(data) {
     return await post('/api/library/find-new-files', data);
 }
 export async function api_library_import_batch(data) {
     return await post('/api/library/import-batch', data);
+}
+export async function api_library_generate_thumbnails(data) {
+    return await post('/api/library/generate-thumbnails', data);
+}
+export async function api_library_cancel_task(data) {
+    return await post('/api/library/cancel-task', data);
 }
 export async function api_settings_get(data) {
     return await post('/api/settings/get', data);

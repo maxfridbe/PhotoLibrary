@@ -57,6 +57,10 @@ export class CommunicationManager {
                         hub.pub('photo.imported', { id: msg.id, path: msg.path });
                     } else if (msg.type === 'scan.finished') {
                         hub.pub('library.updated', {});
+                    } else if (msg.type === 'folder.progress') {
+                        hub.pub('folder.progress', { rootId: msg.rootId, processed: msg.processed, total: msg.total });
+                    } else if (msg.type === 'folder.finished') {
+                        hub.pub('folder.finished', { rootId: msg.rootId });
                     }
                 } catch (err) { console.error("Failed to parse WS text message", err); }
             } else {

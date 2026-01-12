@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using ImageMagick;
 using MetadataExtractor;
+using Microsoft.Extensions.Logging;
 
 namespace PhotoLibrary
 {
@@ -12,14 +13,16 @@ namespace PhotoLibrary
         private readonly DatabaseManager _db;
         private readonly PreviewManager? _previewManager;
         private readonly int[] _longEdges;
+        private readonly ILogger<ImageScanner> _logger;
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
         public event Action<string, string>? OnFileProcessed;
 
-        public ImageScanner(DatabaseManager db, PreviewManager? previewManager = null, int[]? longEdges = null)
+        public ImageScanner(DatabaseManager db, ILogger<ImageScanner> logger, PreviewManager? previewManager = null, int[]? longEdges = null)
         {
             _db = db;
+            _logger = logger;
             _previewManager = previewManager;
             _longEdges = longEdges ?? Array.Empty<int>();
         }
@@ -29,12 +32,12 @@ namespace PhotoLibrary
             var root = new DirectoryInfo(directoryPath);
             if (!root.Exists)
             {
-                Console.WriteLine($"Directory not found: {directoryPath}");
+                _logger.LogError("Directory not found: {DirectoryPath}", directoryPath);
                 return;
             }
 
             string fullScanPath = root.FullName;
-            Console.WriteLine($"Scanning {fullScanPath}...");
+            _logger.LogInformation("Scanning {FullScanPath}...", fullScanPath);
             
             string? parentDir = Path.GetDirectoryName(fullScanPath);
             string targetName = root.Name;
@@ -62,33 +65,32 @@ namespace PhotoLibrary
                         importedCount++;
                         if (limit.HasValue && importedCount >= limit.Value)
                         {
-                            Console.WriteLine($"\nLimit of {limit.Value} imports reached.");
+                            _logger.LogInformation("Limit of {Limit} imports reached.", limit.Value);
                             break;
                         }
                     }
 
-                    if (count % 10 == 0) {
-                        Console.Write(".");
-                        if (count % 1000 == 0) Console.WriteLine($" {count}...");
+                    if (count % 1000 == 0) {
+                        _logger.LogInformation("Indexed {Count} files...", count);
                     }
 
                     if (testOne)
                     {
-                        Console.WriteLine($"\nProcessed single file: {file.Name}");
+                        _logger.LogInformation("Processed single file: {FileName}", file.Name);
                         break;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"\nError processing {file.FullName}: {ex.Message}");
+                    _logger.LogError(ex, "Error processing {FileFullName}", file.FullName);
                 }
             }
-            Console.WriteLine($"\nScanned {count} files total. Imported/Updated {importedCount}.");
+            _logger.LogInformation("Scanned {Count} files total. Imported/Updated {ImportedCount}.", count, importedCount);
         }
 
         public void ProcessSingleFile(FileInfo file, string scanRootPath)
         {
-            Console.WriteLine($"[SCANNER] ProcessSingleFile START: {file.Name}");
+            _logger.LogDebug("[SCANNER] ProcessSingleFile START: {FileName}", file.Name);
             string fullScanPath = Path.GetFullPath(scanRootPath);
             string? parentDir = Path.GetDirectoryName(fullScanPath);
             string targetName = Path.GetFileName(fullScanPath);
@@ -102,12 +104,11 @@ namespace PhotoLibrary
             _pathCache[fullScanPath] = targetRootId;
             
             ProcessFile(file, fullScanPath, targetRootId);
-            Console.WriteLine($"[SCANNER] ProcessSingleFile END: {file.Name}");
+            _logger.LogDebug("[SCANNER] ProcessSingleFile END: {FileName}", file.Name);
         }
 
         private bool ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
         {
-            // Console.WriteLine($"[SCANNER] ProcessFile START: {file.Name}");
             if (!TableConstants.SupportedExtensions.Contains(file.Extension)) return false;
 
             string? dirPath = file.DirectoryName;
@@ -118,7 +119,6 @@ namespace PhotoLibrary
             var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName);
             if (exists && lastIndexedModified.HasValue && Math.Abs((file.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
             {
-                // Console.WriteLine($"[SCANNER] ProcessFile SKIP: {file.Name} (Unchanged)");
                 return false; // Skip entirely
             }
 
@@ -183,11 +183,10 @@ namespace PhotoLibrary
                     GeneratePreviews(file, fileId);
                 }
             }
-            // Console.WriteLine($"[SCANNER] ProcessFile FINISHED: {file.Name}");
             return true;
         }
 
-        private void GeneratePreviews(FileInfo file, string fileId)
+        public void GeneratePreviews(FileInfo file, string fileId)
         {
             bool missingAny = false;
             foreach (var size in _longEdges)
@@ -249,7 +248,7 @@ namespace PhotoLibrary
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to generate preview for {file.Name}: {ex.Message}");
+                _logger.LogError(ex, "Failed to generate preview for {FileName}", file.Name);
             }
         }
 

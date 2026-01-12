@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using System.Net.WebSockets;
 using System.Reflection;
@@ -17,21 +18,23 @@ namespace PhotoLibrary
     {
         private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
         private static readonly ConcurrentBag<WebSocket> _activeSockets = new();
+        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
+        private static ILogger? _logger;
 
-        public static void Start(int port, string libraryPath, string previewPath, string bindAddr = "localhost")
+        public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, ILoggerFactory loggerFactory, string bindAddr = "localhost")
         {
-            var dbManager = new DatabaseManager(libraryPath);
-            dbManager.Initialize();
-
-            var previewManager = new PreviewManager(previewPath);
-            previewManager.Initialize();
+            _logger = loggerFactory.CreateLogger("WebServer");
 
             var builder = WebApplication.CreateBuilder();
+            builder.Logging.ClearProviders();
+            builder.Logging.AddProvider(new LoggerProviderProxy(loggerFactory));
+
             builder.WebHost.UseUrls($"http://{bindAddr}:{port}");
             builder.Services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(2));
 
             builder.Services.AddSingleton(dbManager);
             builder.Services.AddSingleton(previewManager);
+            builder.Services.AddSingleton(loggerFactory);
 
             var app = builder.Build();
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
@@ -59,6 +62,16 @@ namespace PhotoLibrary
             {
                 var roots = db.GetAllRootPaths();
                 return Results.Ok(roots);
+            });
+
+            app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
+            {
+                return Results.Ok(db.GetLibraryInfo(pm.DbPath));
+            });
+
+            app.MapPost("/api/library/stats", (DatabaseManager db) =>
+            {
+                return Results.Ok(db.GetGlobalStats());
             });
 
             app.MapPost("/api/pick", async (HttpContext context, DatabaseManager db) =>
@@ -119,8 +132,8 @@ namespace PhotoLibrary
             {
                 var req = await context.Request.ReadFromJsonAsync<IdRequest>();
                 if (req == null) return Results.BadRequest();
-                var fileIds = db.GetCollectionFiles(req.id);
-                return Results.Ok(fileIds);
+                var ids = db.GetCollectionFiles(req.id);
+                return Results.Ok(ids);
             });
 
             app.MapPost("/api/picked/clear", (DatabaseManager db) =>
@@ -139,31 +152,6 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
-            app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
-            {
-                var info = db.GetLibraryInfo(pm.DbPath);
-                return Results.Ok(info);
-            });
-
-            app.MapPost("/api/library/find-files", async (HttpContext context) =>
-            {
-                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
-                if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
-                
-                try 
-                {
-                    if (!Directory.Exists(req.name)) return Results.Ok(new { files = Array.Empty<string>() });
-                    var files = Directory.EnumerateFiles(req.name, "*", SearchOption.AllDirectories)
-                        .Select(f => Path.GetRelativePath(req.name, f))
-                        .ToList();
-                    return Results.Ok(new { files });
-                }
-                catch (Exception ex)
-                {
-                    return Results.BadRequest(new { error = ex.Message });
-                }
-            });
-
             app.MapPost("/api/library/find-new-files", async (HttpContext context, DatabaseManager db) =>
             {
                 var req = await context.Request.ReadFromJsonAsync<NameRequest>();
@@ -173,7 +161,7 @@ namespace PhotoLibrary
                 {
                     string absPath = PathUtils.ResolvePath(req.name);
                     if (!Directory.Exists(absPath)) {
-                        Console.WriteLine($"[DEBUG] Directory not found: {absPath}");
+                        _logger?.LogDebug("Directory not found: {AbsPath}", absPath);
                         return Results.Ok(new { files = Array.Empty<string>() });
                     }
                     
@@ -205,7 +193,7 @@ namespace PhotoLibrary
                 }
             });
 
-            app.MapPost("/api/library/import-batch", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            app.MapPost("/api/library/import-batch", async (HttpContext context, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
             {
                 var req = await context.Request.ReadFromJsonAsync<ImportBatchRequest>();
                 if (req == null || req.relativePaths == null) return Results.BadRequest();
@@ -214,19 +202,19 @@ namespace PhotoLibrary
                 {
                     try
                     {
-                        Console.WriteLine($"[BATCH] TASK START: Processing {req.relativePaths.Length} files.");
+                        _logger?.LogInformation("[BATCH] TASK START: Processing {Count} files.", req.relativePaths.Length);
                         var sizes = new List<int>();
                         if (req.generateLow) sizes.Add(300);
                         if (req.generateMedium) sizes.Add(1024);
 
-                        var scanner = new ImageScanner(db, pm, sizes.ToArray());
+                        var scanner = new ImageScanner(db, logFact.CreateLogger<ImageScanner>(), pm, sizes.ToArray());
                         scanner.OnFileProcessed += (id, path) => 
                         {
                             _ = Broadcast(new { type = "file.imported", id, path });
                         };
                         
                         string absRoot = PathUtils.ResolvePath(req.rootPath);
-                        Console.WriteLine($"[BATCH] Resolved Root: {absRoot}");
+                        _logger?.LogInformation("[BATCH] Resolved Root: {AbsRoot}", absRoot);
                         
                         int count = 0;
                         foreach (var relPath in req.relativePaths)
@@ -240,30 +228,98 @@ namespace PhotoLibrary
                                 {
                                     scanner.ProcessSingleFile(new FileInfo(fullPath), absRoot);
                                     count++;
-                                    if (count % 10 == 0) Console.WriteLine($"[BATCH] Progress: {count}/{req.relativePaths.Length}...");
+                                    if (count % 10 == 0) _logger?.LogInformation("[BATCH] Progress: {Count}/{Total}...", count, req.relativePaths.Length);
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"[BATCH] File not found: {fullPath}");
+                                    _logger?.LogWarning("[BATCH] File not found: {FullPath}", fullPath);
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"[BATCH] Error processing {relPath}: {ex.Message}");
+                                _logger?.LogError(ex, "[BATCH] Error processing {RelPath}", relPath);
                             }
                         }
                         
-                        Console.WriteLine($"[BATCH] TASK FINISHED. Imported {count} files total.");
+                        _logger?.LogInformation("[BATCH] TASK FINISHED. Imported {Count} files total.", count);
                         await Broadcast(new { type = "scan.finished" });
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[BATCH] CRITICAL FAILURE: {ex.Message}");
-                        Console.WriteLine(ex.StackTrace);
+                        _logger?.LogCritical(ex, "[BATCH] CRITICAL FAILURE");
                     }
                 });
 
-                return Results.Ok(new { message = "Batch import started" });
+                return Results.Ok();
+            });
+
+            app.MapPost("/api/library/generate-thumbnails", async (HttpContext context, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<GenerateThumbnailsRequest>();
+                if (req == null) return Results.BadRequest();
+
+                string taskId = $"thumbnails-{req.rootId}";
+                var cts = new CancellationTokenSource();
+                if (!_activeTasks.TryAdd(taskId, cts)) 
+                {
+                    _activeTasks[taskId].Cancel();
+                    _activeTasks[taskId] = cts;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var fileIds = db.GetFileIdsUnderRoot(req.rootId, req.recursive);
+                        int total = fileIds.Count;
+                        int processed = 0;
+
+                        foreach (var fId in fileIds)
+                        {
+                            if (cts.Token.IsCancellationRequested) break;
+
+                            processed++;
+                            // Check if previews exist, generate if not
+                            var low = pm.GetPreviewData(fId, 300);
+                            var med = pm.GetPreviewData(fId, 1024);
+
+                            if (low == null || med == null)
+                            {
+                                string? fullPath = db.GetFullFilePath(fId);
+                                if (fullPath != null && File.Exists(fullPath))
+                                {
+                                    var scanner = new ImageScanner(db, logFact.CreateLogger<ImageScanner>(), pm, new[] { 300, 1024 });
+                                    scanner.GeneratePreviews(new FileInfo(fullPath), fId);
+                                }
+                            }
+
+                            if (processed % 5 == 0 || processed == total)
+                            {
+                                await Broadcast(new { type = "folder.progress", rootId = req.rootId, processed, total });
+                            }
+                        }
+                    }
+                    catch (Exception ex) { _logger?.LogError(ex, "[WS] Thumbnail gen error"); }
+                    finally
+                    {
+                        _activeTasks.TryRemove(taskId, out _);
+                        await Broadcast(new { type = "folder.finished", rootId = req.rootId });
+                    }
+                });
+
+                return Results.Ok(new { taskId });
+            });
+
+            app.MapPost("/api/library/cancel-task", async (HttpContext context) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
+                if (req == null) return Results.BadRequest();
+                if (_activeTasks.TryRemove(req.id, out var cts))
+                {
+                    cts.Cancel();
+                    return Results.Ok();
+                }
+                return Results.NotFound();
             });
 
             app.MapPost("/api/settings/get", async (HttpContext context, DatabaseManager db) =>
@@ -364,61 +420,44 @@ namespace PhotoLibrary
                 return Results.Empty;
             });
 
-            // WebSocket: Image Stream
-            app.Use(async (context, next) =>
-            {
-                if (context.Request.Path == "/ws")
-                {
-                    if (context.WebSockets.IsWebSocketRequest)
-                    {
-                        var ws = await context.WebSockets.AcceptWebSocketAsync();
-                        _activeSockets.Add(ws);
-                        try 
-                        {
-                            await HandleWebSocket(ws, context.RequestServices.GetRequiredService<DatabaseManager>(), context.RequestServices.GetRequiredService<PreviewManager>(), lifetime.ApplicationStopping);
-                        }
-                        finally
-                        {
-                            // Remove from bag is tricky since ConcurrentBag doesn't have it easily
-                            // but we filter by state during broadcast anyway.
-                        }
-                    }
-                    else context.Response.StatusCode = 400;
-                }
-                else await next();
-            });
-
-            // Static Files (Embedded)
             app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
             app.MapGet("/{*path}", (string path) => {
                 if (string.IsNullOrEmpty(path)) return Results.NotFound();
                 string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
-                string contentType = "application/octet-stream";
-                if (path.EndsWith(".html")) contentType = "text/html";
-                else if (path.EndsWith(".js")) contentType = "application/javascript";
-                else if (path.EndsWith(".css")) contentType = "text/css";
+                string contentType = GetContentType(path);
                 return ServeEmbeddedFile(resourceName, contentType);
             });
 
-            Console.WriteLine($"Web server running on port {port}");
+            app.MapGet("/ws", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            {
+                if (context.WebSockets.IsWebSocketRequest)
+                {
+                    using var ws = await context.WebSockets.AcceptWebSocketAsync();
+                    _activeSockets.Add(ws);
+                    try {
+                        await HandleWebSocket(ws, db, pm, lifetime.ApplicationStopping);
+                    } finally {
+                        _activeSockets.TryTake(out _);
+                    }
+                }
+                else context.Response.StatusCode = 400;
+            });
+
+            _logger?.LogInformation("Web server running on port {Port}", port);
             app.Run();
         }
 
         private static async Task Broadcast(object message)
         {
             var json = JsonSerializer.Serialize(message);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            var segment = new ArraySegment<byte>(bytes);
-
-            foreach (var socket in _activeSockets)
+            var data = Encoding.UTF8.GetBytes(json);
+            foreach (var ws in _activeSockets)
             {
-                if (socket.State == WebSocketState.Open)
+                if (ws.State == WebSocketState.Open)
                 {
-                    try
-                    {
-                        await socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None);
-                    }
-                    catch { /* Ignore failed sockets */ }
+                    try {
+                        await ws.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
+                    } catch { }
                 }
             }
         }
@@ -435,13 +474,20 @@ namespace PhotoLibrary
             var stream = assembly.GetManifestResourceStream(resourceName);
             if (stream == null) 
             {
-                Console.WriteLine($"[DEBUG] Resource not found: {resourceName}");
-                var allResources = assembly.GetManifestResourceNames();
-                Console.WriteLine("[DEBUG] Available resources:");
-                foreach (var res in allResources) Console.WriteLine($"  - {res}");
+                _logger?.LogDebug("Resource not found: {ResourceName}", resourceName);
                 return Results.NotFound();
             }
             return Results.Stream(stream, contentType);
+        }
+
+        private static string GetContentType(string path)
+        {
+            if (path.EndsWith(".js")) return "application/javascript";
+            if (path.EndsWith(".css")) return "text/css";
+            if (path.EndsWith(".html")) return "text/html";
+            if (path.EndsWith(".png")) return "image/png";
+            if (path.EndsWith(".jpg") || path.EndsWith(".jpeg")) return "image/jpeg";
+            return "application/octet-stream";
         }
 
         private static async Task HandleWebSocket(WebSocket ws, DatabaseManager db, PreviewManager pm, CancellationToken ct)
@@ -457,12 +503,12 @@ namespace PhotoLibrary
                         var req = JsonSerializer.Deserialize<ImageRequest>(json);
                         if (req != null)
                         {
-                            Console.WriteLine($"[WS] Received request {req.requestId} for file {req.fileId} size {req.size}");
+                            _logger?.LogDebug("[WS] Received request {ReqId} for file {FileId} size {Size}", req.requestId, req.fileId, req.size);
                             byte[]? data = null;
                             if (req.size == 0) // Full Resolution Request
                             {
                                 string? fullPath = db.GetFullFilePath(req.fileId);
-                                Console.WriteLine($"[WS] Full Res Path resolved to: {fullPath ?? "NULL"}");
+                                _logger?.LogDebug("[WS] Full Res Path resolved to: {FullPath}", fullPath ?? "NULL");
                                 if (fullPath != null && File.Exists(fullPath))
                                 {
                                     string ext = Path.GetExtension(fullPath).ToUpper();
@@ -483,12 +529,12 @@ namespace PhotoLibrary
                                 if (data == null) // Generate on-the-fly
                                 {
                                     string? fullPath = db.GetFullFilePath(req.fileId);
-                                    Console.WriteLine($"[WS] Preview {req.size}px Path resolved to: {fullPath ?? "NULL"}");
+                                    _logger?.LogDebug("[WS] Preview {Size}px Path resolved to: {FullPath}", req.size, fullPath ?? "NULL");
                                     if (fullPath != null && File.Exists(fullPath))
                                     {
                                         try 
                                         {
-                                            Console.WriteLine($"Live generating {req.size}px preview for {fullPath}");
+                                            _logger?.LogDebug("Live generating {Size}px preview for {FullPath}", req.size, fullPath);
                                             string sourcePath = fullPath;
                                             string ext = Path.GetExtension(fullPath).ToUpper();
                                             bool isRaw = ext == ".ARW";
@@ -522,12 +568,12 @@ namespace PhotoLibrary
                                         }
                                         catch (Exception ex)
                                         {
-                                            Console.WriteLine($"Live preview gen failed for {req.fileId}: {ex.Message}");
+                                            _logger?.LogError(ex, "Live preview gen failed for {FileId}", req.fileId);
                                         }
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"Cannot generate preview: Path null or File not found. ID: {req.fileId}, Path: {fullPath ?? "NULL"}");
+                                        _logger?.LogWarning("Cannot generate preview: Path null or File not found. ID: {FileId}, Path: {FullPath}", req.fileId, fullPath ?? "NULL");
                                     }
                                 }
                             }
@@ -537,7 +583,7 @@ namespace PhotoLibrary
                                 // Always send a response, even if data is null (empty payload)
                                 // to ensure the frontend promise resolves/fails instead of hanging.
                                 var payload = data ?? Array.Empty<byte>();
-                                Console.WriteLine($"[WS] Sending response for {req.requestId}. Size: {payload.Length} bytes.");
+                                _logger?.LogDebug("[WS] Sending response for {ReqId}. Size: {Len} bytes.", req.requestId, payload.Length);
                                 var response = new byte[4 + payload.Length];
                                 BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
                                 payload.CopyTo(response, 4);
@@ -550,8 +596,17 @@ namespace PhotoLibrary
                         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed", ct);
                     }
                 } catch (OperationCanceledException) { break; }
-                catch (Exception ex) { if (ws.State == WebSocketState.Open) Console.WriteLine($"WS Error: {ex.Message}"); }
+                catch (Exception ex) { if (ws.State == WebSocketState.Open) _logger?.LogError(ex, "WS Error"); }
             }
         }
+    }
+
+    // Proxy class to inject our main logger factory into the builder's logging system
+    public class LoggerProviderProxy : ILoggerProvider
+    {
+        private readonly ILoggerFactory _factory;
+        public LoggerProviderProxy(ILoggerFactory factory) => _factory = factory;
+        public ILogger CreateLogger(string categoryName) => _factory.CreateLogger(categoryName);
+        public void Dispose() { }
     }
 }

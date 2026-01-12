@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using static PhotoLibrary.TableConstants;
 
 namespace PhotoLibrary
@@ -10,12 +11,14 @@ namespace PhotoLibrary
     public class DatabaseManager
     {
         private readonly string _connectionString;
+        private readonly ILogger<DatabaseManager> _logger;
         public string DbPath { get; }
 
-        public DatabaseManager(string dbPath)
+        public DatabaseManager(string dbPath, ILogger<DatabaseManager> logger)
         {
             DbPath = dbPath;
             _connectionString = $"Data Source={dbPath}";
+            _logger = logger;
         }
 
         public void Initialize()
@@ -154,12 +157,31 @@ namespace PhotoLibrary
                             // Safety: Cannot be its own parent
                             if (currentParentId == child.id) continue;
 
+                            string lastSegment = parts.Last();
+
+                            // Check if an entry already exists at this path under the parent
+                            string? existingId = null;
+                            using (var checkCmd = connection.CreateCommand())
+                            {
+                                checkCmd.Transaction = transaction;
+                                checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name";
+                                checkCmd.Parameters.AddWithValue("$ParentId", currentParentId);
+                                checkCmd.Parameters.AddWithValue("$Name", lastSegment);
+                                existingId = checkCmd.ExecuteScalar() as string;
+                            }
+
+                            if (existingId != null && existingId != child.id)
+                            {
+                                MergeRoots(connection, transaction, child.id, existingId);
+                                continue;
+                            }
+
                             using (var updateCmd = connection.CreateCommand())
                             {
                                 updateCmd.Transaction = transaction;
                                 updateCmd.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.ParentId} = $ParentId, {Column.RootPaths.Name} = $Name WHERE {Column.RootPaths.Id} = $Id";
                                 updateCmd.Parameters.AddWithValue("$ParentId", currentParentId);
-                                updateCmd.Parameters.AddWithValue("$Name", parts.Last());
+                                updateCmd.Parameters.AddWithValue("$Name", lastSegment);
                                 updateCmd.Parameters.AddWithValue("$Id", child.id);
                                 updateCmd.ExecuteNonQuery();
                             }
@@ -170,8 +192,137 @@ namespace PhotoLibrary
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DB] Root normalization failed: {ex.Message}");
+                _logger.LogError(ex, "[DB] Root normalization failed");
                 transaction.Rollback();
+            }
+        }
+
+        private void MergeRoots(SqliteConnection connection, SqliteTransaction transaction, string oldId, string newId)
+        {
+            if (oldId == newId) return;
+
+            // 1. Move files. Handle potential file-level conflicts
+            var filesInOld = new List<(string id, string name)>();
+            using (var getFilesCmd = connection.CreateCommand())
+            {
+                getFilesCmd.Transaction = transaction;
+                getFilesCmd.CommandText = $"SELECT {Column.FileEntry.Id}, {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $OldId";
+                getFilesCmd.Parameters.AddWithValue("$OldId", oldId);
+                using var reader = getFilesCmd.ExecuteReader();
+                while (reader.Read()) filesInOld.Add((reader.GetString(0), reader.GetString(1)));
+            }
+
+            foreach (var file in filesInOld)
+            {
+                string? targetFileId = null;
+                using (var checkFileCmd = connection.CreateCommand())
+                {
+                    checkFileCmd.Transaction = transaction;
+                    checkFileCmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootId AND {Column.FileEntry.FileName} = $FileName";
+                    checkFileCmd.Parameters.AddWithValue("$RootId", newId);
+                    checkFileCmd.Parameters.AddWithValue("$FileName", file.name);
+                    targetFileId = checkFileCmd.ExecuteScalar() as string;
+                }
+
+                if (targetFileId != null)
+                {
+                    // File conflict! Merge metadata/picks/ratings from file.id to targetFileId
+                    _logger.LogDebug("Merging duplicate file {FileName} during root merge.", file.name);
+                    
+                    // Move Metadata
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = $"UPDATE OR IGNORE {TableName.Metadata} SET {Column.Metadata.FileId} = $NewId WHERE {Column.Metadata.FileId} = $OldId";
+                        cmd.Parameters.AddWithValue("$NewId", targetFileId);
+                        cmd.Parameters.AddWithValue("$OldId", file.id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    // Move Pick
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = $"UPDATE OR IGNORE {TableName.ImagesPicked} SET {Column.ImagesPicked.FileId} = $NewId WHERE {Column.ImagesPicked.FileId} = $OldId";
+                        cmd.Parameters.AddWithValue("$NewId", targetFileId);
+                        cmd.Parameters.AddWithValue("$OldId", file.id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    // Move Rating
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = $"UPDATE OR IGNORE {TableName.ImageRatings} SET {Column.ImageRatings.FileId} = $NewId WHERE {Column.ImageRatings.FileId} = $OldId";
+                        cmd.Parameters.AddWithValue("$NewId", targetFileId);
+                        cmd.Parameters.AddWithValue("$OldId", file.id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    // Delete redundant file entry
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = $"DELETE FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
+                        cmd.Parameters.AddWithValue("$Id", file.id);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                else
+                {
+                    // No conflict, just move the file to the new root
+                    using (var moveFileCmd = connection.CreateCommand())
+                    {
+                        moveFileCmd.Transaction = transaction;
+                        moveFileCmd.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.RootPathId} = $NewId WHERE {Column.FileEntry.Id} = $Id";
+                        moveFileCmd.Parameters.AddWithValue("$NewId", newId);
+                        moveFileCmd.Parameters.AddWithValue("$Id", file.id);
+                        moveFileCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            // 2. Handle subfolders recursively
+            var childrenToMove = new List<(string id, string name)>();
+            using (var getChildrenCmd = connection.CreateCommand())
+            {
+                getChildrenCmd.Transaction = transaction;
+                getChildrenCmd.CommandText = $"SELECT {Column.RootPaths.Id}, {Column.RootPaths.Name} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $OldId";
+                getChildrenCmd.Parameters.AddWithValue("$OldId", oldId);
+                using var reader = getChildrenCmd.ExecuteReader();
+                while (reader.Read()) childrenToMove.Add((reader.GetString(0), reader.GetString(1)));
+            }
+
+            foreach (var child in childrenToMove)
+            {
+                string? targetChildId = null;
+                using (var checkCmd = connection.CreateCommand())
+                {
+                    checkCmd.Transaction = transaction;
+                    checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name";
+                    checkCmd.Parameters.AddWithValue("$ParentId", newId);
+                    checkCmd.Parameters.AddWithValue("$Name", child.name);
+                    targetChildId = checkCmd.ExecuteScalar() as string;
+                }
+
+                if (targetChildId != null) MergeRoots(connection, transaction, child.id, targetChildId);
+                else
+                {
+                    using (var moveCmd = connection.CreateCommand())
+                    {
+                        moveCmd.Transaction = transaction;
+                        moveCmd.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.ParentId} = $NewId WHERE {Column.RootPaths.Id} = $Id";
+                        moveCmd.Parameters.AddWithValue("$NewId", newId);
+                        moveCmd.Parameters.AddWithValue("$Id", child.id);
+                        moveCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+
+            // 3. Finally delete the now-empty old root
+            using (var deleteCmd = connection.CreateCommand())
+            {
+                deleteCmd.Transaction = transaction;
+                deleteCmd.CommandText = $"DELETE FROM {TableName.RootPaths} WHERE {Column.RootPaths.Id} = $Id";
+                deleteCmd.Parameters.AddWithValue("$Id", oldId);
+                deleteCmd.ExecuteNonQuery();
             }
         }
 
@@ -550,6 +701,45 @@ namespace PhotoLibrary
             return newId;
         }
 
+        public List<string> GetFileIdsUnderRoot(string rootId, bool recursive)
+        {
+            var ids = new List<string>();
+            var targetRootIds = new HashSet<string> { rootId };
+
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            if (recursive)
+            {
+                var queue = new Queue<string>();
+                queue.Enqueue(rootId);
+                while (queue.Count > 0)
+                {
+                    var current = queue.Dequeue();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
+                    cmd.Parameters.AddWithValue("$ParentId", current);
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        var childId = reader.GetString(0);
+                        if (targetRootIds.Add(childId)) queue.Enqueue(childId);
+                    }
+                }
+            }
+
+            foreach (var rId in targetRootIds)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootId";
+                cmd.Parameters.AddWithValue("$RootId", rId);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read()) ids.Add(reader.GetString(0));
+            }
+
+            return ids;
+        }
+
         public void UpsertFileEntry(FileEntry entry)
         {
             try 
@@ -601,8 +791,7 @@ namespace PhotoLibrary
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error upserting file {entry.FileName}: {ex.Message}");
-                throw;
+                _logger.LogError(ex, "Error upserting file {FileName}", entry.FileName);
             }
         }
 
@@ -774,7 +963,7 @@ namespace PhotoLibrary
             {
                 if (!seen.Add(currentId))
                 {
-                    Console.WriteLine($"[DB] Cycle detected in RootPaths at ID {currentId}!");
+                    _logger.LogWarning("[DB] Cycle detected in RootPaths at ID {Id}!", currentId);
                     break;
                 }
 

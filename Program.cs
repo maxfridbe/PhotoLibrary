@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -9,6 +10,13 @@ namespace PhotoLibrary
 {
     class Program
     {
+        private static ILoggerFactory _loggerFactory = LoggerFactory.Create(builder => {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Information);
+        });
+
+        private static ILogger<Program> _logger = _loggerFactory.CreateLogger<Program>();
+
         public class AppConfig
         {
             public string? LibraryPath { get; set; }
@@ -110,40 +118,37 @@ namespace PhotoLibrary
                 string finalPreviewDbPath = PathUtils.ResolvePath(config.PreviewDbPath);
                 string bindAddr = config.Bind == "public" ? "*" : "localhost";
 
+                var dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
+                dbManager.Initialize();
+
+                PreviewManager? previewManager = null;
+                // Pre-init preview manager if path is known
+                previewManager = new PreviewManager(finalPreviewDbPath);
+                previewManager.Initialize();
+
                 // CLI/Scanning Mode
                 if (!string.IsNullOrEmpty(scanDir))
                 {
                     scanDir = PathUtils.ResolvePath(scanDir);
-                    Console.WriteLine($"Library: {finalLibraryPath}");
-                    Console.WriteLine($"Scanning: {scanDir}");
+                    _logger.LogInformation("Library: {LibraryPath}", finalLibraryPath);
+                    _logger.LogInformation("Scanning: {ScanDir}", scanDir);
                     
-                    var dbManager = new DatabaseManager(finalLibraryPath);
-                    dbManager.Initialize();
-
-                    PreviewManager? previewManager = null;
-                    if (updatePreviews)
-                    {
-                        previewManager = new PreviewManager(finalPreviewDbPath);
-                        previewManager.Initialize();
-                    }
-
-                    var scanner = new ImageScanner(dbManager, previewManager, longEdges);
+                    var scanner = new ImageScanner(dbManager, _loggerFactory.CreateLogger<ImageScanner>(), previewManager, longEdges);
                     scanner.Scan(scanDir, testOne);
                 }
 
                 // Hosting Mode (Always run if no scanDir, or if explicit hostPort)
                 if (hostPort.HasValue || string.IsNullOrEmpty(scanDir))
                 {
-                    Console.WriteLine($"Starting Web Server on {bindAddr}:{config.Port}...");
-                    Console.WriteLine($"  Library: {finalLibraryPath}");
-                    Console.WriteLine($"  Previews: {finalPreviewDbPath}");
-                    WebServer.Start(config.Port, finalLibraryPath, finalPreviewDbPath, bindAddr);
+                    _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
+                    _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
+                    _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
+                    WebServer.Start(config.Port, dbManager, previewManager, _loggerFactory, bindAddr);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                _logger.LogError(ex, "An unexpected error occurred");
             }
         }
     }

@@ -20,7 +20,10 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **Library Maintenance Mode**:
     *   **Find New Images**: Scans your directories and identifies files not yet in the database.
     *   **Targeted Batch Import**: Efficiently index only the specific files found during search, rather than re-scanning entire trees.
+    *   **Folder-Level Actions**: Right-click any folder in the tree to trigger "Generate Thumbnails" (Recursive or single-folder).
+    *   **Live Progress**: Real-time progress bars for background thumbnail generation directly in the folder tree.
     *   **Smart Indexing**: Automatically skips unmodified, already-indexed files based on timestamp checks.
+    *   **Robust Normalization**: Automatically merges overlapping directory structures and deduplicates files recursively.
     *   **On-the-Fly Previews**: Live generation and caching of missing thumbnails and previews during browsing.
     *   **Database Stats**: Real-time tracking of image counts and database file sizes.
 -   **High-Performance Web Interface**:

@@ -61,8 +61,17 @@ class App {
         this.metaGroups = new Map();
         this.importedBatchCount = 0;
         this.importedBatchTimer = null;
+        this.folderProgress = new Map();
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
+        hub.sub('folder.progress', (data) => {
+            this.folderProgress.set(data.rootId, { processed: data.processed, total: data.total });
+            this.refreshDirectories(); // Trigger tree re-render
+        });
+        hub.sub('folder.finished', (data) => {
+            this.folderProgress.delete(data.rootId);
+            this.refreshDirectories();
+        });
         this.themeManager.loadSettings().then(() => {
             this.themeManager.populateThemesDropdown();
             this.themeManager.applyTheme();
@@ -772,11 +781,40 @@ class App {
             name.style.overflow = 'hidden';
             name.style.textOverflow = 'ellipsis';
             name.textContent = item.node.name;
+            el.appendChild(toggle);
+            el.appendChild(name);
+            // Add progress bar if active
+            if (this.folderProgress.has(item.node.id)) {
+                const prog = this.folderProgress.get(item.node.id);
+                const percent = Math.round((prog.processed / prog.total) * 100);
+                const barContainer = document.createElement('div');
+                barContainer.style.width = '60px';
+                barContainer.style.height = '8px';
+                barContainer.style.background = 'var(--bg-input)';
+                barContainer.style.borderRadius = '4px';
+                barContainer.style.overflow = 'hidden';
+                barContainer.style.margin = '0 0.5em';
+                barContainer.title = `${prog.processed} / ${prog.total}`;
+                const bar = document.createElement('div');
+                bar.style.width = `${percent}%`;
+                bar.style.height = '100%';
+                bar.style.background = 'var(--accent)';
+                barContainer.appendChild(bar);
+                el.appendChild(barContainer);
+                const cancelBtn = document.createElement('span');
+                cancelBtn.innerHTML = '&times;';
+                cancelBtn.style.cursor = 'pointer';
+                cancelBtn.style.padding = '0 4px';
+                cancelBtn.style.color = 'var(--text-muted)';
+                cancelBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    Api.api_library_cancel_task({ id: `thumbnails-${item.node.id}` });
+                };
+                el.appendChild(cancelBtn);
+            }
             const count = document.createElement('span');
             count.className = 'count';
             count.textContent = item.node.imageCount > 0 ? item.node.imageCount.toString() : '';
-            el.appendChild(toggle);
-            el.appendChild(name);
             el.appendChild(count);
             target.appendChild(el);
             const childrenContainer = document.createElement('div');
@@ -785,6 +823,10 @@ class App {
             childrenContainer.style.display = 'block';
             target.appendChild(childrenContainer);
             el.onclick = () => this.setFilter('all', 0, item.node.id);
+            el.oncontextmenu = (e) => {
+                e.preventDefault();
+                this.showFolderContextMenu(e, item.node.id);
+            };
             if (item.children.length > 0) {
                 toggle.onclick = (e) => {
                     e.stopPropagation();
@@ -833,6 +875,26 @@ class App {
     }
     setupContextMenu() { document.addEventListener('click', () => { const menu = document.getElementById('context-menu'); if (menu)
         menu.style.display = 'none'; }); }
+    showFolderContextMenu(e, rootId) {
+        const menu = document.getElementById('context-menu');
+        menu.innerHTML = '';
+        const addItem = (text, cb) => {
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = cb;
+            menu.appendChild(el);
+        };
+        addItem('Generate Thumbnails (This Folder)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: false });
+        });
+        addItem('Generate Thumbnails (Recursive)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: true });
+        });
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
     showPickedContextMenu(e) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = '';
