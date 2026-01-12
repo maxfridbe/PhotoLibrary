@@ -301,7 +301,8 @@ class App {
                 group.sort((a, b) => {
                     const getRank = (fn) => {
                         const ext = fn.split('.').pop()?.toUpperCase();
-                        if (ext === 'ARW' || ext === 'NEF')
+                        const rawExts = ['ARW', 'NEF', 'CR2', 'CR3', 'DNG', 'RAF', 'RW2', 'ORF'];
+                        if (rawExts.includes(ext))
                             return 0;
                         if (ext === 'JPG' || ext === 'JPEG')
                             return 1;

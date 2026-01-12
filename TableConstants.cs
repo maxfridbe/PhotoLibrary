@@ -71,12 +71,12 @@ namespace PhotoLibrary
 
         public static readonly System.Collections.Generic.HashSet<string> SupportedExtensions = new(System.StringComparer.OrdinalIgnoreCase)
         {
-            ".JPG", ".JPEG", ".ARW", ".NEF", ".PNG", ".HEIC", ".TIF", ".TIFF"
+            ".JPG", ".JPEG", ".ARW", ".NEF", ".CR2", ".CR3", ".DNG", ".RAF", ".RW2", ".ORF", ".PNG", ".HEIC", ".TIF", ".TIFF"
         };
 
         public static readonly System.Collections.Generic.HashSet<string> RawExtensions = new(System.StringComparer.OrdinalIgnoreCase)
         {
-            ".ARW", ".NEF"
+            ".ARW", ".NEF", ".CR2", ".CR3", ".DNG", ".RAF", ".RW2", ".ORF"
         };
     }
 }

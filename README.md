@@ -10,7 +10,7 @@ A high-performance C# application designed to scan photo directories, index meta
 
 -   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
 -   **Smart Stacking (UI-Driven)**: 
-    *   Automatically groups JPG + RAW (ARW/NEF) pairs with identical names in the same folder.
+    *   Automatically groups JPG + RAW (ARW/NEF/CR2/DNG/etc.) pairs with identical names in the same folder.
     *   **Prioritized Display**: RAW files are shown as the stack representative by default.
     *   **Batch Actions**: Flagging or rating a stack representative automatically applies the action to all files in the group.
     *   **Visual Indicators**: Grouped items show a layered card effect and a count badge (e.g., `(2)`).
