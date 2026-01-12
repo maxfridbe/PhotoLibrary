@@ -39,7 +39,7 @@ for year in 2025 2024 2023 2022 2021; do
                 ((COUNT++))
                 echo -ne "Progress: $COUNT/$TOTAL_NEEDED images copied... \r"
             fi
-        done < <(ls -dt "$subdir"/* 2>/dev/null | grep -iE "\.(JPG|ARW)$")
+        done < <(ls -dt "$subdir"/* 2>/dev/null | grep -iE "\.(JPG|ARW|NEF)$")
         
     done < <(find "$YEAR_DIR" -maxdepth 2 -type d | sort -r)
 done

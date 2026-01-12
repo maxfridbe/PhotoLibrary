@@ -13,7 +13,7 @@ mkdir -p "$TEST_DIR"
 
 echo "Finding all images in $RAID_SOURCE (this may take a moment over network)..."
 # Find all JPG or ARW files
-mapfile -t files < <(find "$RAID_SOURCE" -type f -regextype posix-extended -iregex ".*\.(jpg|arw)" 2>/dev/null)
+mapfile -t files < <(find "$RAID_SOURCE" -type f -regextype posix-extended -iregex ".*\.(jpg|arw|nef)" 2>/dev/null)
 
 if [ ${#files[@]} -eq 0 ]; then
     echo "No images found in $RAID_SOURCE."

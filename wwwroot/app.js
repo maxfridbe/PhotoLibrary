@@ -295,7 +295,7 @@ class App {
                 group.sort((a, b) => {
                     const getRank = (fn) => {
                         const ext = fn.split('.').pop()?.toUpperCase();
-                        if (ext === 'ARW')
+                        if (ext === 'ARW' || ext === 'NEF')
                             return 0;
                         if (ext === 'JPG' || ext === 'JPEG')
                             return 1;
@@ -576,7 +576,7 @@ class App {
             sortLabel.appendChild(sortSelect);
             const stackLabel = document.createElement('label');
             stackLabel.className = 'control-item';
-            stackLabel.title = 'Stack JPG/ARW files with same name';
+            stackLabel.title = 'Stack JPG/RAW files with same name';
             const stackCheck = document.createElement('input');
             stackCheck.type = 'checkbox';
             stackCheck.checked = self.stackingEnabled;

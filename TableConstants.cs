@@ -71,7 +71,7 @@ namespace PhotoLibrary
 
         public static readonly System.Collections.Generic.HashSet<string> SupportedExtensions = new(System.StringComparer.OrdinalIgnoreCase)
         {
-            ".JPG", ".JPEG", ".ARW", ".PNG", ".HEIC", ".TIF", ".TIFF"
+            ".JPG", ".JPEG", ".ARW", ".NEF", ".PNG", ".HEIC", ".TIF", ".TIFF"
         };
     }
 }

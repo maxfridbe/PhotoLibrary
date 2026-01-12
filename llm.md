@@ -6,12 +6,12 @@ This document outlines the architectural principles, performance strategies, and
 The system is built to handle hundreds of thousands of images over slow network mounts (CIFS/SMB) without sacrificing responsiveness.
 
 ### Efficient Scanning
-- **1MB Header Optimization**: The scanner only reads the first 1MB of large image files (RAW/ARW) to extract metadata, avoiding massive bandwidth consumption on slow drives.
+- **1MB Header Optimization**: The scanner only reads the first 1MB of large image files (RAW/ARW/NEF) to extract metadata, avoiding massive bandwidth consumption on slow drives.
 - **Path Normalization**: Uses a hierarchical `RootPaths` table to represent directory structures, allowing for library portability and efficient folder-based filtering.
 
 ### Binary Image Streaming
 - **Binary WebSocket Protocol**: Thumbnails and previews are delivered over a custom binary WebSocket protocol. This avoids the overhead of Base64 encoding and reduces HTTP request latency.
-- **Sidecar-Aware Previews**: The system automatically detects sibling JPGs for RAW files, using them as high-speed sources for preview generation.
+- **Sidecar-Aware Previews**: The system automatically detects sibling JPGs for RAW files (ARW/NEF), using them as high-speed sources for preview generation.
 
 ## 2. Frontend Architecture: "Manager-Component Pattern"
 The UI is a TypeScript SPA broken down into specialized managers to ensure maintainability.
