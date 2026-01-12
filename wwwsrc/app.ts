@@ -521,8 +521,8 @@ class App {
             content: [{
                 type: 'row',
                 content: [
-                    { type: 'component', componentName: 'library', width: 20, title: 'Library' },
-                    { type: 'component', componentName: 'workspace', width: 60, title: 'Photos' },
+                    { type: 'component', componentName: 'library', width: 20, title: 'Library', isClosable: false },
+                    { type: 'component', componentName: 'workspace', width: 60, title: 'Photos', isClosable: false },
                     { type: 'component', componentName: 'metadata', width: 20, title: 'Metadata' }
                 ]
             }]
@@ -1618,6 +1618,86 @@ class App {
         }
     }
 
+    private toggleLibraryPanel() {
+        if (!this.layout) return;
+        const libraryItem = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'library')[0];
+        
+        if (libraryItem) {
+            const container = libraryItem.parent;
+            // Check current size to determine if we are collapsing or expanding
+            // Note: GoldenLayout widths are percentages in rows
+            const currentWidth = container.config.width;
+            
+            // Hacky state tracking via data-attribute on the element if possible, or just check width logic
+            // Since width is dynamic, let's use a stored property or just check if it's small.
+            
+            if (currentWidth < 5) {
+                // Expand
+                container.setSize(20);
+            } else {
+                // Collapse
+                container.setSize(0); // 0 might hide it completely? Let's try minimizing it or hiding.
+                // GoldenLayout doesn't support 0 width easily without hiding.
+                // Alternative: Remove it and re-add it? No state loss.
+                // Better: Just toggle visibility or set width to minimal.
+                
+                // Let's try 0.1?
+                container.setSize(0.001); 
+                // Actually, if we want to "minimize to left", we can just remove it and re-add it like metadata?
+                // But user wants "minimized", usually meaning a small bar.
+                // Let's try removing it for now as "hiding" is often what people mean by B shortcut in Lightroom (it toggles visibility).
+                
+                // If user wants specific "minimize to icon", that's harder.
+                // Let's implement "Toggle Visibility" first as that is standard 'B' behavior.
+                libraryItem.remove();
+            }
+        } else {
+            // Restore Library
+            if (this.layout.root.contentItems.length > 0) {
+                const rootRow = this.layout.root.contentItems[0];
+                rootRow.addChild({
+                    type: 'component',
+                    componentName: 'library',
+                    width: 20,
+                    title: 'Library',
+                    isClosable: false
+                }, 0); // index 0 to put it on left
+            }
+        }
+    }
+
+    private toggleMetadataPanel() {
+        if (!this.layout) return;
+        const metadataItems = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'metadata');
+        
+        if (metadataItems.length > 0) {
+            // Already exists, close it
+            metadataItems[0].remove();
+        } else {
+            // Missing, find workspace and add next to it
+            const workspaceItems = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'workspace');
+            if (workspaceItems.length > 0) {
+                const parent = workspaceItems[0].parent;
+                parent.addChild({
+                    type: 'component',
+                    componentName: 'metadata',
+                    width: 20,
+                    title: 'Metadata'
+                });
+            } else {
+                // Fallback: add to root
+                if (this.layout.root.contentItems.length > 0) {
+                    this.layout.root.contentItems[0].addChild({
+                        type: 'component',
+                        componentName: 'metadata',
+                        width: 20,
+                        title: 'Metadata'
+                    });
+                }
+            }
+        }
+    }
+
     private handleKey(e: KeyboardEvent) {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
         
@@ -1637,6 +1717,14 @@ class App {
         if (key === 'f') {
             e.preventDefault();
             this.toggleFullscreen();
+        }
+        if (key === 'm') {
+            e.preventDefault();
+            this.toggleMetadataPanel();
+        }
+        if (key === 'b') {
+            e.preventDefault();
+            this.toggleLibraryPanel();
         }
         if (key === 'p') {
             if (this.selectedId) {

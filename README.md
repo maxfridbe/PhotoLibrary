@@ -70,6 +70,8 @@ You can override any setting via CLI. These overrides are automatically saved to
 -   **'G'**: Grid View
 -   **'L' / 'Enter' / 'Space'**: Loupe View (requires a selected image)
 -   **'F'**: Toggle Fullscreen High-Res View
+-   **'M'**: Toggle Metadata Panel (Right)
+-   **'B'**: Toggle Library Panel (Left)
 -   **'P'**: Toggle Flag (Pick) - applies to full stack if enabled
 -   **'1' - '5'**: Set Star Rating - applies to full stack if enabled
 -   **'0'**: Clear Star Rating
