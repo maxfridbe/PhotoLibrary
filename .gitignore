@@ -20,4 +20,5 @@ test_images/
 *.tif
 *.tiff
 *.TIF
-*.TIFFdist/
+*.TIFF
+dist/
