@@ -72,53 +72,58 @@ namespace PhotoLibrary
             {
                 string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "PhotoLibrary");
                 string configPath = Path.Combine(configDir, "config.json");
-                AppConfig? config = null;
+                
+                if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
 
+                AppConfig config;
                 if (File.Exists(configPath))
                 {
                     try {
-                        config = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath));
-                    } catch { }
+                        config = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
+                    } catch { 
+                        config = new AppConfig(); 
+                    }
                 }
-
-                if (config == null)
+                else
                 {
-                    Directory.CreateDirectory(configDir);
                     config = new AppConfig {
                         LibraryPath = Path.Combine(configDir, "library.db"),
                         PreviewDbPath = Path.Combine(configDir, "previews.db"),
                         Port = 8080,
                         Bind = "localhost"
                     };
-                    File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                 }
 
-                // CLI overrides or defaults
-                libraryPath = libraryPath ?? config.LibraryPath;
-                previewDb = previewDb ?? config.PreviewDbPath;
-                int finalPort = hostPort ?? config.Port;
+                // Apply CLI overrides to config object
+                if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = ResolvePath(libraryPath);
+                if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = ResolvePath(previewDb);
+                if (hostPort.HasValue) config.Port = hostPort.Value;
+
+                // If paths are still null (shouldn't happen with defaults but safety first)
+                if (string.IsNullOrEmpty(config.LibraryPath)) config.LibraryPath = Path.Combine(configDir, "library.db");
+                if (string.IsNullOrEmpty(config.PreviewDbPath)) config.PreviewDbPath = Path.Combine(configDir, "previews.db");
+
+                // Save updated config
+                File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+
+                string finalLibraryPath = ResolvePath(config.LibraryPath);
+                string finalPreviewDbPath = ResolvePath(config.PreviewDbPath);
                 string bindAddr = config.Bind == "public" ? "*" : "localhost";
-
-                if (string.IsNullOrEmpty(libraryPath)) throw new Exception("Library path is missing.");
-                if (string.IsNullOrEmpty(previewDb)) throw new Exception("Preview DB path is missing.");
-
-                libraryPath = ResolvePath(libraryPath);
-                previewDb = ResolvePath(previewDb);
 
                 // CLI/Scanning Mode
                 if (!string.IsNullOrEmpty(scanDir))
                 {
                     scanDir = ResolvePath(scanDir);
-                    Console.WriteLine($"Library: {libraryPath}");
+                    Console.WriteLine($"Library: {finalLibraryPath}");
                     Console.WriteLine($"Scanning: {scanDir}");
                     
-                    var dbManager = new DatabaseManager(libraryPath);
+                    var dbManager = new DatabaseManager(finalLibraryPath);
                     dbManager.Initialize();
 
                     PreviewManager? previewManager = null;
                     if (updatePreviews)
                     {
-                        previewManager = new PreviewManager(previewDb);
+                        previewManager = new PreviewManager(finalPreviewDbPath);
                         previewManager.Initialize();
                     }
 
@@ -129,10 +134,10 @@ namespace PhotoLibrary
                 // Hosting Mode (Always run if no scanDir, or if explicit hostPort)
                 if (hostPort.HasValue || string.IsNullOrEmpty(scanDir))
                 {
-                    Console.WriteLine($"Starting Web Server on {bindAddr}:{finalPort}...");
-                    Console.WriteLine($"  Library: {libraryPath}");
-                    Console.WriteLine($"  Previews: {previewDb}");
-                    WebServer.Start(finalPort, libraryPath, previewDb, bindAddr);
+                    Console.WriteLine($"Starting Web Server on {bindAddr}:{config.Port}...");
+                    Console.WriteLine($"  Library: {finalLibraryPath}");
+                    Console.WriteLine($"  Previews: {finalPreviewDbPath}");
+                    WebServer.Start(config.Port, finalLibraryPath, finalPreviewDbPath, bindAddr);
                 }
             }
             catch (Exception ex)
