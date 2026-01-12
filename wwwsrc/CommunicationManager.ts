@@ -54,13 +54,15 @@ export class CommunicationManager {
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'file.imported') {
-                        hub.pub('photo.imported', { id: msg.id, path: msg.path });
+                        hub.pub('photo.imported', { id: msg.id, path: msg.path, rootId: msg.rootId });
                     } else if (msg.type === 'scan.finished') {
                         hub.pub('library.updated', {});
                     } else if (msg.type === 'folder.progress') {
                         hub.pub('folder.progress', { rootId: msg.rootId, processed: msg.processed, total: msg.total });
                     } else if (msg.type === 'folder.finished') {
                         hub.pub('folder.finished', { rootId: msg.rootId });
+                    } else if (msg.type === 'preview.generated') {
+                        hub.pub('preview.generated', { fileId: msg.fileId, rootId: msg.rootId });
                     }
                 } catch (err) { console.error("Failed to parse WS text message", err); }
             } else {

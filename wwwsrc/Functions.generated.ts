@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-12T09:35:16.1131907-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-12T11:42:37.1561065-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -23,10 +23,6 @@ export async function api_directories(data: any): Promise<Res.RootPathResponse[]
 
 export async function api_library_info(data: any): Promise<any> {
     return await post<any>('/api/library/info', data);
-}
-
-export async function api_library_stats(data: any): Promise<Res.StatsResponse> {
-    return await post<Res.StatsResponse>('/api/library/stats', data);
 }
 
 export async function api_pick(data: any): Promise<any> {

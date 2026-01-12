@@ -23,6 +23,7 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Folder-Level Actions**: Right-click any folder in the tree to trigger "Generate Thumbnails" (Recursive or single-folder).
     *   **Live Progress**: Real-time progress bars for background thumbnail generation directly in the folder tree.
     *   **Smart Indexing**: Automatically skips unmodified, already-indexed files based on timestamp checks.
+    *   **Robust Hashing**: Uses xxHash64 for ultra-fast, consistent file identification and duplicate detection.
     *   **Robust Normalization**: Automatically merges overlapping directory structures and deduplicates files recursively.
     *   **On-the-Fly Previews**: Live generation and caching of missing thumbnails and previews during browsing.
     *   **Database Stats**: Real-time tracking of image counts and database file sizes.
@@ -84,8 +85,8 @@ You can override any setting via CLI. These overrides are automatically saved to
 ## Database Schema
 
 -   **RootPaths**: Recursive folder hierarchy.
--   **FileEntry**: Core file records.
+-   **FileEntry**: Core file records (Keyed by ID, includes xxHash64).
 -   **Metadata**: Key-Value pairs for all photo data (Exif, XMP, etc.).
 -   **images_picked / ImageRatings**: User culling data.
 -   **UserCollections / CollectionFiles**: Custom user grouping logic.
--   **Previews**: Binary JPG blobs stored in a separate `previews.db`.
+-   **Previews**: Binary JPG blobs stored in a separate `previews.db` (Keyed by Hash + Size).

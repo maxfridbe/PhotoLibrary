@@ -46,7 +46,7 @@ export class CommunicationManager {
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'file.imported') {
-                        hub.pub('photo.imported', { id: msg.id, path: msg.path });
+                        hub.pub('photo.imported', { id: msg.id, path: msg.path, rootId: msg.rootId });
                     }
                     else if (msg.type === 'scan.finished') {
                         hub.pub('library.updated', {});
@@ -56,6 +56,9 @@ export class CommunicationManager {
                     }
                     else if (msg.type === 'folder.finished') {
                         hub.pub('folder.finished', { rootId: msg.rootId });
+                    }
+                    else if (msg.type === 'preview.generated') {
+                        hub.pub('preview.generated', { fileId: msg.fileId, rootId: msg.rootId });
                     }
                 }
                 catch (err) {

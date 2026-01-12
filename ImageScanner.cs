@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.IO.Hashing;
 using ImageMagick;
 using MetadataExtractor;
 using Microsoft.Extensions.Logging;
@@ -100,7 +101,6 @@ namespace PhotoLibrary
             string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
             string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
             
-            // Optimization: ensure path cache is warm for this root
             _pathCache[fullScanPath] = targetRootId;
             
             ProcessFile(file, fullScanPath, targetRootId);
@@ -115,14 +115,11 @@ namespace PhotoLibrary
             if (dirPath == null) return false;
             dirPath = Path.GetFullPath(dirPath);
 
-            // Optimization: Check if file exists and hasn't changed
             var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName);
             if (exists && lastIndexedModified.HasValue && Math.Abs((file.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
             {
-                return false; // Skip entirely
+                return false; 
             }
-
-            bool isNew = !exists;
 
             string rootPathId;
             if (dirPath == scanRootPath)
@@ -160,33 +157,62 @@ namespace PhotoLibrary
                 }
             }
 
-            var entry = new FileEntry
+            try
             {
-                RootPathId = rootPathId,
-                FileName = file.Name,
-                Size = file.Length,
-                CreatedAt = file.CreationTime,
-                ModifiedAt = file.LastWriteTime
-            };
+                using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                
+                string hash = CalculateHash(stream);
+                stream.Position = 0;
 
-            _db.UpsertFileEntry(entry);
-            var fileId = _db.GetFileId(entry.RootPathId, entry.FileName!);
-
-            if (fileId != null)
-            {
-                OnFileProcessed?.Invoke(fileId, file.FullName);
-                var metadata = ExtractMetadata(file);
-                _db.InsertMetadata(fileId, metadata);
-
-                if (_previewManager != null && _longEdges.Length > 0)
+                var entry = new FileEntry
                 {
-                    GeneratePreviews(file, fileId);
+                    RootPathId = rootPathId,
+                    FileName = file.Name,
+                    Size = file.Length,
+                    CreatedAt = file.CreationTime,
+                    ModifiedAt = file.LastWriteTime,
+                    Hash = hash
+                };
+
+                _db.UpsertFileEntry(entry);
+                var fileId = _db.GetFileId(entry.RootPathId, entry.FileName!);
+
+                if (fileId != null)
+                {
+                    OnFileProcessed?.Invoke(fileId, file.FullName);
+                    
+                    var metadata = ExtractMetadata(stream);
+                    _db.InsertMetadata(fileId, metadata);
+
+                    if (_previewManager != null && _longEdges.Length > 0)
+                    {
+                        stream.Position = 0;
+                        GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+                    }
                 }
+                return true;
             }
-            return true;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process file {FileName}", file.Name);
+                return false;
+            }
+        }
+
+        private string CalculateHash(Stream stream)
+        {
+            var hasher = new XxHash64();
+            hasher.Append(stream);
+            return Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
         }
 
         public void GeneratePreviews(FileInfo file, string fileId)
+        {
+            using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+            GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+        }
+
+        private void GeneratePreviews(Stream stream, string fileId, string fileName, string extension, string directoryName)
         {
             bool missingAny = false;
             foreach (var size in _longEdges)
@@ -200,26 +226,26 @@ namespace PhotoLibrary
 
             if (!missingAny) return;
 
-            FileInfo sourceFile = file;
-            string ext = file.Extension;
-            string nameNoExt = Path.GetFileNameWithoutExtension(file.Name);
-            string dir = file.DirectoryName!;
-            
-            if (!ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && 
-                !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+            Stream sourceStream = stream;
+            bool ownStream = false;
+
+            if (!extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && 
+                !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
             {
-                string jpgPath = Path.Combine(dir, nameNoExt + ".JPG");
-                if (File.Exists(jpgPath)) sourceFile = new FileInfo(jpgPath);
-                else
+                string nameNoExt = Path.GetFileNameWithoutExtension(fileName);
+                string jpgPath = Path.Combine(directoryName, nameNoExt + ".JPG");
+                if (!File.Exists(jpgPath)) jpgPath = Path.Combine(directoryName, nameNoExt + ".jpg");
+                
+                if (File.Exists(jpgPath)) 
                 {
-                    jpgPath = Path.Combine(dir, nameNoExt + ".jpg");
-                    if (File.Exists(jpgPath)) sourceFile = new FileInfo(jpgPath);
+                    sourceStream = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    ownStream = true;
                 }
             }
 
             try
             {
-                using (var image = new MagickImage(sourceFile.FullName))
+                using (var image = new MagickImage(sourceStream))
                 {
                     image.AutoOrient();
                     foreach (var size in _longEdges)
@@ -228,14 +254,8 @@ namespace PhotoLibrary
 
                         using (var clone = image.Clone())
                         {
-                            if (clone.Width > clone.Height)
-                            {
-                                clone.Resize((uint)size, 0);
-                            }
-                            else
-                            {
-                                clone.Resize(0, (uint)size);
-                            }
+                            if (clone.Width > clone.Height) clone.Resize((uint)size, 0);
+                            else clone.Resize(0, (uint)size);
 
                             clone.Format = MagickFormat.Jpg;
                             clone.Quality = 85; 
@@ -248,22 +268,28 @@ namespace PhotoLibrary
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to generate preview for {FileName}", file.Name);
+                _logger.LogError(ex, "Failed to generate preview for {FileName}", fileName);
+            }
+            finally
+            {
+                if (ownStream) sourceStream.Dispose();
             }
         }
 
-        private IEnumerable<MetadataItem> ExtractMetadata(FileInfo file)
+        private IEnumerable<MetadataItem> ExtractMetadata(Stream stream)
         {
             var items = new List<MetadataItem>();
             try
             {
-                byte[] buffer = new byte[Math.Min(file.Length, MaxHeaderBytes)];
-                using (var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    fs.Read(buffer, 0, buffer.Length);
-                }
+                // We assume we are at the start of the stream or want to read from current position
+                // MetadataExtractor handles streams but we only want to read the header part if possible for speed
+                // however, XxHash already read the WHOLE stream, so it's already in OS cache.
+                
+                // Read a chunk into a memory stream to ensure we don't close the main stream
+                byte[] buffer = new byte[Math.Min(stream.Length, MaxHeaderBytes)];
+                int read = stream.Read(buffer, 0, buffer.Length);
 
-                using (var ms = new MemoryStream(buffer))
+                using (var ms = new MemoryStream(buffer, 0, read))
                 {
                     var directories = ImageMetadataReader.ReadMetadata(ms);
                     foreach (var directory in directories)
@@ -283,8 +309,7 @@ namespace PhotoLibrary
                     }
                 }
             }
-            catch (ImageProcessingException) {{ }}
-            catch (Exception) {{ }}
+            catch (Exception) { }
             return items;
         }
     }

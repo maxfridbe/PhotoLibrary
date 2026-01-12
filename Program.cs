@@ -123,7 +123,7 @@ namespace PhotoLibrary
 
                 PreviewManager? previewManager = null;
                 // Pre-init preview manager if path is known
-                previewManager = new PreviewManager(finalPreviewDbPath);
+                previewManager = new PreviewManager(finalPreviewDbPath, _loggerFactory.CreateLogger<PreviewManager>());
                 previewManager.Initialize();
 
                 // CLI/Scanning Mode

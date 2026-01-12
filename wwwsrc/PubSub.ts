@@ -14,9 +14,10 @@ export interface EventMap {
 
     'library.refresh': {};
     'library.updated': {};
-    'photo.imported': { id: string, path: string };
+    'photo.imported': { id: string, path: string, rootId?: string };
     'folder.progress': { rootId: string, processed: number, total: number };
     'folder.finished': { rootId: string };
+    'preview.generated': { fileId: string, rootId: string };
     'search.triggered': { tag: string, value: string };
     'shortcuts.show': {};
 

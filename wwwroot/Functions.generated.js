@@ -17,9 +17,6 @@ export async function api_directories(data) {
 export async function api_library_info(data) {
     return await post('/api/library/info', data);
 }
-export async function api_library_stats(data) {
-    return await post('/api/library/stats', data);
-}
 export async function api_pick(data) {
     return await post('/api/pick', data);
 }

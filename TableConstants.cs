@@ -31,6 +31,7 @@ namespace PhotoLibrary
                 public const string Size = "Size";
                 public const string CreatedAt = "CreatedAt";
                 public const string ModifiedAt = "ModifiedAt";
+                public const string Hash = "Hash";
             }
             public static class Metadata
             {
@@ -62,6 +63,7 @@ namespace PhotoLibrary
             public static class Previews
             {
                 public const string FileId = "FileId";
+                public const string Hash = "Hash";
                 public const string LongEdge = "LongEdge";
                 public const string Data = "Data";
             }

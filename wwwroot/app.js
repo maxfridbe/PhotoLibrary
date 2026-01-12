@@ -172,6 +172,14 @@ class App {
                 this.libraryManager.loadLibraryInfo();
         });
         hub.sub('photo.imported', (data) => {
+            // Live update counts in the tree
+            if (data.rootId) {
+                const node = this.roots.find(r => r.id === data.rootId);
+                if (node) {
+                    node.imageCount++;
+                    this.refreshDirectories(); // Re-render tree with new counts
+                }
+            }
             if (this.isIndexing) {
                 // Skip heavy API calls during bulk indexing
                 return;
@@ -184,16 +192,39 @@ class App {
             if (this.importedBatchTimer)
                 clearTimeout(this.importedBatchTimer);
             this.importedBatchTimer = setTimeout(() => {
-                if (this.importedBatchCount === 1) {
-                    const name = data.path.split('/').pop();
-                    this.showNotification(`Image ${name} indexed`, 'success');
-                }
-                else {
-                    this.showNotification(`${this.importedBatchCount} images indexed`, 'success');
-                }
+                this.showNotification(`Finished importing ${this.importedBatchCount} photos`, "success");
                 this.importedBatchCount = 0;
-                this.importedBatchTimer = null;
-            }, 500); // Wait 500ms for more imports before showing toast
+            }, 2000);
+        });
+        hub.sub('preview.generated', (data) => {
+            let prog = this.folderProgress.get(data.rootId);
+            const root = this.roots.find(r => r.id === data.rootId);
+            const total = root ? root.imageCount : 100; // fallback
+            if (!prog) {
+                prog = { processed: 1, total };
+                this.folderProgress.set(data.rootId, prog);
+            }
+            else {
+                prog.processed++;
+                if (prog.total < prog.processed)
+                    prog.total = prog.processed;
+            }
+            // If we've hit the total, clear it after a short delay
+            if (prog.processed >= prog.total) {
+                setTimeout(() => {
+                    this.folderProgress.delete(data.rootId);
+                    this.updateFolderProgressUI(data.rootId);
+                }, 3000);
+            }
+            this.updateFolderProgressUI(data.rootId);
+        });
+        hub.sub('folder.progress', (data) => {
+            this.folderProgress.set(data.rootId, { processed: data.processed, total: data.total });
+            this.updateFolderProgressUI(data.rootId);
+        });
+        hub.sub('folder.finished', (data) => {
+            this.folderProgress.delete(data.rootId);
+            this.updateFolderProgressUI(data.rootId);
         });
     }
     startStatusTimer() {
@@ -755,6 +786,27 @@ class App {
         this.libraryEl.appendChild(treeContainer);
         this.renderFolderTree(treeContainer);
     }
+    updateFolderProgressUI(rootId, container) {
+        const prog = this.folderProgress.get(rootId);
+        const el = container || document.getElementById(`folder-prog-${rootId}`);
+        if (!el)
+            return;
+        if (!prog) {
+            el.innerHTML = '';
+            return;
+        }
+        const percent = Math.round((prog.processed / prog.total) * 100);
+        el.innerHTML = `
+            <div style="width: 60px; height: 8px; background: var(--bg-input); border-radius: 4px; overflow: hidden; margin: 0 0.5em;" title="${prog.processed} / ${prog.total}">
+                <div style="width: ${percent}%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+            </div>
+            <span class="cancel-task" style="cursor: pointer; padding: 0 4px; color: var(--text-muted);" title="Cancel">&times;</span>
+        `;
+        el.querySelector('.cancel-task')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            Api.api_library_cancel_task({ id: `thumbnails-${rootId}` });
+        });
+    }
     renderFolderTree(container) {
         const map = new Map();
         this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
@@ -781,36 +833,16 @@ class App {
             name.style.overflow = 'hidden';
             name.style.textOverflow = 'ellipsis';
             name.textContent = item.node.name;
+            const progContainer = document.createElement('div');
+            progContainer.id = `folder-prog-${item.node.id}`;
+            progContainer.style.display = 'flex';
+            progContainer.style.alignItems = 'center';
             el.appendChild(toggle);
             el.appendChild(name);
-            // Add progress bar if active
+            el.appendChild(progContainer);
+            // Initial render of progress if active
             if (this.folderProgress.has(item.node.id)) {
-                const prog = this.folderProgress.get(item.node.id);
-                const percent = Math.round((prog.processed / prog.total) * 100);
-                const barContainer = document.createElement('div');
-                barContainer.style.width = '60px';
-                barContainer.style.height = '8px';
-                barContainer.style.background = 'var(--bg-input)';
-                barContainer.style.borderRadius = '4px';
-                barContainer.style.overflow = 'hidden';
-                barContainer.style.margin = '0 0.5em';
-                barContainer.title = `${prog.processed} / ${prog.total}`;
-                const bar = document.createElement('div');
-                bar.style.width = `${percent}%`;
-                bar.style.height = '100%';
-                bar.style.background = 'var(--accent)';
-                barContainer.appendChild(bar);
-                el.appendChild(barContainer);
-                const cancelBtn = document.createElement('span');
-                cancelBtn.innerHTML = '&times;';
-                cancelBtn.style.cursor = 'pointer';
-                cancelBtn.style.padding = '0 4px';
-                cancelBtn.style.color = 'var(--text-muted)';
-                cancelBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    Api.api_library_cancel_task({ id: `thumbnails-${item.node.id}` });
-                };
-                el.appendChild(cancelBtn);
+                this.updateFolderProgressUI(item.node.id, progContainer);
             }
             const count = document.createElement('span');
             count.className = 'count';

@@ -48,6 +48,7 @@ namespace PhotoLibrary
                     {Column.FileEntry.Size} INTEGER,
                     {Column.FileEntry.CreatedAt} TEXT,
                     {Column.FileEntry.ModifiedAt} TEXT,
+                    {Column.FileEntry.Hash} TEXT,
                     FOREIGN KEY({Column.FileEntry.RootPathId}) REFERENCES {TableName.RootPaths}({Column.RootPaths.Id}),
                     UNIQUE({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName})
                 );",
@@ -100,11 +101,18 @@ namespace PhotoLibrary
             // Ensure BaseName column exists (Migration for older databases)
             try
             {
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = $"ALTER TABLE {TableName.FileEntry} ADD COLUMN {Column.FileEntry.BaseName} TEXT;";
-                    command.ExecuteNonQuery();
-                }
+                using var command = connection.CreateCommand();
+                command.CommandText = $"ALTER TABLE {TableName.FileEntry} ADD COLUMN {Column.FileEntry.BaseName} TEXT;";
+                command.ExecuteNonQuery();
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
+
+            // Ensure Hash column exists (Migration)
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = $"ALTER TABLE {TableName.FileEntry} ADD COLUMN {Column.FileEntry.Hash} TEXT;";
+                command.ExecuteNonQuery();
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
 
@@ -754,9 +762,9 @@ namespace PhotoLibrary
                 {
                     command.Transaction = transaction;
                     command.CommandText = $@"
-                        INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt})
-                        VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt)
-                        ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName};
+                        INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.Hash})
+                        VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt, $Hash)
+                        ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName}, {Column.FileEntry.Hash} = excluded.{Column.FileEntry.Hash};
                     ";
                     command.Parameters.AddWithValue("$Id", entry.Id);
                     command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
@@ -765,6 +773,7 @@ namespace PhotoLibrary
                     command.Parameters.AddWithValue("$Size", entry.Size);
                     command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
                     command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
+                    command.Parameters.AddWithValue("$Hash", entry.Hash ?? (object)DBNull.Value);
                     command.ExecuteNonQuery();
                 }
                 
@@ -795,45 +804,49 @@ namespace PhotoLibrary
             }
         }
 
+        public string? GetFileHash(string fileId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT {Column.FileEntry.Hash} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$Id", fileId);
+            return command.ExecuteScalar() as string;
+        }
+
         public string? GetFullFilePath(string fileId)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-
-            using (var command = connection.CreateCommand())
+            using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$Id", fileId);
+            
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
             {
-                command.CommandText = $@"
-                    WITH RECURSIVE PathParts({Column.RootPaths.Id}, {Column.RootPaths.ParentId}, {Column.RootPaths.Name}) AS (
-                        SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name} 
-                        FROM {TableName.RootPaths} r
-                        JOIN {TableName.FileEntry} f ON f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}
-                        WHERE f.{Column.FileEntry.Id} = $FileId
-                        UNION ALL
-                        SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name}
-                        FROM {TableName.RootPaths} r
-                        JOIN PathParts p ON r.{Column.RootPaths.Id} = p.{Column.RootPaths.ParentId}
-                    )
-                    SELECT {Column.RootPaths.Name}, (SELECT {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $FileId) as FileName
-                    FROM PathParts";
-                
-                command.Parameters.AddWithValue("$FileId", fileId);
+                string rootId = reader.GetString(0);
+                string fileName = reader.GetString(1);
                 
                 var parts = new List<string>();
-                string? fileName = null;
-                
-                using var reader = command.ExecuteReader();
-                while (reader.Read())
+                string currentId = rootId;
+                while (true)
                 {
-                    parts.Add(reader.GetString(0));
-                    fileName = reader.GetString(1);
-                }
+                    using var pathCmd = connection.CreateCommand();
+                    pathCmd.CommandText = $"SELECT {Column.RootPaths.Name}, {Column.RootPaths.ParentId} FROM {TableName.RootPaths} WHERE {Column.RootPaths.Id} = $Id";
+                    pathCmd.Parameters.AddWithValue("$Id", currentId);
+                    using var pathReader = pathCmd.ExecuteReader();
+                    if (!pathReader.Read()) break;
 
-                if (parts.Count == 0 || fileName == null) return null;
+                    parts.Add(pathReader.GetString(0));
+                    if (pathReader.IsDBNull(1)) break;
+                    currentId = pathReader.GetString(1);
+                }
 
                 parts.Reverse();
                 // Manual join to avoid weirdness with Path.Combine and absolute segments
                 // Resilience: some parts might be absolute paths if they were imported poorly
-                // We take only the directory name if it's an absolute path but not the FIRST part.
+                // We take only the directory name if it's an absolute path but not the FIRST part. 
                 var cleanParts = new List<string>();
                 for (int i = 0; i < parts.Count; i++)
                 {
@@ -849,6 +862,17 @@ namespace PhotoLibrary
                 
                 return fullPath;
             }
+            return null;
+        }
+
+        public string? GetFileRootId(string fileId)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT {Column.FileEntry.RootPathId} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$Id", fileId);
+            return command.ExecuteScalar() as string;
         }
 
         public string? GetFileId(string rootPathId, string fileName)
