@@ -36,6 +36,7 @@ class App {
     
     private cardCache: Map<string, HTMLElement> = new Map();
     private imageUrlCache: Map<string, string> = new Map();
+    private cameraThumbCache: Map<string, string> = new Map();
 
     public selectedId: string | null = null;
     public selectedMetadata: MetadataItem[] = [];
@@ -1932,14 +1933,39 @@ class App {
                 this.metaTitleEl.after(this.metaVisEl);
             }
 
-            // Visualize lens data if possible
-            const hasAperture = meta.some(m => m.tag === 'F-Number' || m.tag === 'Aperture Value');
-            const hasFocal = meta.some(m => m.tag === 'Focal Length');
-            if (hasAperture && hasFocal) {
-                this.metaVisEl.style.display = 'block';
-                visualizeLensData(meta as any, 'meta-vis-container');
+            // Camera Thumbnail & Visualization
+            const modelItem = meta.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
+            const model = modelItem?.value || '';
+            
+            const renderVis = (thumbUrl?: string) => {
+                const hasAperture = meta.some(m => m.tag === 'F-Number' || m.tag === 'Aperture Value');
+                const hasFocal = meta.some(m => m.tag === 'Focal Length');
+                if (hasAperture && hasFocal) {
+                    this.metaVisEl!.style.display = 'block';
+                    visualizeLensData(meta as any, 'meta-vis-container', thumbUrl);
+                } else {
+                    this.metaVisEl!.style.display = 'none';
+                }
+            };
+
+            if (model) {
+                if (this.cameraThumbCache.has(model)) {
+                    renderVis(this.cameraThumbCache.get(model));
+                } else {
+                    const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
+                    const img = new Image();
+                    img.onload = () => {
+                        this.cameraThumbCache.set(model, thumbUrl);
+                        renderVis(thumbUrl);
+                    };
+                    img.onerror = () => {
+                        this.cameraThumbCache.set(model, '');
+                        renderVis();
+                    };
+                    img.src = thumbUrl;
+                }
             } else {
-                this.metaVisEl.style.display = 'none';
+                renderVis();
             }
 
             const seenGroups = new Set<string>();

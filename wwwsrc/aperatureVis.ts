@@ -8,8 +8,9 @@ interface ExifTag {
  * Injects and visualizes lens data into a specific container.
  * @param metadata - The array of EXIF data tags.
  * @param containerId - The ID of the div to inject into.
+ * @param cameraThumbUrl - Optional URL for the camera thumbnail.
  */
-export function visualizeLensData(metadata: ExifTag[], containerId: string): void {
+export function visualizeLensData(metadata: ExifTag[], containerId: string, cameraThumbUrl?: string): void {
   // Generate a unique ID suffix to prevent SVG ID collisions
   const uid: string = Math.random().toString(36).substr(2, 9);
 
@@ -130,9 +131,16 @@ export function visualizeLensData(metadata: ExifTag[], containerId: string): voi
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  let visRoot = container.querySelector(":scope > .vis-root") as HTMLElement;
+  if (!visRoot) {
+    visRoot = document.createElement("div");
+    visRoot.className = "vis-root";
+    container.appendChild(visRoot);
+  }
+
   // UPDATED: SVG width is now 100% and height auto to allow scaling into small containers
   // UPDATED: Padding reduced slightly to accommodate smaller sizes better
-  container.innerHTML = `
+  visRoot.innerHTML = `
         <div style="width: 100%; text-align: center; background: #222; padding: 15px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: #e0e0e0; box-sizing: border-box;">
             <svg id="visualizer-${uid}" width="100%" height="auto" viewBox="0 0 300 300" style="display: block; margin: 0 auto; background: #2a2a2a; border-radius: 8px; box-shadow: inset 0 0 20px #000;">
                 <defs>
@@ -150,21 +158,33 @@ export function visualizeLensData(metadata: ExifTag[], containerId: string): voi
                 <text x="20" y="280" text-anchor="start" fill="#00bcd4" font-size="14" id="readout-${uid}">Loading...</text>
                 <text x="280" y="280" text-anchor="end" fill="#ffd700" font-size="14" id="shutter-speed-${uid}" style="font-weight: bold; font-family: monospace;">--</text>
             </svg>
-            <div id="details-${uid}" style="margin-top: 10px; font-family: monospace; color: #00bcd4; line-height: 1.5; font-size: 0.9em;"></div>
+            <div id="details-container-${uid}" style="margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 15px;">
+                <img id="camera-thumb-${uid}" style="display: none; width: 30%; height: auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+                <div id="details-${uid}" style="text-align: left; font-family: monospace; color: #00bcd4; line-height: 1.5; font-size: 0.9em;"></div>
+            </div>
         </div>
     `;
 
   // 4. Rendering Logic
-  const bladeGroup = container.querySelector(`#aperture-blades-${uid}`) as SVGElement;
-  const fovCone = container.querySelector(`#fov-cone-${uid}`) as SVGElement;
-  const readout = container.querySelector(`#readout-${uid}`) as SVGElement;
-  const shutterDisplay = container.querySelector(`#shutter-speed-${uid}`) as SVGElement;
-  const details = container.querySelector(`#details-${uid}`) as HTMLElement;
-  const sensorRect = container.querySelector(`#sensor-outline-${uid}`) as SVGElement;
-  const sensorLabel = container.querySelector(`#sensor-label-${uid}`) as SVGElement;
+  const bladeGroup = visRoot.querySelector(`#aperture-blades-${uid}`) as SVGElement;
+  const fovCone = visRoot.querySelector(`#fov-cone-${uid}`) as SVGElement;
+  const readout = visRoot.querySelector(`#readout-${uid}`) as SVGElement;
+  const shutterDisplay = visRoot.querySelector(`#shutter-speed-${uid}`) as SVGElement;
+  const details = visRoot.querySelector(`#details-${uid}`) as HTMLElement;
+  const sensorRect = visRoot.querySelector(`#sensor-outline-${uid}`) as SVGElement;
+  const sensorLabel = visRoot.querySelector(`#sensor-label-${uid}`) as SVGElement;
+  const cameraThumb = visRoot.querySelector(`#camera-thumb-${uid}`) as HTMLImageElement;
 
-  if (!bladeGroup || !fovCone || !readout || !shutterDisplay || !details || !sensorRect || !sensorLabel) {
+  if (!bladeGroup || !fovCone || !readout || !shutterDisplay || !details || !sensorRect || !sensorLabel || !cameraThumb) {
     return;
+  }
+
+  // Update Camera Thumb
+  if (cameraThumbUrl) {
+    cameraThumb.src = cameraThumbUrl;
+    cameraThumb.style.display = "block";
+  } else {
+    cameraThumb.style.display = "none";
   }
 
   // Update Text

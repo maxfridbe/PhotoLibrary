@@ -21,7 +21,7 @@ namespace PhotoLibrary
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
 
-        public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, ILoggerFactory loggerFactory, string bindAddr = "localhost")
+        public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
 
@@ -34,6 +34,7 @@ namespace PhotoLibrary
 
             builder.Services.AddSingleton(dbManager);
             builder.Services.AddSingleton(previewManager);
+            builder.Services.AddSingleton(cameraManager);
             builder.Services.AddSingleton(loggerFactory);
 
             var app = builder.Build();
@@ -41,6 +42,13 @@ namespace PhotoLibrary
             app.UseWebSockets();
 
             // --- API Endpoints ---
+
+            app.MapGet("/api/camera/thumbnail/{model}", (string model, CameraManager cm) =>
+            {
+                var data = cm.GetCameraThumbnail(model);
+                if (data == null) return Results.NotFound();
+                return Results.Bytes(data, "image/webp"); // Or detect format, but db schema example showed webp
+            });
 
             app.MapPost("/api/photos", async (HttpContext context, DatabaseManager db) =>
             {

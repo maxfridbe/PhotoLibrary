@@ -2,8 +2,9 @@
  * Injects and visualizes lens data into a specific container.
  * @param metadata - The array of EXIF data tags.
  * @param containerId - The ID of the div to inject into.
+ * @param cameraThumbUrl - Optional URL for the camera thumbnail.
  */
-export function visualizeLensData(metadata, containerId) {
+export function visualizeLensData(metadata, containerId, cameraThumbUrl) {
     // Generate a unique ID suffix to prevent SVG ID collisions
     const uid = Math.random().toString(36).substr(2, 9);
     // 1. Parsing Logic
@@ -123,9 +124,15 @@ export function visualizeLensData(metadata, containerId) {
     const container = document.getElementById(containerId);
     if (!container)
         return;
+    let visRoot = container.querySelector(":scope > .vis-root");
+    if (!visRoot) {
+        visRoot = document.createElement("div");
+        visRoot.className = "vis-root";
+        container.appendChild(visRoot);
+    }
     // UPDATED: SVG width is now 100% and height auto to allow scaling into small containers
     // UPDATED: Padding reduced slightly to accommodate smaller sizes better
-    container.innerHTML = `
+    visRoot.innerHTML = `
         <div style="width: 100%; text-align: center; background: #222; padding: 15px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: #e0e0e0; box-sizing: border-box;">
             <svg id="visualizer-${uid}" width="100%" height="auto" viewBox="0 0 300 300" style="display: block; margin: 0 auto; background: #2a2a2a; border-radius: 8px; box-shadow: inset 0 0 20px #000;">
                 <defs>
@@ -143,19 +150,31 @@ export function visualizeLensData(metadata, containerId) {
                 <text x="20" y="280" text-anchor="start" fill="#00bcd4" font-size="14" id="readout-${uid}">Loading...</text>
                 <text x="280" y="280" text-anchor="end" fill="#ffd700" font-size="14" id="shutter-speed-${uid}" style="font-weight: bold; font-family: monospace;">--</text>
             </svg>
-            <div id="details-${uid}" style="margin-top: 10px; font-family: monospace; color: #00bcd4; line-height: 1.5; font-size: 0.9em;"></div>
+            <div id="details-container-${uid}" style="margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 15px;">
+                <img id="camera-thumb-${uid}" style="display: none; width: 30%; height: auto; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+                <div id="details-${uid}" style="text-align: left; font-family: monospace; color: #00bcd4; line-height: 1.5; font-size: 0.9em;"></div>
+            </div>
         </div>
     `;
     // 4. Rendering Logic
-    const bladeGroup = container.querySelector(`#aperture-blades-${uid}`);
-    const fovCone = container.querySelector(`#fov-cone-${uid}`);
-    const readout = container.querySelector(`#readout-${uid}`);
-    const shutterDisplay = container.querySelector(`#shutter-speed-${uid}`);
-    const details = container.querySelector(`#details-${uid}`);
-    const sensorRect = container.querySelector(`#sensor-outline-${uid}`);
-    const sensorLabel = container.querySelector(`#sensor-label-${uid}`);
-    if (!bladeGroup || !fovCone || !readout || !shutterDisplay || !details || !sensorRect || !sensorLabel) {
+    const bladeGroup = visRoot.querySelector(`#aperture-blades-${uid}`);
+    const fovCone = visRoot.querySelector(`#fov-cone-${uid}`);
+    const readout = visRoot.querySelector(`#readout-${uid}`);
+    const shutterDisplay = visRoot.querySelector(`#shutter-speed-${uid}`);
+    const details = visRoot.querySelector(`#details-${uid}`);
+    const sensorRect = visRoot.querySelector(`#sensor-outline-${uid}`);
+    const sensorLabel = visRoot.querySelector(`#sensor-label-${uid}`);
+    const cameraThumb = visRoot.querySelector(`#camera-thumb-${uid}`);
+    if (!bladeGroup || !fovCone || !readout || !shutterDisplay || !details || !sensorRect || !sensorLabel || !cameraThumb) {
         return;
+    }
+    // Update Camera Thumb
+    if (cameraThumbUrl) {
+        cameraThumb.src = cameraThumbUrl;
+        cameraThumb.style.display = "block";
+    }
+    else {
+        cameraThumb.style.display = "none";
     }
     // Update Text
     readout.textContent = `f/${fStop} @ ${rawFocal}mm`;

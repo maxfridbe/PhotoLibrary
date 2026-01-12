@@ -121,6 +121,8 @@ namespace PhotoLibrary
                 var dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
                 dbManager.Initialize();
 
+                var cameraManager = new CameraManager(configDir, _loggerFactory.CreateLogger<CameraManager>());
+
                 PreviewManager? previewManager = null;
                 // Pre-init preview manager if path is known
                 previewManager = new PreviewManager(finalPreviewDbPath, _loggerFactory.CreateLogger<PreviewManager>());
@@ -143,7 +145,7 @@ namespace PhotoLibrary
                     _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
                     _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
                     _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
-                    WebServer.Start(config.Port, dbManager, previewManager, _loggerFactory, bindAddr);
+                    WebServer.Start(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr);
                 }
             }
             catch (Exception ex)
