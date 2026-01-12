@@ -1,7 +1,7 @@
 import * as Res from './Responses.generated.js';
 
 export interface EventMap {
-    'view.mode.changed': { mode: 'grid' | 'loupe', id?: string };
+    'view.mode.changed': { mode: 'grid' | 'loupe' | 'library', id?: string };
     'photo.selected': { id: string, photo: Res.PhotoResponse };
     'photo.updated': { id: string, photo: Res.PhotoResponse };
     
@@ -13,6 +13,8 @@ export interface EventMap {
     'photo.starred.changed': { id: string, rating: number, previousRating: number };
 
     'library.refresh': {};
+    'library.updated': {};
+    'photo.imported': { id: string, path: string };
     'search.triggered': { tag: string, value: string };
     'shortcuts.show': {};
 

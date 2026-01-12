@@ -5,7 +5,9 @@ import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
-import { server } from './serverOperations.js';
+import { server, post } from './CommunicationManager.js';
+import { ThemeManager } from './ThemeManager.js';
+import { LibraryManager } from './LibraryManager.js';
 import { themes } from './themes.js';
 
 type Photo = Res.PhotoResponse;
@@ -16,20 +18,11 @@ type Stats = Res.StatsResponse;
 
 type SortOption = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'rating-desc' | 'size-desc';
 
-async function post(url: string, data: any): Promise<any> {
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) return null;
-    return await res.json();
-}
-
 class App {
     public layout: any;
-    public libraryLayout: any;
-    private currentTheme = 'dark';
+    private themeManager: ThemeManager;
+    public libraryManager: LibraryManager;
+
     private allPhotosFlat: Photo[] = []; 
     public photos: Photo[] = []; // Processed list
     
@@ -43,6 +36,7 @@ class App {
     private imageUrlCache: Map<string, string> = new Map();
 
     public selectedId: string | null = null;
+    public selectedMetadata: MetadataItem[] = [];
     public selectedRootId: string | null = null;
     public selectedCollectionId: string | null = null;
     public filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
@@ -62,6 +56,9 @@ class App {
 
     public isLoupeMode = false;
     public isLibraryMode = false;
+    public isIndexing = false;
+    private overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
+    private loupeOverlayEl: HTMLElement | null = null;
     
     // Connection State
     private disconnectedAt: number | null = null;
@@ -91,10 +88,16 @@ class App {
     private metaTitleEl: HTMLHeadingElement | null = null;
     private metaGroups: Map<string, { container: HTMLElement, rows: Map<string, HTMLElement> }> = new Map();
 
+    private importedBatchCount = 0;
+    private importedBatchTimer: any = null;
+
     constructor() {
-        this.loadSettings().then(() => {
-            this.populateThemes();
-            this.applyTheme();
+        this.themeManager = new ThemeManager();
+        this.libraryManager = new LibraryManager();
+
+        this.themeManager.loadSettings().then(() => {
+            this.themeManager.populateThemesDropdown();
+            this.themeManager.applyTheme();
             this.initLayout();
             this.loadData();
             this.setupGlobalKeyboard();
@@ -110,43 +113,39 @@ class App {
         });
     }
 
-    private populateThemes() {
-        const select = document.getElementById('theme-select') as HTMLSelectElement;
-        if (!select) return;
-        select.innerHTML = '';
-        Object.keys(themes).forEach(name => {
-            const opt = document.createElement('option');
-            opt.value = name;
-            opt.textContent = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-            if (name === this.currentTheme) opt.selected = true;
-            select.appendChild(opt);
+    public setTheme(name: string) { this.themeManager.setTheme(name); }
+
+    public async setOverlayFormat(format: string) {
+        await this.themeManager.setOverlayFormat(format);
+        if (this.selectedId) this.updateLoupeOverlay(this.selectedId);
+    }
+
+    private updateLoupeOverlay(id: string) {
+        if (!this.loupeOverlayEl) return;
+        const photo = this.photoMap.get(id);
+        if (!photo || !this.isLoupeMode) {
+            this.loupeOverlayEl.style.display = 'none';
+            return;
+        }
+
+        this.loupeOverlayEl.style.display = 'block';
+        const date = new Date(photo.createdAt);
+        const dateStr = date.toISOString().split('T')[0];
+        const timeStr = date.toTimeString().split(' ')[0];
+
+        let text = this.themeManager.getOverlayFormat()
+            .replace(/{Filename}/g, photo.fileName || '')
+            .replace(/{Takendate}/g, dateStr)
+            .replace(/{Takentime}/g, timeStr);
+        
+        // Handle {MD:key} tags
+        const mdRegex = /{MD:(.+?)}/g;
+        text = text.replace(mdRegex, (match, tag) => {
+            const item = this.selectedMetadata.find(m => m.tag === tag);
+            return item ? (item.value || '') : '';
         });
-    }
-
-    async loadSettings() {
-        try {
-            const res = await post('/api/settings/get', { key: 'ui-theme' });
-            if (res && res.value && themes[res.value]) {
-                this.currentTheme = res.value;
-            }
-        } catch (e) { console.error("Failed to load settings", e); }
-    }
-
-    async setTheme(themeName: string) {
-        if (!themes[themeName]) return;
-        this.currentTheme = themeName;
-        this.applyTheme();
-        try {
-            await post('/api/settings/set', { key: 'ui-theme', value: themeName });
-        } catch (e) { console.error("Failed to save theme setting", e); }
-    }
-
-    private applyTheme() {
-        const root = document.documentElement;
-        const theme = themes[this.currentTheme] || themes['dark'];
-        Object.entries(theme).forEach(([key, value]) => {
-            root.style.setProperty(`--${key}`, value as string);
-        });
+        
+        this.loupeOverlayEl.innerText = text;
     }
 
     private initPubSub() {
@@ -159,6 +158,7 @@ class App {
                 this.updateFullscreenImage(data.id);
             } else if (this.isLoupeMode) {
                 this.loadMainPreview(data.id);
+                this.updateLoupeOverlay(data.id);
             } else {
                 this.scrollToPhoto(data.id);
             }
@@ -171,6 +171,7 @@ class App {
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.id) {
                 hub.pub('photo.selected', { id: data.id, photo: this.photoMap.get(data.id)! });
+                this.updateLoupeOverlay(data.id);
             }
         });
 
@@ -198,6 +199,39 @@ class App {
         });
 
         hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
+
+        hub.sub('library.updated', () => {
+            this.isIndexing = false;
+            this.loadData();
+            this.refreshDirectories();
+            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
+        });
+
+        hub.sub('photo.imported', (data) => {
+            if (this.isIndexing) {
+                // Skip heavy API calls during bulk indexing
+                return;
+            }
+            
+            this.refreshStatsOnly();
+            this.refreshDirectories();
+            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
+            
+            this.importedBatchCount++;
+            
+            if (this.importedBatchTimer) clearTimeout(this.importedBatchTimer);
+            
+            this.importedBatchTimer = setTimeout(() => {
+                if (this.importedBatchCount === 1) {
+                    const name = data.path.split('/').pop();
+                    this.showNotification(`Image ${name} indexed`, 'success');
+                } else {
+                    this.showNotification(`${this.importedBatchCount} images indexed`, 'success');
+                }
+                this.importedBatchCount = 0;
+                this.importedBatchTimer = null;
+            }, 500); // Wait 500ms for more imports before showing toast
+        });
     }
 
     private startStatusTimer() {
@@ -309,22 +343,34 @@ class App {
         this.metaGroups.clear();
     }
 
-    private showNotification(message: string, type: 'info' | 'error' | 'success') {
+    public showNotification(message: string, type: 'info' | 'error' | 'success') {
         const container = document.getElementById('notifications');
         if (!container) return;
         const el = document.createElement('div');
-        el.style.padding = '10px 20px';
+        el.style.padding = '0.8em 1.5em';
         el.style.borderRadius = '4px';
         el.style.color = '#fff';
         el.style.fontSize = '0.9em';
-        el.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
-        el.style.background = type === 'error' ? '#d32f2f' : (type === 'success' ? '#388e3c' : '#1976d2');
+        el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+        el.style.pointerEvents = 'auto';
+        el.style.minWidth = '200px';
+        el.style.transition = 'all 0.3s ease';
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(20px)';
+        el.style.background = type === 'error' ? '#d32f2f' : (type === 'success' ? '#388e3c' : '#333');
         el.textContent = message;
         container.appendChild(el);
+        
+        // Trigger entrance animation
+        setTimeout(() => {
+            el.style.opacity = '1';
+            el.style.transform = 'translateY(0)';
+        }, 10);
+
         setTimeout(() => {
             el.style.opacity = '0';
-            el.style.transition = 'opacity 0.5s';
-            setTimeout(() => el.remove(), 500);
+            el.style.transform = 'translateY(-20px)';
+            setTimeout(() => el.remove(), 300);
         }, 3000);
     }
 
@@ -361,6 +407,11 @@ class App {
     async refreshStatsOnly() {
         this.stats = await Api.api_stats({});
         this.updateSidebarCountsOnly();
+    }
+
+    async refreshDirectories() {
+        this.roots = await Api.api_directories({});
+        this.renderLibrary();
     }
 
     private updateSidebarCountsOnly() {
@@ -412,6 +463,10 @@ class App {
         this.stats = stats;
         this.renderLibrary();
         this.processUIStacks();
+
+        if (this.photos.length > 0) {
+            hub.pub('photo.selected', { id: this.photos[0].id, photo: this.photos[0] });
+        }
     }
 
     initLayout() {
@@ -524,6 +579,11 @@ class App {
             const previewArea = document.createElement('div');
             previewArea.className = 'preview-area';
             
+            const overlay = document.createElement('div');
+            overlay.className = 'loupe-overlay';
+            overlay.id = 'loupe-overlay';
+            self.loupeOverlayEl = overlay;
+
             const spinner = document.createElement('div');
             spinner.className = 'spinner center-spinner';
             spinner.id = 'preview-spinner';
@@ -537,6 +597,7 @@ class App {
             imgH.className = 'loupe-img highres';
             
             previewArea.appendChild(spinner);
+            previewArea.appendChild(overlay);
             previewArea.appendChild(imgP);
             previewArea.appendChild(imgH);
             
@@ -594,7 +655,11 @@ class App {
             container.getElement().append(self.metadataEl);
         });
         this.layout.init();
-        window.addEventListener('resize', () => { this.layout.updateSize(); hub.pub('ui.layout.changed', {}); });
+        window.addEventListener('resize', () => { 
+            this.layout.updateSize(); 
+            if (this.libraryManager.libraryLayout) this.libraryManager.libraryLayout.updateSize();
+            hub.pub('ui.layout.changed', {}); 
+        });
         this.layout.on('stateChanged', () => hub.pub('ui.layout.changed', {}));
     }
 
@@ -741,21 +806,75 @@ class App {
         }
         this.libraryEl.appendChild(createSection('Folders'));
         const treeContainer = document.createElement('div');
+        treeContainer.className = 'tree-folder-root';
         this.libraryEl.appendChild(treeContainer);
+        
+        this.renderFolderTree(treeContainer);
+    }
+
+    private renderFolderTree(container: HTMLElement) {
         const map = new Map<string, { node: RootPath, children: any[] }>();
         this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
-        const tree: any[] = [];
-        this.roots.forEach(r => { if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id)); else tree.push(map.get(r.id)); });
-        const renderNode = (item: any, container: HTMLElement) => {
-            this.addTreeItem(container, item.node.name!, 0, () => this.setFilter('all', 0, item.node.id), this.selectedRootId === item.node.id, 'folder-' + item.node.id);
+        
+        const roots: any[] = [];
+        this.roots.forEach(r => { 
+            if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id)); 
+            else roots.push(map.get(r.id)); 
+        });
+
+        const renderNode = (item: any, target: HTMLElement) => {
+            const el = document.createElement('div');
+            el.className = 'tree-item folder-tree-item' + (this.selectedRootId === item.node.id ? ' selected' : '');
+            
+            const toggle = document.createElement('span');
+            toggle.className = 'tree-toggle';
+            toggle.style.width = '1.2em';
+            toggle.style.display = 'inline-block';
+            toggle.style.textAlign = 'center';
+            toggle.style.cursor = 'pointer';
+            toggle.innerHTML = item.children.length > 0 ? '&#9662;' : '&nbsp;';
+
+            const name = document.createElement('span');
+            name.className = 'tree-name';
+            name.style.flex = '1';
+            name.style.overflow = 'hidden';
+            name.style.textOverflow = 'ellipsis';
+            name.textContent = item.node.name!;
+
+            const count = document.createElement('span');
+            count.className = 'count';
+            count.textContent = item.node.imageCount > 0 ? item.node.imageCount.toString() : '';
+
+            el.appendChild(toggle);
+            el.appendChild(name);
+            el.appendChild(count);
+            target.appendChild(el);
+
+            const childrenContainer = document.createElement('div');
+            childrenContainer.className = 'tree-children';
+            childrenContainer.style.paddingLeft = '1em';
+            childrenContainer.style.display = 'block';
+            target.appendChild(childrenContainer);
+
+            el.onclick = () => this.setFilter('all', 0, item.node.id);
+
             if (item.children.length > 0) {
-                const childContainer = document.createElement('div');
-                childContainer.className = 'tree-children';
-                item.children.forEach((c: any) => renderNode(c, childContainer));
-                container.appendChild(childContainer);
+                toggle.onclick = (e) => {
+                    e.stopPropagation();
+                    if (childrenContainer.style.display === 'none') {
+                        childrenContainer.style.display = 'block';
+                        toggle.innerHTML = '&#9662;';
+                    } else {
+                        childrenContainer.style.display = 'none';
+                        toggle.innerHTML = '&#9656;';
+                    }
+                };
+
+                item.children.forEach((c: any) => renderNode(c, childrenContainer));
             }
         };
-        tree.forEach(t => renderNode(t, treeContainer));
+
+        roots.forEach(r => renderNode(r, container));
     }
 
     addTreeItem(container: HTMLElement, text: string, count: number, onClick: () => void, isSelected: boolean, typeAttr: string) {
@@ -868,21 +987,27 @@ class App {
     async storePickedToCollection(id: string | null) {
         const pickedIds = await Api.api_picked_ids({});
         if (pickedIds.length === 0) return;
+        let name = '';
         if (id === null) {
-            const name = prompt('New Collection Name:');
+            name = prompt('New Collection Name:') || '';
             if (!name) return;
             const res = await Api.api_collections_create({ name });
             id = res.id;
+        } else {
+            const coll = this.userCollections.find(c => c.id === id);
+            name = coll?.name || 'Collection';
         }
         await Api.api_collections_add_files({ collectionId: id!, fileIds: pickedIds });
-        hub.pub('ui.notification', { message: 'Photos added to collection', type: 'success' });
+        this.showNotification(`Collection ${name} updated`, 'success');
         await this.refreshCollections();
     }
 
     async deleteCollection(id: string) {
-        if (!confirm('Are you sure you want to remove this collection?')) return;
+        const coll = this.userCollections.find(c => c.id === id);
+        const name = coll?.name || 'Collection';
+        if (!confirm(`Are you sure you want to remove collection '${name}'?`)) return;
         await Api.api_collections_delete({ id });
-        hub.pub('ui.notification', { message: 'Collection deleted', type: 'info' });
+        this.showNotification(`Collection ${name} deleted`, 'info');
         if (this.selectedCollectionId === id) this.setFilter('all');
         else await this.refreshCollections();
     }
@@ -990,7 +1115,7 @@ class App {
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    server.requestImage(id, size).then(blob => {
+                    server.requestImage(id, size).then((blob: Blob) => {
                         const url = URL.createObjectURL(blob);
                         this.imageUrlCache.set(cacheKey, url);
                         img.onload = () => img.parentElement?.classList.add('loaded');
@@ -1035,7 +1160,6 @@ class App {
         this.isLoupeMode = true;
         this.isLibraryMode = false;
         this.updateViewModeUI();
-        this.renderFilmstrip();
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
@@ -1052,10 +1176,13 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.updateViewModeUI();
-        if (!this.libraryLayout) {
-            this.initLibraryLayout();
+        if (!this.libraryManager.libraryLayout) {
+            this.libraryManager.initLayout('library-view', () => {
+                this.isIndexing = true;
+                this.libraryManager.triggerScan(this.showNotification.bind(this));
+            });
         }
-        this.loadLibraryInfo();
+        this.libraryManager.loadLibraryInfo();
     }
 
     private updateViewModeUI() {
@@ -1078,6 +1205,7 @@ class App {
                 if (this.gridHeader) this.gridHeader.style.display = 'none';
                 if (this.loupeView) this.loupeView.style.display = 'flex';
                 document.getElementById('nav-loupe')?.classList.add('active');
+                this.renderFilmstrip();
             } else {
                 if (this.loupeView) this.loupeView.style.display = 'none';
                 if (gridCont) gridCont.style.display = 'flex';
@@ -1085,108 +1213,6 @@ class App {
                 document.getElementById('nav-grid')?.classList.add('active');
                 this.updateVirtualGrid(true);
             }
-        }
-    }
-
-    private initLibraryLayout() {
-        const config = {
-            settings: { showPopoutIcon: false },
-            content: [{
-                type: 'row',
-                content: [
-                    { type: 'component', componentName: 'folders', width: 40, title: 'Library Folders' },
-                    { type: 'component', componentName: 'actions', width: 60, title: 'Maintenance & Stats' }
-                ]
-            }]
-        };
-        this.libraryLayout = new GoldenLayout(config, '#library-view');
-        const self = this;
-        
-        this.libraryLayout.registerComponent('folders', function(container: any) {
-            const el = document.createElement('div');
-            el.id = 'library-folders-list';
-            el.className = 'gl-component';
-            el.style.padding = '1em';
-            el.style.overflowY = 'auto';
-            container.getElement().append(el);
-        });
-
-        this.libraryLayout.registerComponent('actions', function(container: any) {
-            const el = document.createElement('div');
-            el.id = 'library-actions-panel';
-            el.className = 'gl-component';
-            el.style.padding = '2em';
-            el.innerHTML = `
-                <div style="margin-bottom: 2em;">
-                    <h3>Library Statistics</h3>
-                    <div id="lib-stats-content">Loading...</div>
-                </div>
-                <div style="margin-bottom: 2em; display: flex; flex-direction: column; gap: 1em; max-width: 400px;">
-                    <h3>Find New Images</h3>
-                    <input type="text" id="scan-path-input" placeholder="Path to scan..." style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.5em; border-radius: 4px;">
-                    <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
-                        <input type="checkbox" id="gen-low-check" checked> Pre-generate Low Previews (300px)
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
-                        <input type="checkbox" id="gen-med-check" checked> Pre-generate Medium Previews (1024px)
-                    </label>
-                    <button id="start-scan-btn" style="padding: 0.8em; background: var(--accent); color: var(--text-bright); border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                        START SCAN
-                    </button>
-                </div>
-            `;
-            container.getElement().append(el);
-            
-            const btn = el.querySelector('#start-scan-btn') as HTMLButtonElement;
-            btn.onclick = () => self.triggerScan();
-        });
-
-        this.libraryLayout.init();
-    }
-
-    private async loadLibraryInfo() {
-        const info = await post('/api/library/info', {});
-        if (!info) return;
-
-        const foldersList = document.getElementById('library-folders-list');
-        if (foldersList) {
-            foldersList.innerHTML = '<h3>Registered Folders</h3>';
-            info.folders.forEach((f: any) => {
-                const item = document.createElement('div');
-                item.style.padding = '0.5em 0';
-                item.style.borderBottom = '1px solid var(--border-main)';
-                item.style.display = 'flex';
-                item.style.justifyContent = 'space-between';
-                item.innerHTML = `<span>${f.path}</span><span style="color: var(--text-muted)">${f.imageCount} images</span>`;
-                foldersList.appendChild(item);
-            });
-        }
-
-        const statsContent = document.getElementById('lib-stats-content');
-        if (statsContent) {
-            statsContent.innerHTML = `
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1em;">
-                    <div>Total Images:</div><div style="text-align: right; font-weight: bold;">${info.totalImages}</div>
-                    <div>Metadata DB Size:</div><div style="text-align: right; font-weight: bold;">${(info.dbSize / (1024 * 1024)).toFixed(2)} MB</div>
-                    <div>Preview DB Size:</div><div style="text-align: right; font-weight: bold;">${(info.previewDbSize / (1024 * 1024)).toFixed(2)} MB</div>
-                </div>
-            `;
-        }
-    }
-
-    private async triggerScan() {
-        const path = (document.getElementById('scan-path-input') as HTMLInputElement).value;
-        const low = (document.getElementById('gen-low-check') as HTMLInputElement).checked;
-        const med = (document.getElementById('gen-med-check') as HTMLInputElement).checked;
-
-        if (!path) {
-            this.showNotification("Please provide a path to scan", "error");
-            return;
-        }
-
-        const res = await post('/api/library/scan', { path, generateLow: low, generateMedium: med });
-        if (res) {
-            this.showNotification("Scan started in background", "success");
         }
     }
 
@@ -1200,7 +1226,7 @@ class App {
         const highResKey = id + '-1024';
 
         const requestHighRes = () => {
-            server.requestImage(id, 1024).then(blob => {
+            server.requestImage(id, 1024).then((blob: Blob) => {
                 if (this.selectedId === id && this.isLoupeMode) {
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
@@ -1229,7 +1255,7 @@ class App {
             requestHighRes();
         } else {
             this.loupePreviewPlaceholder.style.display = 'none';
-            server.requestImage(id, 300).then(blob => {
+            server.requestImage(id, 300).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 this.imageUrlCache.set(lowResKey, url);
                 if (this.selectedId === id && this.isLoupeMode) {
@@ -1254,6 +1280,7 @@ class App {
         if (dlJpg) dlJpg.removeAttribute('href');
 
         const lowResKey = id + '-1024';
+        const thumbKey = id + '-300';
         const highResKey = id + '-0';
         
         const requestFullRes = () => {
@@ -1281,8 +1308,14 @@ class App {
                 return;
             }
 
-            server.requestImage(id, 0).then(blob => {
+            server.requestImage(id, 0).then((blob: Blob) => {
                 if (this.selectedId === id && this.isFullscreen) {
+                    if (blob.size === 0) {
+                        // Error fallback: just stop spinner
+                        this.fullscreenSpinner!.style.display = 'none';
+                        return;
+                    }
+
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
                     this.fullscreenImgHighRes!.src = url;
@@ -1303,22 +1336,19 @@ class App {
             });
         };
 
-        if (this.imageUrlCache.has(lowResKey)) {
-            this.fullscreenImgPlaceholder.src = this.imageUrlCache.get(lowResKey)!;
+        // UI Strategy: Use the largest available cached image as placeholder
+        let bestUrl: string | null = null;
+        if (this.imageUrlCache.has(lowResKey)) bestUrl = this.imageUrlCache.get(lowResKey)!;
+        else if (this.imageUrlCache.has(thumbKey)) bestUrl = this.imageUrlCache.get(thumbKey)!;
+
+        if (bestUrl) {
+            this.fullscreenImgPlaceholder.src = bestUrl;
             this.fullscreenImgPlaceholder.style.display = 'block';
-            requestFullRes();
         } else {
             this.fullscreenImgPlaceholder.style.display = 'none';
-            server.requestImage(id, 1024).then(blob => {
-                const url = URL.createObjectURL(blob);
-                this.imageUrlCache.set(lowResKey, url);
-                if (this.selectedId === id && this.isFullscreen) {
-                    this.fullscreenImgPlaceholder!.src = url;
-                    this.fullscreenImgPlaceholder!.style.display = 'block';
-                    requestFullRes();
-                }
-            });
         }
+        
+        requestFullRes();
     }
 
     private toggleFullscreen() {
@@ -1394,6 +1424,9 @@ class App {
 
         try {
             const meta = await Api.api_metadata({ id });
+            this.selectedMetadata = meta;
+            if (this.isLoupeMode) this.updateLoupeOverlay(id);
+
             const groups: { [k: string]: MetadataItem[] } = {};
             meta.forEach(m => { const k = m.directory || 'Unknown'; if (!groups[k]) groups[k] = []; groups[k].push(m); });
             groups['File Info'] = [

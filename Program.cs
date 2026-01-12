@@ -9,19 +9,25 @@ namespace PhotoLibrary
 {
     class Program
     {
+        public class AppConfig
+        {
+            public string? LibraryPath { get; set; }
+            public string? PreviewDbPath { get; set; }
+            public int Port { get; set; } = 8080;
+            public string Bind { get; set; } = "localhost";
+        }
+
         static async Task<int> Main(string[] args)
         {
             var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
 
-            var libraryOption = new Option<string>(
+            var libraryOption = new Option<string?>(
                 name: "--library",
-                description: "Path to the SQLite database file")
-            { IsRequired = true };
+                description: "Path to the SQLite database file");
 
-            var updateMdOption = new Option<string>(
+            var updateMdOption = new Option<string?>(
                 name: "--updatemd",
                 description: "Directory to scan and update metadata for");
-            // Made optional because we might just want to host
 
             var testOneOption = new Option<bool>(
                 name: "--testone",
@@ -31,7 +37,7 @@ namespace PhotoLibrary
                 name: "--updatepreviews",
                 description: "Generate previews for the scanned files");
 
-            var previewDbOption = new Option<string>(
+            var previewDbOption = new Option<string?>(
                 name: "--previewdb",
                 description: "Path to the SQLite database for previews");
 
@@ -60,15 +66,44 @@ namespace PhotoLibrary
             return await rootCommand.InvokeAsync(args);
         }
 
-        static void Run(string libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
+        static void Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
         {
             try
             {
-                libraryPath = ResolvePath(libraryPath);
-                if (!string.IsNullOrEmpty(previewDb))
+                string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "PhotoLibrary");
+                string configPath = Path.Combine(configDir, "config.json");
+                AppConfig? config = null;
+
+                if (File.Exists(configPath))
                 {
-                    previewDb = ResolvePath(previewDb);
+                    try {
+                        config = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath));
+                    } catch { }
                 }
+
+                if (config == null)
+                {
+                    Directory.CreateDirectory(configDir);
+                    config = new AppConfig {
+                        LibraryPath = Path.Combine(configDir, "library.db"),
+                        PreviewDbPath = Path.Combine(configDir, "previews.db"),
+                        Port = 8080,
+                        Bind = "localhost"
+                    };
+                    File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                }
+
+                // CLI overrides or defaults
+                libraryPath = libraryPath ?? config.LibraryPath;
+                previewDb = previewDb ?? config.PreviewDbPath;
+                int finalPort = hostPort ?? config.Port;
+                string bindAddr = config.Bind == "public" ? "*" : "localhost";
+
+                if (string.IsNullOrEmpty(libraryPath)) throw new Exception("Library path is missing.");
+                if (string.IsNullOrEmpty(previewDb)) throw new Exception("Preview DB path is missing.");
+
+                libraryPath = ResolvePath(libraryPath);
+                previewDb = ResolvePath(previewDb);
 
                 // CLI/Scanning Mode
                 if (!string.IsNullOrEmpty(scanDir))
@@ -81,7 +116,7 @@ namespace PhotoLibrary
                     dbManager.Initialize();
 
                     PreviewManager? previewManager = null;
-                    if (updatePreviews && !string.IsNullOrEmpty(previewDb))
+                    if (updatePreviews)
                     {
                         previewManager = new PreviewManager(previewDb);
                         previewManager.Initialize();
@@ -91,17 +126,13 @@ namespace PhotoLibrary
                     scanner.Scan(scanDir, testOne);
                 }
 
-                // Hosting Mode
-                if (hostPort.HasValue)
+                // Hosting Mode (Always run if no scanDir, or if explicit hostPort)
+                if (hostPort.HasValue || string.IsNullOrEmpty(scanDir))
                 {
-                    if (string.IsNullOrEmpty(previewDb))
-                    {
-                        Console.WriteLine("Error: --previewdb is required for hosting mode.");
-                        return;
-                    }
-
-                    Console.WriteLine($"Starting Web Server on port {hostPort.Value}...");
-                    WebServer.Start(hostPort.Value, libraryPath, previewDb);
+                    Console.WriteLine($"Starting Web Server on {bindAddr}:{finalPort}...");
+                    Console.WriteLine($"  Library: {libraryPath}");
+                    Console.WriteLine($"  Previews: {previewDb}");
+                    WebServer.Start(finalPort, libraryPath, previewDb, bindAddr);
                 }
             }
             catch (Exception ex)

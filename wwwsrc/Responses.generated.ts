@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-11T19:05:23.8233392-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-11T23:32:43.1187854-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -31,6 +31,7 @@ export interface RootPathResponse {
     id: string;
     parentId?: string;
     name?: string;
+    imageCount: number;
 }
 
 export interface CollectionResponse {
@@ -47,6 +48,7 @@ export interface StatsResponse {
 
 export interface LibraryFolderResponse {
     id: string;
+    parentId?: string;
     path: string;
     imageCount: number;
 }
@@ -55,6 +57,7 @@ export interface LibraryInfoResponse {
     totalImages: number;
     dbSize: number;
     previewDbSize: number;
+    dbPath: string;
     folders: LibraryFolderResponse[];
 }
 

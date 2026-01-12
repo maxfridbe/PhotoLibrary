@@ -50,8 +50,14 @@ export async function api_stats(data) {
 export async function api_library_info(data) {
     return await post('/api/library/info', data);
 }
-export async function api_library_scan(data) {
-    return await post('/api/library/scan', data);
+export async function api_library_find_files(data) {
+    return await post('/api/library/find-files', data);
+}
+export async function api_library_find_new_files(data) {
+    return await post('/api/library/find-new-files', data);
+}
+export async function api_library_import_batch(data) {
+    return await post('/api/library/import-batch', data);
 }
 export async function api_settings_get(data) {
     return await post('/api/settings/get', data);

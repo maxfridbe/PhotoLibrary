@@ -1,8 +1,8 @@
 #!/bin/bash
 # Setup test environment
-rm -f test.db previews.db
+rm -f test.db test.db-wal test.db-shm previews.db previews.db-wal previews.db-shm
 TEST_DIR="./test_images"
-rm -rf "$TEST_DIR"
+# rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
 
 RAID_BASE="$HOME/Pictures/raid"
@@ -28,6 +28,12 @@ for year in 2025 2024 2023 2022 2021; do
             rel_path="${src#$RAID_BASE/}"
             dest="$TEST_DIR/$rel_path"
             
+            if [ -f "$dest" ]; then
+                ((COUNT++))
+                # echo -ne "Existing: $COUNT/$TOTAL_NEEDED images skipped... \r"
+                continue
+            fi
+
             mkdir -p "$(dirname "$dest")"
             if cp "$src" "$dest" 2>/dev/null; then
                 ((COUNT++))

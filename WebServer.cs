@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Data.Sqlite;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Text;
@@ -15,8 +16,9 @@ namespace PhotoLibrary
     public static class WebServer
     {
         private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
+        private static readonly ConcurrentBag<WebSocket> _activeSockets = new();
 
-        public static void Start(int port, string libraryPath, string previewPath)
+        public static void Start(int port, string libraryPath, string previewPath, string bindAddr = "localhost")
         {
             var dbManager = new DatabaseManager(libraryPath);
             dbManager.Initialize();
@@ -25,7 +27,7 @@ namespace PhotoLibrary
             previewManager.Initialize();
 
             var builder = WebApplication.CreateBuilder();
-            builder.WebHost.UseUrls($"http://*:{port}");
+            builder.WebHost.UseUrls($"http://{bindAddr}:{port}");
             builder.Services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(2));
 
             builder.Services.AddSingleton(dbManager);
@@ -143,29 +145,122 @@ namespace PhotoLibrary
                 return Results.Ok(info);
             });
 
-            app.MapPost("/api/library/scan", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            app.MapPost("/api/library/find-files", async (HttpContext context) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<ScanLibraryRequest>();
-                if (req == null) return Results.BadRequest();
+                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
+                if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
+                
+                try 
+                {
+                    if (!Directory.Exists(req.name)) return Results.Ok(new { files = Array.Empty<string>() });
+                    var files = Directory.EnumerateFiles(req.name, "*", SearchOption.AllDirectories)
+                        .Select(f => Path.GetRelativePath(req.name, f))
+                        .ToList();
+                    return Results.Ok(new { files });
+                }
+                catch (Exception ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            });
 
-                _ = Task.Run(() =>
+            app.MapPost("/api/library/find-new-files", async (HttpContext context, DatabaseManager db) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
+                if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
+
+                try
+                {
+                    string absPath = Path.GetFullPath(req.name);
+                    if (!Directory.Exists(absPath)) return Results.Ok(new { files = Array.Empty<string>() });
+                    
+                    // Lazy enumeration + immediate extension filtering to save IO/Memory
+                    var enumerator = Directory.EnumerateFiles(absPath, "*", SearchOption.AllDirectories)
+                        .Where(f => TableConstants.SupportedExtensions.Contains(Path.GetExtension(f)));
+
+                    var newFiles = new List<string>();
+                    
+                    // Batch the DB existence check to use a single connection
+                    using var connection = new SqliteConnection($"Data Source={db.DbPath}");
+                    connection.Open();
+
+                    foreach (var file in enumerator)
+                    {
+                        var fullFile = Path.GetFullPath(file);
+                        if (!db.FileExists(fullFile, connection))
+                        {
+                            newFiles.Add(Path.GetRelativePath(absPath, fullFile));
+                        }
+                        if (newFiles.Count >= 1000) break;
+                    }
+                    
+                    return Results.Ok(new { files = newFiles });
+                }
+                catch (Exception ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            });
+
+            app.MapPost("/api/library/import-batch", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<ImportBatchRequest>();
+                if (req == null || req.relativePaths == null) return Results.BadRequest();
+
+                _ = Task.Run(async () =>
                 {
                     try
                     {
+                        Console.WriteLine($"[BATCH] TASK START: Processing {req.relativePaths.Length} files.");
                         var sizes = new List<int>();
                         if (req.generateLow) sizes.Add(300);
                         if (req.generateMedium) sizes.Add(1024);
 
                         var scanner = new ImageScanner(db, pm, sizes.ToArray());
-                        scanner.Scan(req.path);
+                        scanner.OnFileProcessed += (id, path) => 
+                        {
+                            _ = Broadcast(new { type = "file.imported", id, path });
+                        };
+                        
+                        string absRoot = Path.GetFullPath(req.rootPath);
+                        Console.WriteLine($"[BATCH] Resolved Root: {absRoot}");
+                        
+                        int count = 0;
+                        foreach (var relPath in req.relativePaths)
+                        {
+                            try 
+                            {
+                                string cleanRel = relPath.TrimStart('/');
+                                string fullPath = absRoot.TrimEnd('/') + "/" + cleanRel;
+                                
+                                if (File.Exists(fullPath))
+                                {
+                                    scanner.ProcessSingleFile(new FileInfo(fullPath), absRoot);
+                                    count++;
+                                    if (count % 10 == 0) Console.WriteLine($"[BATCH] Progress: {count}/{req.relativePaths.Length}...");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"[BATCH] File not found: {fullPath}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[BATCH] Error processing {relPath}: {ex.Message}");
+                            }
+                        }
+                        
+                        Console.WriteLine($"[BATCH] TASK FINISHED. Imported {count} files total.");
+                        await Broadcast(new { type = "scan.finished" });
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Background scan failed: {ex.Message}");
+                        Console.WriteLine($"[BATCH] CRITICAL FAILURE: {ex.Message}");
+                        Console.WriteLine(ex.StackTrace);
                     }
                 });
 
-                return Results.Ok(new { message = "Scan started in background" });
+                return Results.Ok(new { message = "Batch import started" });
             });
 
             app.MapPost("/api/settings/get", async (HttpContext context, DatabaseManager db) =>
@@ -274,7 +369,16 @@ namespace PhotoLibrary
                     if (context.WebSockets.IsWebSocketRequest)
                     {
                         var ws = await context.WebSockets.AcceptWebSocketAsync();
-                        await HandleWebSocket(ws, context.RequestServices.GetRequiredService<DatabaseManager>(), context.RequestServices.GetRequiredService<PreviewManager>(), lifetime.ApplicationStopping);
+                        _activeSockets.Add(ws);
+                        try 
+                        {
+                            await HandleWebSocket(ws, context.RequestServices.GetRequiredService<DatabaseManager>(), context.RequestServices.GetRequiredService<PreviewManager>(), lifetime.ApplicationStopping);
+                        }
+                        finally
+                        {
+                            // Remove from bag is tricky since ConcurrentBag doesn't have it easily
+                            // but we filter by state during broadcast anyway.
+                        }
                     }
                     else context.Response.StatusCode = 400;
                 }
@@ -295,6 +399,25 @@ namespace PhotoLibrary
 
             Console.WriteLine($"Web server running on port {port}");
             app.Run();
+        }
+
+        private static async Task Broadcast(object message)
+        {
+            var json = JsonSerializer.Serialize(message);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var segment = new ArraySegment<byte>(bytes);
+
+            foreach (var socket in _activeSockets)
+            {
+                if (socket.State == WebSocketState.Open)
+                {
+                    try
+                    {
+                        await socket.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None);
+                    }
+                    catch { /* Ignore failed sockets */ }
+                }
+            }
         }
 
         private static string SanitizeFilename(string filename)
@@ -324,10 +447,12 @@ namespace PhotoLibrary
                         var req = JsonSerializer.Deserialize<ImageRequest>(json);
                         if (req != null)
                         {
+                            Console.WriteLine($"[WS] Received request {req.requestId} for file {req.fileId} size {req.size}");
                             byte[]? data = null;
                             if (req.size == 0) // Full Resolution Request
                             {
                                 string? fullPath = db.GetFullFilePath(req.fileId);
+                                Console.WriteLine($"[WS] Full Res Path resolved to: {fullPath ?? "NULL"}");
                                 if (fullPath != null && File.Exists(fullPath))
                                 {
                                     string ext = Path.GetExtension(fullPath).ToUpper();
@@ -342,13 +467,70 @@ namespace PhotoLibrary
                                     else data = await File.ReadAllBytesAsync(fullPath, ct);
                                 }
                             }
-                            else data = pm.GetPreviewData(req.fileId, req.size);
-
-                            if (data != null && !ct.IsCancellationRequested)
+                            else 
                             {
-                                var response = new byte[4 + data.Length];
+                                data = pm.GetPreviewData(req.fileId, req.size);
+                                if (data == null) // Generate on-the-fly
+                                {
+                                    string? fullPath = db.GetFullFilePath(req.fileId);
+                                    Console.WriteLine($"[WS] Preview {req.size}px Path resolved to: {fullPath ?? "NULL"}");
+                                    if (fullPath != null && File.Exists(fullPath))
+                                    {
+                                        try 
+                                        {
+                                            Console.WriteLine($"Live generating {req.size}px preview for {fullPath}");
+                                            string sourcePath = fullPath;
+                                            string ext = Path.GetExtension(fullPath).ToUpper();
+                                            bool isRaw = ext == ".ARW";
+                                            if (isRaw)
+                                            {
+                                                string sidecar = Path.ChangeExtension(fullPath, ".JPG");
+                                                if (!File.Exists(sidecar)) sidecar = Path.ChangeExtension(fullPath, ".jpg");
+                                                if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
+                                            }
+
+                                            using var image = new ImageMagick.MagickImage(sourcePath);
+                                            image.AutoOrient();
+
+                                            // If it's not a RAW and it's already smaller than requested, just use original
+                                            if (!isRaw && image.Width <= req.size && image.Height <= req.size)
+                                            {
+                                                data = File.ReadAllBytes(sourcePath);
+                                            }
+                                            else
+                                            {
+                                                if (image.Width > image.Height) image.Resize((uint)req.size, 0);
+                                                else image.Resize(0, (uint)req.size);
+                                                
+                                                image.Format = ImageMagick.MagickFormat.Jpg;
+                                                image.Quality = 85;
+                                                data = image.ToByteArray();
+                                                
+                                                // Save to cache
+                                                pm.SavePreview(req.fileId, req.size, data);
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Console.WriteLine($"Live preview gen failed for {req.fileId}: {ex.Message}");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"Cannot generate preview: Path null or File not found. ID: {req.fileId}, Path: {fullPath ?? "NULL"}");
+                                    }
+                                }
+                            }
+
+                            if (!ct.IsCancellationRequested)
+                            {
+                                // Always send a response, even if data is null (empty payload)
+                                // to ensure the frontend promise resolves/fails instead of hanging.
+                                var payload = data ?? Array.Empty<byte>();
+                                Console.WriteLine($"[WS] Sending response for {req.requestId}. Size: {payload.Length} bytes.");
+                                var response = new byte[4 + payload.Length];
                                 BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
-                                data.CopyTo(response, 4);
+                                payload.CopyTo(response, 4);
                                 await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, ct);
                             }
                         }

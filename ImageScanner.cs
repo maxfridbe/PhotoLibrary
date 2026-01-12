@@ -15,6 +15,8 @@ namespace PhotoLibrary
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
 
+        public event Action<string, string>? OnFileProcessed;
+
         public ImageScanner(DatabaseManager db, PreviewManager? previewManager = null, int[]? longEdges = null)
         {
             _db = db;
@@ -22,7 +24,7 @@ namespace PhotoLibrary
             _longEdges = longEdges ?? Array.Empty<int>();
         }
 
-        public void Scan(string directoryPath, bool testOne = false)
+        public void Scan(string directoryPath, bool testOne = false, int? limit = null)
         {
             var root = new DirectoryInfo(directoryPath);
             if (!root.Exists)
@@ -31,9 +33,9 @@ namespace PhotoLibrary
                 return;
             }
 
-            Console.WriteLine($"Scanning {directoryPath}...");
-            
             string fullScanPath = root.FullName;
+            Console.WriteLine($"Scanning {fullScanPath}...");
+            
             string? parentDir = Path.GetDirectoryName(fullScanPath);
             string targetName = root.Name;
 
@@ -45,15 +47,30 @@ namespace PhotoLibrary
             _pathCache[fullScanPath] = targetRootId;
 
             int count = 0;
+            int importedCount = 0;
             var files = root.EnumerateFiles("*", SearchOption.AllDirectories);
 
             foreach (var file in files)
             {
                 try
                 {
-                    ProcessFile(file, fullScanPath, targetRootId);
+                    bool wasImported = ProcessFile(file, fullScanPath, targetRootId);
                     count++;
-                    if (count % 10 == 0) Console.Write(".");
+
+                    if (wasImported)
+                    {
+                        importedCount++;
+                        if (limit.HasValue && importedCount >= limit.Value)
+                        {
+                            Console.WriteLine($"\nLimit of {limit.Value} imports reached.");
+                            break;
+                        }
+                    }
+
+                    if (count % 10 == 0) {
+                        Console.Write(".");
+                        if (count % 1000 == 0) Console.WriteLine($" {count}...");
+                    }
 
                     if (testOne)
                     {
@@ -66,13 +83,46 @@ namespace PhotoLibrary
                     Console.WriteLine($"\nError processing {file.FullName}: {ex.Message}");
                 }
             }
-            Console.WriteLine($"\nScanned {count} files.");
+            Console.WriteLine($"\nScanned {count} files total. Imported/Updated {importedCount}.");
         }
 
-        private void ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
+        public void ProcessSingleFile(FileInfo file, string scanRootPath)
         {
+            Console.WriteLine($"[SCANNER] ProcessSingleFile START: {file.Name}");
+            string fullScanPath = Path.GetFullPath(scanRootPath);
+            string? parentDir = Path.GetDirectoryName(fullScanPath);
+            string targetName = Path.GetFileName(fullScanPath);
+
+            if (parentDir == null) parentDir = fullScanPath;
+
+            string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
+            string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
+            
+            // Optimization: ensure path cache is warm for this root
+            _pathCache[fullScanPath] = targetRootId;
+            
+            ProcessFile(file, fullScanPath, targetRootId);
+            Console.WriteLine($"[SCANNER] ProcessSingleFile END: {file.Name}");
+        }
+
+        private bool ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
+        {
+            // Console.WriteLine($"[SCANNER] ProcessFile START: {file.Name}");
+            if (!TableConstants.SupportedExtensions.Contains(file.Extension)) return false;
+
             string? dirPath = file.DirectoryName;
-            if (dirPath == null) return;
+            if (dirPath == null) return false;
+            dirPath = Path.GetFullPath(dirPath);
+
+            // Optimization: Check if file exists and hasn't changed
+            var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName);
+            if (exists && lastIndexedModified.HasValue && Math.Abs((file.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
+            {
+                // Console.WriteLine($"[SCANNER] ProcessFile SKIP: {file.Name} (Unchanged)");
+                return false; // Skip entirely
+            }
+
+            bool isNew = !exists;
 
             string rootPathId;
             if (dirPath == scanRootPath)
@@ -106,7 +156,7 @@ namespace PhotoLibrary
                         }
                         rootPathId = currentId;
                     }
-                    else return; 
+                    else return false; 
                 }
             }
 
@@ -124,6 +174,7 @@ namespace PhotoLibrary
 
             if (fileId != null)
             {
+                OnFileProcessed?.Invoke(fileId, file.FullName);
                 var metadata = ExtractMetadata(file);
                 _db.InsertMetadata(fileId, metadata);
 
@@ -132,6 +183,8 @@ namespace PhotoLibrary
                     GeneratePreviews(file, fileId);
                 }
             }
+            // Console.WriteLine($"[SCANNER] ProcessFile FINISHED: {file.Name}");
+            return true;
         }
 
         private void GeneratePreviews(FileInfo file, string fileId)

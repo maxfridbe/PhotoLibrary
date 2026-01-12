@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-11T19:05:23.8571336-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-11T23:32:43.1569204-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -69,8 +69,16 @@ export async function api_library_info(data: any): Promise<any> {
     return await post<any>('/api/library/info', data);
 }
 
-export async function api_library_scan(data: any): Promise<any> {
-    return await post<any>('/api/library/scan', data);
+export async function api_library_find_files(data: any): Promise<any> {
+    return await post<any>('/api/library/find-files', data);
+}
+
+export async function api_library_find_new_files(data: any): Promise<any> {
+    return await post<any>('/api/library/find-new-files', data);
+}
+
+export async function api_library_import_batch(data: any): Promise<any> {
+    return await post<any>('/api/library/import-batch', data);
 }
 
 export async function api_settings_get(data: any): Promise<any> {

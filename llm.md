@@ -13,47 +13,43 @@ The system is built to handle hundreds of thousands of images over slow network 
 - **Binary WebSocket Protocol**: Thumbnails and previews are delivered over a custom binary WebSocket protocol. This avoids the overhead of Base64 encoding and reduces HTTP request latency.
 - **Sidecar-Aware Previews**: The system automatically detects sibling JPGs for RAW files, using them as high-speed sources for preview generation.
 
-## 2. Frontend Architecture: "Reactive & Decoupled"
-The UI is a TypeScript SPA built around stability and instant feedback.
+## 2. Frontend Architecture: "Manager-Component Pattern"
+The UI is a TypeScript SPA broken down into specialized managers to ensure maintainability.
+
+### Specialized Managers
+- **CommunicationManager (`CommunicationManager.ts`)**: Centralizes the network layer, including the binary WebSocket protocol for image streaming and real-time push notifications.
+- **ThemeManager (`ThemeManager.ts`)**: Manages dynamic theming (20+ palettes), user preference persistence, and the customizable Loupe overlay.
+- **LibraryManager (`LibraryManager.ts`)**: Handles "Library Mode", including targeted batch imports, progress tracking, and hierarchy visualization.
+- **App (`app.ts`)**: Acts as the root orchestrator and UI coordinator.
 
 ### Surgical UI (Flicker-Free)
 - **Virtualized Grid**: Only the visible subset of images is rendered. 
-- **DOM Recycling**: Instead of clearing containers, the app reuses `HTMLElement` nodes via a `cardCache`, surgically moving and updating them to prevent "black flashes" during scrolling.
-- **Metadata Diffing**: The metadata panel uses a surgical update strategy. It maintains a persistent map of DOM nodes and only updates `textContent` or visibility for specific tags when switching images.
-
-### Event-Driven Communication
-- **Pattern-Matching PubSub**: A central Hub (`PubSub.ts`) handles all internal communication. Components subscribe to granular events like `photo.starred.*` or `view.mode.changed`. This decouples UI components from the core application logic.
-- **Optimistic UI**: Ratings and flags are updated locally instantly. The application then syncs with the server in the background, reverting state and notifying the user only if the persistence layer fails.
-
-### Dynamic Theming
-- **TS-to-CSS Variable Injection**: The application's color palette is defined in TypeScript and injected as CSS variables at runtime. This ensures a single source of truth for the visual design and allows for easy experimentation or future user-defined themes.
-- **Typographically Sound Scaling**: The UI uses `em` units for almost all measurements, ensuring that the layout scales gracefully with font sizes and maintains professional proportions.
-
-### Local Business Logic
-- **UI Stacking**: Stacking (grouping ARW + JPG) is implemented as a **UI Construct**. The server provides a flat list of metadata, and the frontend dynamically groups and sorts them based on user preference. This allows for instant toggling between flat and stacked modes.
+- **DOM Recycling**: Reuses `HTMLElement` nodes via a `cardCache` to prevent "black flashes".
+- **Dynamic Overlays**: Customizable Loupe overlays with support for any metadata via `{MD:tag}` syntax.
 
 ## 3. Backend Architecture: "Minimalist & Normalized"
-The backend is a .NET 8 application focused on providing a high-concurrency API and efficient SQLite storage.
+The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage.
+
+### Smart Indexing & Previews
+- **Targeted Imports**: Backend supports batch importing specific relative paths to avoid full directory re-scans.
+- **On-the-Fly Generation**: If a requested preview is missing, it's generated live from the source (respecting RAW sidecars) and cached in the database.
+- **Cycle-Safe Paths**: Manual path reconstruction logic with recursive loop detection ensures stability even with complex directory structures.
 
 ### Normalized Storage
-- **Decoupled User Data**: User culling data (ratings and picks) is stored in specialized tables (`ImageRatings`, `images_picked`) separate from the core `FileEntry` table. This ensures the main file index remains immutable during culling operations.
-- **Paged Responses**: Every API endpoint is designed for paging, ensuring that the interface remains snappy regardless of library size.
-
-### Type-Safe Bridge
-- **Roslyn-Based Source Generation**: A custom tool (`TypeGen/`) parses C# DTOs and WebServer endpoints using the Roslyn compiler API to automatically generate TypeScript interfaces and API calling functions. This ensures 100% type safety across the network boundary.
+- **Decoupled User Data**: User culling data (ratings/picks) is stored in specialized tables.
+- **Centralized Configuration**: Persistent app settings (themes, overlays) stored in a `Settings` table and local `config.json`.
 
 ## 4. Interaction Model: "The Keyboard Professional"
 The UI is inspired by Adobe Lightroom, optimized for power users:
-- **Navigation**: Full arrow-key support across virtualized grids.
-- **Speed Culling**: Numerical keys (1-5) for ratings and 'P' for flags are instant and require no mouse movement.
-- **Contextual Workflows**: Context menus are provided for advanced operations (e.g., "Clear all picked", "Add to collection") based on selected state.
+- **Navigation**: Full arrow-key support across all views.
+- **Speed Culling**: Numerical keys (1-5) and 'P' for flags are instant and stack-aware.
+- **Global Feedback**: Toast notification system for all background processes and user actions.
 
 ## 5. Project Structure & Layout
-- **Backend (Root)**: Core .NET 8 application logic. `WebServer.cs` handles the Kestrel/WebSocket layer, `DatabaseManager.cs` manages SQLite state, and `PreviewManager.cs` handles on-the-fly ImageMagick processing.
-- **Frontend Source (`wwwsrc/`)**: The source of truth for all web logic and assets.
-- **Build Output (`wwwroot/`)**: A generated distribution directory. Files here are automatically compiled or synced from `wwwsrc` and are treated as transient artifacts that are ultimately embedded into the C# assembly.
-- **TypeGen Project**: A Roslyn-based C# utility that bridges the two worlds. It reflects over the backend's `Requests.cs` and `Responses.cs` to produce the `*.generated.ts` files in the frontend.
-- **Build Orchestration**: The `.csproj` file acts as the primary task runner. A single `dotnet build` triggers the entire pipeline: `TypeGen` -> `tsc` (TypeScript) -> Asset Syncing -> C# Compilation.
+- **Backend (Root)**: .NET 8 core logic and WebServer.
+- **Frontend Source (`wwwsrc/`)**: Modularized TypeScript source.
+- **Build Output (`wwwroot/`)**: Transient artifacts embedded into the assembly.
+- **Build Orchestration**: `.csproj` manages the entire pipeline: `TypeGen` -> `tsc` -> Sync -> Compile.
 
 ## 6. Development Standards
 - **Standardized DTOs**: All request/response models must be defined in `Requests.cs` or `Responses.cs` to ensure they are picked up by the Roslyn generator.

@@ -36,6 +36,7 @@ namespace PhotoLibrary
         public string Id { get; set; } = "";
         public string? ParentId { get; set; }
         public string? Name { get; set; }
+        public int ImageCount { get; set; }
     }
 
     public class CollectionResponse
@@ -55,6 +56,7 @@ namespace PhotoLibrary
     public class LibraryFolderResponse
     {
         public string Id { get; set; } = "";
+        public string? ParentId { get; set; }
         public string Path { get; set; } = "";
         public int ImageCount { get; set; }
     }
@@ -64,6 +66,7 @@ namespace PhotoLibrary
         public int TotalImages { get; set; }
         public long DbSize { get; set; }
         public long PreviewDbSize { get; set; }
+        public string DbPath { get; set; } = "";
         public List<LibraryFolderResponse> Folders { get; set; } = new();
     }
 }

@@ -14,17 +14,20 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
 -   **Library Maintenance Mode**:
-    *   **Background Scanning**: Add new directories to your library directly from the UI.
-    *   **Preview Pre-generation**: Optionally generate low (300px) and medium (1024px) previews during the scan to ensure instant viewing later.
-    *   **Database Stats**: Real-time tracking of image counts and database file sizes (Metadata and Preview DBs).
+    *   **Find New Images**: Scans your directories and identifies files not yet in the database.
+    *   **Targeted Batch Import**: Efficiently index only the specific files found during search, rather than re-scanning entire trees.
+    *   **Smart Indexing**: Automatically skips unmodified, already-indexed files based on timestamp checks.
+    *   **On-the-Fly Previews**: Live generation and caching of missing thumbnails and previews during browsing.
+    *   **Database Stats**: Real-time tracking of image counts and database file sizes.
 -   **High-Performance Web Interface**:
-    *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images by only rendering visible items.
-    *   **Dynamic Theming**: Choose from over 20 built-in themes including popular VS Code palettes (One Dark Pro, Dracula, Tokyo Night, GitHub Light, etc.).
-    *   **Typographically Sound**: Uses `em`-based scaling for professional, consistent proportions across all screen sizes.
-    *   **Flicker-Free UI**: Surgical DOM updates and intelligent node recycling prevent visual flashes.
-    *   **Tag Search**: Instant metadata search (e.g., search by Focal Length, Lens, or Filename).
-    *   **Flexible Sorting**: Sort by Date, Name, Rating, or Size directly in the UI.
-    *   **WebSocket Streaming**: Custom binary protocol for ultra-fast image delivery.
+    *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images.
+    *   **20+ VS Code Themes**: Dynamic theming with popular palettes (One Dark Pro, Dracula, Nord, etc.).
+    *   **Global Toast Notifications**: Real-time feedback for indexing progress and user actions.
+    *   **Customizable Overlays**: Configurable Loupe view overlay with support for any metadata variable (e.g., `{Filename}`, `{MD:Lens Model}`).
+-   **Stable Backend**:
+    *   **Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
+    *   **Automatic Configuration**: Zero-config startup with `~/.config/PhotoLibrary/config.json`.
+    *   **Binary WebSocket Streaming**: Optimized binary protocol for high-speed image delivery.
 -   **Stability & Feedback**:
     *   **Connection Tracking**: Status bar shows exact offline duration (e.g., `Disconnected (45s ago)`) during network interruptions.
     *   **Graceful Shutdown**: Responds instantly to `Ctrl+C` via integrated cancellation tokens.
