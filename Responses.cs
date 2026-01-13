@@ -14,6 +14,7 @@ namespace PhotoLibrary
         public string? Hash { get; set; }
         public bool IsPicked { get; set; }
         public int Rating { get; set; }
+        public int Rotation { get; set; }
         public int StackCount { get; set; }
         public string? StackExtensions { get; set; }
         public List<string> StackFileIds { get; set; } = new();
@@ -72,6 +73,8 @@ namespace PhotoLibrary
         public long DbSize { get; set; }
         public long PreviewDbSize { get; set; }
         public string DbPath { get; set; } = "";
+        public string PreviewDbPath { get; set; } = "";
+        public string ConfigPath { get; set; } = "";
         public bool IsIndexing { get; set; }
         public int IndexedCount { get; set; }
         public int TotalToIndex { get; set; }

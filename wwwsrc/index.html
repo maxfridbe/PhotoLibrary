@@ -91,9 +91,15 @@
         .tree-item:has(.annotation-pill.has-content) .tree-name { opacity: 0.4; }
 
         /* Search Section */
-        .search-box { padding: 0.65em; border-bottom: 1px solid var(--border-main); }
+        .search-box { padding: 0.65em; border-bottom: 1px solid var(--border-main); position: relative; }
         .search-input { width: 100%; background: var(--bg-input); border: 1px solid var(--border-light); color: var(--text-input); padding: 0.35em 0.5em; border-radius: 4px; box-sizing: border-box; font-size: 0.9em; }
         .search-input:focus { border-color: var(--accent); outline: none; }
+        .search-loading { 
+            position: absolute; right: 1em; top: 50%; transform: translateY(-50%); 
+            width: 1em; height: 1em; border: 2px solid var(--border-focus); border-top-color: var(--accent); 
+            border-radius: 50%; animation: spin 1s linear infinite; display: none;
+        }
+        .search-loading.active { display: block; }
 
         /* Metadata Search Magnifier */
         .meta-row { display: flex; font-size: 0.85em; padding: 0.15em 0; border-bottom: 1px solid var(--border-main); align-items: center; position: relative; }

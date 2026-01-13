@@ -145,7 +145,7 @@ namespace PhotoLibrary
                     _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
                     _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
                     _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
-                    WebServer.Start(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr);
+                    WebServer.Start(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath);
                 }
             }
             catch (Exception ex)

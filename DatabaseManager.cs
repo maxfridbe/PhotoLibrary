@@ -380,7 +380,7 @@ namespace PhotoLibrary
             }
         }
 
-        public LibraryInfoResponse GetLibraryInfo(string previewDbPath)
+        public LibraryInfoResponse GetLibraryInfo(string previewDbPath, string configPath)
         {
             var info = new LibraryInfoResponse();
             using var connection = new SqliteConnection(_connectionString);
@@ -393,9 +393,12 @@ namespace PhotoLibrary
                 info.TotalImages = Convert.ToInt32(cmd.ExecuteScalar());
             }
 
-            // DB Sizes
+            // DB Sizes & Paths
             info.DbPath = connection.DataSource;
             info.DbSize = new FileInfo(connection.DataSource).Length;
+            info.PreviewDbPath = previewDbPath;
+            info.ConfigPath = configPath;
+            
             if (File.Exists(previewDbPath))
             {
                 info.PreviewDbSize = new FileInfo(previewDbPath).Length;
@@ -492,8 +495,10 @@ namespace PhotoLibrary
                 command.CommandText = $@"
                     SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, f.{Column.FileEntry.Hash},
                            CASE WHEN (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id}) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
-                           COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating
+                           COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating,
+                           COALESCE(json_extract(s.Value, '$.rotation'), 0) as Rotation
                     FROM {TableName.FileEntry} f
+                    LEFT JOIN Settings s ON s.Key = f.{Column.FileEntry.Hash} || '-pref-img'
                     {where}
                     ORDER BY f.{Column.FileEntry.CreatedAt} DESC 
                     LIMIT $Limit OFFSET $Offset";
@@ -516,6 +521,7 @@ namespace PhotoLibrary
                         Hash = reader.IsDBNull(6) ? null : reader.GetString(6),
                         IsPicked = reader.GetInt32(7) == 1,
                         Rating = reader.GetInt32(8),
+                        Rotation = reader.GetInt32(9),
                         StackCount = 1
                     });
                 }

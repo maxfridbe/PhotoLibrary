@@ -156,6 +156,7 @@ class App {
         });
         hub.sub('photo.rotated', (data) => {
             this.rotationMap.set(data.id, data.rotation);
+            this.savePhotoPreferences(data.id, data.rotation);
             // Update grid card via manager
             this.gridViewManager.refreshStats(data.id, this.photos);
             // Update filmstrip card
@@ -272,6 +273,27 @@ class App {
         this.stackingEnabled = enabled;
         this.processUIStacks();
         this.syncUrl();
+    }
+    savePhotoPreferences(id, rotation) {
+        const photo = this.photoMap.get(id);
+        if (!photo || !photo.hash)
+            return;
+        // Fetch existing prefs if any, or just save rotation
+        // We only persist rotation for now via this method
+        // Note: The workspace/loupe view has its own save logic which includes zoom/pan
+        // But for global rotation hotkeys, we just want to save rotation.
+        // If we want to preserve zoom/pan, we'd need to fetch -> update -> save.
+        // But since we are likely not in loupe view or just rotating, reset zoom/pan makes sense or keep defaults.
+        const prefs = {
+            rotation: rotation,
+            zoom: 1,
+            panL: 0,
+            panT: 0
+        };
+        Api.api_settings_set({
+            key: `${photo.hash}-pref-img`,
+            value: JSON.stringify(prefs)
+        });
     }
     handlePhotoUpdate(photo) {
         this.photoMap.set(photo.id, photo);
@@ -611,7 +633,11 @@ class App {
         const [data, stats] = await Promise.all([Api.api_photos(params), Api.api_stats({})]);
         this.allPhotosFlat = data.photos;
         this.photoMap.clear();
-        this.allPhotosFlat.forEach(p => this.photoMap.set(p.id, p));
+        this.allPhotosFlat.forEach(p => {
+            this.photoMap.set(p.id, p);
+            if (p.rotation)
+                this.rotationMap.set(p.id, p.rotation);
+        });
         this.stats = stats;
         this.photos = this.allPhotosFlat;
         this.gridViewManager.setPhotos(this.photos);
@@ -724,6 +750,7 @@ class App {
             scaleInput.style.width = '80px';
             scaleInput.oninput = (e) => {
                 const scale = parseFloat(e.target.value);
+                self.gridScale = scale;
                 self.gridViewManager.setScale(scale);
                 self.syncUrl();
             };
@@ -1178,7 +1205,10 @@ class App {
         searchInput.placeholder = 'Tag search...';
         searchInput.onkeydown = (e) => { if (e.key === 'Enter')
             hub.pub('search.triggered', { tag: 'FileName', value: searchInput.value }); };
+        const searchSpinner = document.createElement('div');
+        searchSpinner.className = 'search-loading';
         searchBox.appendChild(searchInput);
+        searchBox.appendChild(searchSpinner);
         this.libraryEl.appendChild(searchBox);
         if (this.filterType === 'search')
             this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true, 'search');
@@ -1520,9 +1550,18 @@ class App {
     }
     async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
     async searchPhotos(tag, value) {
-        this.searchResultIds = await Api.api_search({ tag, value });
-        this.searchTitle = `${tag}: ${value}`;
-        this.setFilter('search');
+        const spinner = document.querySelector('.search-loading');
+        if (spinner)
+            spinner.classList.add('active');
+        try {
+            this.searchResultIds = await Api.api_search({ tag, value });
+            this.searchTitle = `${tag}: ${value}`;
+            this.setFilter('search');
+        }
+        finally {
+            if (spinner)
+                spinner.classList.remove('active');
+        }
     }
     getFilteredPhotos() { return this.photos; }
     renderGrid() {

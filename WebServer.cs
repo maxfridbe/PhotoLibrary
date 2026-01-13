@@ -21,7 +21,7 @@ namespace PhotoLibrary
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
 
-        public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost")
+        public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
 
@@ -73,7 +73,7 @@ namespace PhotoLibrary
 
             app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
             {
-                var info = db.GetLibraryInfo(pm.DbPath);
+                var info = db.GetLibraryInfo(pm.DbPath, configPath);
                 info.IsIndexing = ImageIndexer.IsIndexing;
                 info.IndexedCount = ImageIndexer.IndexedCount;
                 info.TotalToIndex = ImageIndexer.TotalToIndex;

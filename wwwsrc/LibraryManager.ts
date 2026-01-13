@@ -301,10 +301,24 @@ export class LibraryManager {
         const statsContent = document.getElementById('lib-stats-content');
         if (statsContent) {
             statsContent.innerHTML = `
-                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5em 1em; font-size: 0.9em; width: 100%; box-sizing: border-box;">
-                    <div style="color: var(--text-muted); white-space: nowrap;">Total Images:</div><div style="text-align: right; font-weight: bold; color: var(--text-bright)">${info.totalImages.toLocaleString()}</div>
-                    <div style="color: var(--text-muted); white-space: nowrap;">Metadata DB:</div><div style="text-align: right; font-weight: bold; color: var(--text-bright)">${(info.dbSize / (1024 * 1024)).toFixed(2)} MB</div>
-                    <div style="color: var(--text-muted); white-space: nowrap;">Preview DB:</div><div style="text-align: right; font-weight: bold; color: var(--text-bright)">${(info.previewDbSize / (1024 * 1024)).toFixed(2)} MB</div>
+                <div style="display: flex; flex-direction: column; gap: 0.5em; font-size: 0.85em; width: 100%; box-sizing: border-box; margin-bottom: 1em;">
+                    <div style="display: flex; flex-direction: column; gap: 0.2em;">
+                        <div style="color: var(--text-muted); font-weight: bold;">Metadata DB:</div>
+                        <div style="color: var(--text-dim); word-break: break-all; font-size: 0.8em;">${info.dbPath}</div>
+                        <div style="text-align: right; color: var(--text-bright)">${(info.dbSize / (1024 * 1024)).toFixed(2)} MB</div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.2em;">
+                        <div style="color: var(--text-muted); font-weight: bold;">Preview DB:</div>
+                        <div style="color: var(--text-dim); word-break: break-all; font-size: 0.8em;">${info.previewDbPath}</div>
+                        <div style="text-align: right; color: var(--text-bright)">${(info.previewDbSize / (1024 * 1024)).toFixed(2)} MB</div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.2em;">
+                        <div style="color: var(--text-muted); font-weight: bold;">Config:</div>
+                        <div style="color: var(--text-dim); word-break: break-all; font-size: 0.8em;">${info.configPath}</div>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.9em; border-top: 1px solid var(--border-dim); padding-top: 0.5em;">
+                    <div style="color: var(--text-muted);">Total Images:</div><div style="font-weight: bold; color: var(--text-bright)">${info.totalImages.toLocaleString()}</div>
                 </div>
             `;
         }

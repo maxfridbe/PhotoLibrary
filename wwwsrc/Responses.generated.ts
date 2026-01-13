@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-13T11:50:16.7198718-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-13T13:37:43.9372726-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -12,6 +12,7 @@ export interface PhotoResponse {
     hash?: string;
     isPicked: boolean;
     rating: number;
+    rotation: number;
     stackCount: number;
     stackExtensions?: string;
     stackFileIds: string[];
@@ -63,6 +64,8 @@ export interface LibraryInfoResponse {
     dbSize: number;
     previewDbSize: number;
     dbPath: string;
+    previewDbPath: string;
+    configPath: string;
     isIndexing: boolean;
     indexedCount: number;
     totalToIndex: number;
