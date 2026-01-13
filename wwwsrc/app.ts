@@ -81,6 +81,7 @@ class App {
 
     // Fullscreen state
     private isFullscreen: boolean = false;
+    private isApplyingUrl = false;
     private fullscreenOverlay: HTMLElement | null = null;
     private fullscreenImgPlaceholder: HTMLImageElement | null = null;
     private fullscreenImgHighRes: HTMLImageElement | null = null;
@@ -129,6 +130,7 @@ class App {
             this.setupContextMenu();
             this.initPubSub();
             this.startStatusTimer();
+            window.addEventListener('hashchange', () => this.applyUrlState());
             
             // Check initial connection state
             if (server.isConnected) {
@@ -189,6 +191,7 @@ class App {
             }
             
             if (this.workspaceEl) this.workspaceEl.focus();
+            this.syncUrl();
         });
 
         hub.sub('view.mode.changed', (data) => {
@@ -198,6 +201,7 @@ class App {
                 hub.pub('photo.selected', { id: data.id, photo: this.photoMap.get(data.id)! });
                 this.updateLoupeOverlay(data.id);
             }
+            this.syncUrl();
         });
 
         hub.sub('photo.updated', (data) => {
@@ -324,14 +328,16 @@ class App {
         }, 1000);
     }
 
+    public setSort(opt: SortOption) {
+        this.sortBy = opt;
+        this.processUIStacks();
+        this.syncUrl();
+    }
+
     public toggleStacking(enabled: boolean) {
         this.stackingEnabled = enabled;
         this.processUIStacks();
-    }
-
-    public setSort(sort: SortOption) {
-        this.sortBy = sort;
-        this.processUIStacks();
+        this.syncUrl();
     }
 
     private handlePhotoUpdate(photo: Photo) {
@@ -510,6 +516,110 @@ class App {
         }
     }
 
+    private syncUrl() {
+        if (this.isIndexing || this.isLibraryMode || this.isApplyingUrl) return;
+        const mode = this.isLoupeMode ? 'loupe' : 'grid';
+        let filterPart = 'all';
+        if (this.selectedRootId) filterPart = `folder/${this.selectedRootId}`;
+        else if (this.selectedCollectionId) filterPart = `collection/${this.selectedCollectionId}`;
+        else if (this.filterType === 'picked') filterPart = 'picked';
+        else if (this.filterType === 'rating') filterPart = `rating/${this.filterRating}`;
+        else if (this.filterType === 'search') filterPart = `search/${encodeURIComponent(this.searchTitle)}`;
+
+        const photoPart = this.selectedId ? `/${this.selectedId}` : '';
+        const params = new URLSearchParams();
+        params.set('sort', this.sortBy);
+        params.set('size', this.gridScale.toString());
+        params.set('stacked', this.stackingEnabled.toString());
+
+        const newHash = `#!/${mode}/${filterPart}${photoPart}?${params.toString()}`;
+        if (window.location.hash !== newHash) {
+            window.location.hash = newHash;
+        }
+    }
+
+    private async applyUrlState() {
+        const hash = window.location.hash;
+        if (!hash.startsWith('#!/')) return;
+        
+        this.isApplyingUrl = true;
+        try {
+            const [pathPart, queryPart] = hash.substring(3).split('?');
+            const parts = pathPart.split('/');
+            if (parts.length < 2) return;
+
+            const mode = parts[0];
+            const type = parts[1];
+            
+            this.isLoupeMode = (mode === 'loupe');
+
+            // Handle query params
+            if (queryPart) {
+                const params = new URLSearchParams(queryPart);
+                if (params.has('sort')) this.sortBy = params.get('sort') as SortOption;
+                if (params.has('size')) {
+                    this.gridScale = parseFloat(params.get('size')!);
+                    document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
+                    document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
+                }
+                if (params.has('stacked')) this.stackingEnabled = params.get('stacked') === 'true';
+            }
+            
+            if (type === 'folder' && parts[2]) {
+                this.filterType = 'all';
+                this.selectedRootId = parts[2];
+            } else if (type === 'collection' && parts[2]) {
+                this.filterType = 'collection';
+                this.selectedCollectionId = parts[2];
+                this.collectionFiles = await Api.api_collections_get_files({ id: this.selectedCollectionId });
+            } else if (type === 'picked') {
+                this.filterType = 'picked';
+            } else if (type === 'rating' && parts[2]) {
+                this.filterType = 'rating';
+                this.filterRating = parseInt(parts[2]);
+            } else if (type === 'search' && parts[2]) {
+                this.filterType = 'search';
+                this.searchTitle = decodeURIComponent(parts[2]);
+                this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
+            } else {
+                this.filterType = 'all';
+                this.selectedRootId = null;
+            }
+
+            // Selected ID is usually the last part if it exists and looks like a GUID or similar
+            // Based on our logic, it's at index 2 (for 'all', 'picked') or 3 (for 'folder', 'collection', 'rating', 'search')
+            let idFromUrl = '';
+            if (['all', 'picked'].includes(type)) idFromUrl = parts[2];
+            else idFromUrl = parts[3];
+
+            await this.refreshPhotos(true);
+            
+            if (idFromUrl) {
+                const p = this.photoMap.get(idFromUrl);
+                if (p) {
+                    this.selectedId = idFromUrl;
+                    hub.pub('photo.selected', { id: p.id, photo: p });
+                }
+            }
+
+            this.updateHeaderUI();
+            this.updateViewModeUI();
+        } finally {
+            this.isApplyingUrl = false;
+        }
+    }
+
+    private updateHeaderUI() {
+        const sortSelect = document.getElementById('grid-sort-select') as HTMLSelectElement;
+        if (sortSelect) sortSelect.value = this.sortBy;
+
+        const stackCheck = document.getElementById('grid-stack-check') as HTMLInputElement;
+        if (stackCheck) stackCheck.checked = this.stackingEnabled;
+
+        const scaleSlider = document.getElementById('grid-scale-slider') as HTMLInputElement;
+        if (scaleSlider) scaleSlider.value = this.gridScale.toString();
+    }
+
     async loadData() {
         try {
             const [roots, colls, stats] = await Promise.all([
@@ -520,7 +630,12 @@ class App {
             this.roots = roots;
             this.userCollections = colls;
             this.stats = stats;
-            await this.refreshPhotos();
+            
+            if (window.location.hash.startsWith('#!/')) {
+                await this.applyUrlState();
+            } else {
+                await this.refreshPhotos();
+            }
         } catch (e) { console.error("Load failed", e); }
     }
 
@@ -659,6 +774,7 @@ class App {
             scaleLabel.className = 'control-item';
             scaleLabel.title = 'Adjust thumbnail size';
             const scaleInput = document.createElement('input');
+            scaleInput.id = 'grid-scale-slider';
             scaleInput.type = 'range';
             scaleInput.min = '0.5';
             scaleInput.max = '2.0';
@@ -671,6 +787,7 @@ class App {
                 document.documentElement.style.setProperty('--card-height', (13.75 * self.gridScale) + 'em');
                 self.cardCache.clear(); // Clear cache as sizes changed
                 self.updateVirtualGrid(true);
+                self.syncUrl();
             };
             scaleLabel.appendChild(document.createTextNode('Size: '));
             scaleLabel.appendChild(scaleInput);
@@ -679,6 +796,7 @@ class App {
             sortLabel.className = 'control-item';
             sortLabel.textContent = 'Sort: ';
             const sortSelect = document.createElement('select');
+            sortSelect.id = 'grid-sort-select';
             sortSelect.style.background = '#111'; sortSelect.style.color = '#ccc'; sortSelect.style.border = '1px solid #444'; sortSelect.style.fontSize = '0.9em';
             const options: {val: SortOption, text: string}[] = [
                 { val: 'date-desc', text: 'Date (Newest)' },
@@ -701,6 +819,7 @@ class App {
             stackLabel.className = 'control-item';
             stackLabel.title = 'Stack JPG/RAW files with same name';
             const stackCheck = document.createElement('input');
+            stackCheck.id = 'grid-stack-check';
             stackCheck.type = 'checkbox';
             stackCheck.checked = self.stackingEnabled;
             stackCheck.onchange = (e) => self.toggleStacking((e.target as HTMLInputElement).checked);
@@ -1429,6 +1548,7 @@ class App {
         this.selectedRootId = rootId;
         this.selectedCollectionId = null;
         this.refreshPhotos();
+        this.syncUrl();
     }
 
     async setCollectionFilter(c: Collection) {
@@ -1437,6 +1557,7 @@ class App {
         this.selectedRootId = null;
         this.collectionFiles = await Api.api_collections_get_files({ id: c.id });
         this.refreshPhotos();
+        this.syncUrl();
     }
 
     setupContextMenu() { document.addEventListener('click', () => { const menu = document.getElementById('context-menu'); if (menu) menu.style.display = 'none'; }); }
