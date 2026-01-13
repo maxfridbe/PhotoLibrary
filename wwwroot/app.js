@@ -5,6 +5,14 @@ import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
 import { visualizeLensData } from './aperatureVis.js';
 class App {
+    get rowHeight() {
+        // 13.75em + 0.65em gap = 14.4em
+        return (this.baseRowHeight + 10) * this.gridScale;
+    }
+    get minCardWidth() {
+        // 12.5em + 0.65em gap = 13.15em
+        return (this.baseMinCardWidth + 10) * this.gridScale;
+    }
     constructor() {
         this.allPhotosFlat = [];
         this.photos = []; // Processed list
@@ -27,10 +35,11 @@ class App {
         this.searchResultIds = [];
         this.searchTitle = '';
         this.collectionFiles = [];
-        this.rowHeight = 230;
-        this.minCardWidth = 210;
-        this.cols = 1;
-        this.visibleRange = { start: 0, end: 0 };
+        this.cols = 5;
+        this.gridScale = 1.0;
+        this.baseRowHeight = 230;
+        this.baseMinCardWidth = 210;
+        this.visibleRange = { start: 0, end: 50 };
         this.isLoadingChunk = new Set();
         this.rotationMap = new Map();
         this.isLoupeMode = false;
@@ -161,6 +170,13 @@ class App {
             const filmCard = this.filmstrip?.querySelector(`.card[data-id="${data.id}"] img`);
             if (filmCard)
                 filmCard.style.transform = `rotate(${data.rotation}deg)`;
+            // Update fullscreen image
+            if (this.isFullscreen && this.selectedId === data.id) {
+                if (this.fullscreenImgPlaceholder)
+                    this.fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
+                if (this.fullscreenImgHighRes)
+                    this.fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
+            }
         });
         hub.subPattern('photo.picked.*', () => this.refreshStatsOnly());
         hub.subPattern('photo.starred.*', () => this.refreshStatsOnly());
@@ -556,6 +572,25 @@ class App {
             headerRight.style.display = 'flex';
             headerRight.style.alignItems = 'center';
             headerRight.style.gap = '15px';
+            const scaleLabel = document.createElement('label');
+            scaleLabel.className = 'control-item';
+            scaleLabel.title = 'Adjust thumbnail size';
+            const scaleInput = document.createElement('input');
+            scaleInput.type = 'range';
+            scaleInput.min = '0.5';
+            scaleInput.max = '2.0';
+            scaleInput.step = '0.1';
+            scaleInput.value = self.gridScale.toString();
+            scaleInput.style.width = '80px';
+            scaleInput.oninput = (e) => {
+                self.gridScale = parseFloat(e.target.value);
+                document.documentElement.style.setProperty('--card-min-width', (12.5 * self.gridScale) + 'em');
+                document.documentElement.style.setProperty('--card-height', (13.75 * self.gridScale) + 'em');
+                self.cardCache.clear(); // Clear cache as sizes changed
+                self.updateVirtualGrid(true);
+            };
+            scaleLabel.appendChild(document.createTextNode('Size: '));
+            scaleLabel.appendChild(scaleInput);
             const sortLabel = document.createElement('label');
             sortLabel.className = 'control-item';
             sortLabel.textContent = 'Sort: ';
@@ -596,6 +631,7 @@ class App {
             const headerCount = document.createElement('span');
             headerCount.id = 'header-count';
             headerCount.textContent = '0 items';
+            headerRight.appendChild(scaleLabel);
             headerRight.appendChild(sortLabel);
             headerRight.appendChild(stackLabel);
             headerRight.appendChild(headerCount);
@@ -1037,9 +1073,10 @@ class App {
         this.scrollSentinel.style.height = totalHeight + 'px';
         const scrollTop = gridContainer.scrollTop;
         const viewHeight = gridContainer.clientHeight;
-        const startRow = Math.floor(scrollTop / this.rowHeight);
-        const endIndex = Math.min(this.totalPhotos, Math.ceil((scrollTop + viewHeight) / this.rowHeight + 1) * this.cols);
-        const startIndex = Math.max(0, startRow * this.cols);
+        const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - 1); // 1 row buffer top
+        const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight) + 2; // 2 rows buffer bottom
+        const startIndex = startRow * this.cols;
+        const endIndex = Math.min(this.totalPhotos, endRow * this.cols);
         if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.renderVisiblePhotos();
@@ -1700,6 +1737,9 @@ class App {
             return;
         this.fullscreenImgHighRes.classList.remove('loaded');
         this.fullscreenSpinner.style.display = 'block';
+        const rot = this.rotationMap.get(id) || 0;
+        this.fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
+        this.fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
         const dlOrig = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)');
         if (dlOrig)
             dlOrig.href = `/api/download/${id}`;
@@ -2104,12 +2144,24 @@ class App {
             }
         }
         if (key === '[') {
-            if (this.isLoupeMode && this.rotateLeft)
-                this.rotateLeft();
+            if (this.selectedId) {
+                if (this.isLoupeMode && this.rotateLeft)
+                    this.rotateLeft();
+                else {
+                    const current = this.rotationMap.get(this.selectedId) || 0;
+                    hub.pub('photo.rotated', { id: this.selectedId, rotation: current - 90 });
+                }
+            }
         }
         if (key === ']') {
-            if (this.isLoupeMode && this.rotateRight)
-                this.rotateRight();
+            if (this.selectedId) {
+                if (this.isLoupeMode && this.rotateRight)
+                    this.rotateRight();
+                else {
+                    const current = this.rotationMap.get(this.selectedId) || 0;
+                    hub.pub('photo.rotated', { id: this.selectedId, rotation: current + 90 });
+                }
+            }
         }
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
             e.preventDefault();
