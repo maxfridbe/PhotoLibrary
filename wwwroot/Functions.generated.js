@@ -59,6 +59,9 @@ export async function api_library_import_batch(data) {
 export async function api_library_generate_thumbnails(data) {
     return await post('/api/library/generate-thumbnails', data);
 }
+export async function api_library_set_annotation(data) {
+    return await post('/api/library/set-annotation', data);
+}
 export async function api_library_cancel_task(data) {
     return await post('/api/library/cancel-task', data);
 }

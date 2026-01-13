@@ -1242,15 +1242,56 @@ class App {
 
         const renderNode = (item: any, target: HTMLElement) => {
             const el = document.createElement('div');
-            el.className = 'tree-item folder-tree-item' + (this.selectedRootId === item.node.id ? ' selected' : '');
+            el.className = 'tree-item' + (this.selectedRootId === item.node.id ? ' selected' : '');
             
+            const pill = document.createElement('span');
+            pill.className = 'annotation-pill' + (item.node.annotation ? ' has-content' : '');
+            pill.contentEditable = 'true';
+            pill.textContent = item.node.annotation || '';
+            
+            const saveAnnotation = async () => {
+                const raw = pill.textContent || '';
+                const words = raw.trim().split(/\s+/).slice(0, 3).join(' ');
+                if (words !== (item.node.annotation || '')) {
+                    await Api.api_library_set_annotation({ folderId: item.node.id, annotation: words });
+                    item.node.annotation = words;
+                }
+                pill.textContent = words;
+                pill.classList.toggle('has-content', !!words);
+            };
+
+            pill.onblur = saveAnnotation;
+            pill.onfocus = () => {
+                pill.classList.add('has-content'); // Ensure visible during edit
+            };
+            pill.onclick = (e) => e.stopPropagation();
+            pill.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    pill.blur();
+                }
+            };
+
+            const annotationIcon = document.createElement('span');
+            annotationIcon.className = 'annotation-icon';
+            annotationIcon.innerHTML = '&#128172;'; 
+            annotationIcon.title = 'Add/Edit Annotation';
+            annotationIcon.onclick = (e) => {
+                e.stopPropagation();
+                pill.classList.add('has-content');
+                pill.focus();
+            };
+
             const toggle = document.createElement('span');
-            toggle.className = 'tree-toggle';
             toggle.style.width = '1.2em';
             toggle.style.display = 'inline-block';
             toggle.style.textAlign = 'center';
             toggle.style.cursor = 'pointer';
             toggle.innerHTML = item.children.length > 0 ? '&#9662;' : '&nbsp;';
+
+            el.appendChild(annotationIcon);
+            el.appendChild(pill);
+            el.appendChild(toggle);
 
             const name = document.createElement('span');
             name.className = 'tree-name';
@@ -2087,6 +2128,7 @@ class App {
 
     private handleKey(e: KeyboardEvent) {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+        if ((e.target as HTMLElement).isContentEditable) return;
         
         const key = e.key.toLowerCase();
         if (key === 'escape') {

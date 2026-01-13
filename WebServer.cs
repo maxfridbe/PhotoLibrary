@@ -307,23 +307,23 @@ namespace PhotoLibrary
                                     indexer.GeneratePreviews(new FileInfo(fullPath), fId);
                                 }
                             }
-
-                            if (processed % 10 == 0 || processed == total)
-                            {
-                                await Broadcast(new { type = "folder.progress", rootId = req.rootId, processed, total });
-                            }
                         }
                         _logger?.LogInformation("Finished thumbnail generation for root {RootId}. Processed {Count}/{Total}.", req.rootId, processed, total);
+                        await Broadcast(new { type = "scan.finished" });
                     }
                     catch (Exception ex) { _logger?.LogError(ex, "[WS] Thumbnail gen error"); }
-                    finally
-                    {
-                        _activeTasks.TryRemove(taskId, out _);
-                        await Broadcast(new { type = "folder.finished", rootId = req.rootId });
-                    }
+                    finally { _activeTasks.TryRemove(taskId, out _); }
                 });
 
-                return Results.Ok(new { taskId });
+                return Results.Ok();
+            });
+
+            app.MapPost("/api/library/set-annotation", async (HttpContext context, DatabaseManager db) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<FolderAnnotationRequest>();
+                if (req == null) return Results.BadRequest();
+                db.SetFolderAnnotation(req.folderId, req.annotation);
+                return Results.Ok(new { });
             });
 
             app.MapPost("/api/library/cancel-task", async (HttpContext context) =>

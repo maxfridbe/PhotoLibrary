@@ -38,6 +38,7 @@ namespace PhotoLibrary
         public string? ParentId { get; set; }
         public string? Name { get; set; }
         public int ImageCount { get; set; }
+        public string? Annotation { get; set; }
     }
 
     public class CollectionResponse
@@ -57,9 +58,10 @@ namespace PhotoLibrary
     public class LibraryFolderResponse
     {
         public string Id { get; set; } = "";
-        public string? ParentId { get; set; }
         public string Path { get; set; } = "";
+        public string? ParentId { get; set; }
         public int ImageCount { get; set; }
+        public string? Annotation { get; set; }
     }
 
     public class LibraryInfoResponse
