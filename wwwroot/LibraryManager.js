@@ -69,9 +69,22 @@ export class LibraryManager {
             el.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 1em; width: 100%; box-sizing: border-box;">
                     <h3 style="margin-top:0">Find New Images</h3>
-                    <div style="display: flex; gap: 0.5em; width: 100%;">
-                        <input type="text" id="scan-path-input" placeholder="Path to scan..." style="flex: 1; background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.5em; border-radius: 4px; min-width: 0;">
-                        <button id="find-files-btn" style="padding: 0.5em 1em; background: var(--bg-active); color: var(--text-bright); border: 1px solid var(--border-light); border-radius: 4px; cursor: pointer; white-space: nowrap;">FIND NEW</button>
+                    <div style="display: flex; flex-direction: column; gap: 0.5em; width: 100%;">
+                        <div style="display: flex; gap: 0.5em; width: 100%;">
+                            <input type="text" id="scan-path-input" placeholder="Path to scan..." style="flex: 1; background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.5em; border-radius: 4px; min-width: 0;">
+                            <button id="find-files-btn" style="padding: 0.5em 1em; background: var(--bg-active); color: var(--text-bright); border: 1px solid var(--border-light); border-radius: 4px; cursor: pointer; white-space: nowrap;">FIND NEW</button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5em; font-size: 0.85em; color: var(--text-muted);">
+                            <span>Limit:</span>
+                            <select id="scan-limit-select" style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 2px 5px; border-radius: 4px;">
+                                <option value="100">100</option>
+                                <option value="500">500</option>
+                                <option value="1000" selected>1000</option>
+                                <option value="2500">2500</option>
+                                <option value="5000">5000</option>
+                                <option value="10000">10000</option>
+                            </select>
+                        </div>
                     </div>
                     <div style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
                         <h4 style="margin: 0.5em 0">Quick Select: Registered Folders</h4>
@@ -100,7 +113,7 @@ export class LibraryManager {
             el.style.gap = '1em';
             el.innerHTML = `
                 <div style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
-                    <h3 style="margin-top:0">New Files Ready for Import</h3>
+                    <h3 style="margin-top:0">Found Unindexed Images</h3>
                     <div id="found-files-content" style="flex: 1; overflow-y: auto; font-family: monospace; font-size: 0.85em; color: var(--text-muted); border: 1px solid var(--border-main); padding: 0.5em; border-radius: 4px; background: var(--bg-input);"></div>
                 </div>
                 <div id="import-controls-container" style="flex-shrink: 0; padding-top: 1em; border-top: 1px solid var(--border-main);">
@@ -146,7 +159,7 @@ export class LibraryManager {
                         </label>
                     </div>
                     <button id="start-scan-btn" style="flex: 1; padding: 0.8em; background: var(--accent); color: var(--text-bright); border: none; border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 200px;">
-                        INDEX EXISTING FILES
+                        INDEX FOUND FILES
                     </button>
                 </div>
             `;
@@ -171,19 +184,26 @@ export class LibraryManager {
             if (span)
                 span.textContent = `${indexedCount} / ${total}`;
         }
+        // Keep it scrolled to the top
+        const content = document.getElementById('found-files-content');
+        if (content)
+            content.scrollTop = 0;
     }
     async findNewFiles() {
         const pathInput = document.getElementById('scan-path-input');
-        if (!pathInput)
+        const limitSelect = document.getElementById('scan-limit-select');
+        if (!pathInput || !limitSelect)
             return;
         const path = pathInput.value;
+        const limit = limitSelect.value;
         if (!path)
             return;
         const content = document.getElementById('found-files-content');
         if (content)
             content.innerHTML = 'Searching for files not in database...';
         try {
-            const res = await post('/api/library/find-new-files', { name: path });
+            // Encode limit into name since we use NameRequest record
+            const res = await post('/api/library/find-new-files', { name: `${path}|${limit}` });
             if (res && res.files) {
                 this.scanResults = res.files.map((f) => ({ path: f, status: 'pending' }));
                 this.renderFoundFiles();
@@ -202,16 +222,22 @@ export class LibraryManager {
             content.innerHTML = 'No new files found (all files in this path are already indexed).';
             return;
         }
+        // Sort so indexed are at the top (if that's what "keep it scrolled to the top" implies)
+        const sorted = [...this.scanResults].sort((a, b) => {
+            if (a.status === b.status)
+                return 0;
+            return a.status === 'indexed' ? -1 : 1;
+        });
         content.innerHTML = `
             <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
-                <thead style="position: sticky; top: 0; background: var(--bg-input); color: var(--text-bright);">
+                <thead style="position: sticky; top: 0; background: var(--bg-input); color: var(--text-bright); z-index: 1;">
                     <tr>
                         <th style="text-align: left; padding: 0.5em;">File Path</th>
                         <th style="text-align: right; padding: 0.5em; width: 100px;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${this.scanResults.map(f => `
+                    ${sorted.map(f => `
                         <tr style="border-bottom: 1px solid var(--border-dim)">
                             <td style="padding: 0.2em 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${f.path}">${f.path}</td>
                             <td style="padding: 0.2em 0.5em; text-align: right; color: ${f.status === 'indexed' ? 'var(--accent)' : 'var(--text-muted)'}">${f.status.toUpperCase()}</td>

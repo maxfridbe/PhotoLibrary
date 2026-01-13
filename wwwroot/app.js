@@ -3,16 +3,9 @@ import { hub } from './PubSub.js';
 import { server } from './CommunicationManager.js';
 import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
+import { GridView } from './grid.js';
 import { visualizeLensData } from './aperatureVis.js';
 class App {
-    get rowHeight() {
-        // 13.75em + 0.65em gap = 14.4em
-        return (this.baseRowHeight + 10) * this.gridScale;
-    }
-    get minCardWidth() {
-        // 12.5em + 0.65em gap = 13.15em
-        return (this.baseMinCardWidth + 10) * this.gridScale;
-    }
     constructor() {
         this.allPhotosFlat = [];
         this.photos = []; // Processed list
@@ -21,7 +14,6 @@ class App {
         this.userCollections = [];
         this.stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0, 0, 0, 0, 0] };
         this.totalPhotos = 0;
-        this.cardCache = new Map();
         this.imageUrlCache = new Map();
         this.cameraThumbCache = new Map();
         this.selectedId = null;
@@ -35,11 +27,7 @@ class App {
         this.searchResultIds = [];
         this.searchTitle = '';
         this.collectionFiles = [];
-        this.cols = 5;
         this.gridScale = 1.0;
-        this.baseRowHeight = 230;
-        this.baseMinCardWidth = 210;
-        this.visibleRange = { start: 0, end: 50 };
         this.isLoadingChunk = new Set();
         this.rotationMap = new Map();
         this.isLoupeMode = false;
@@ -78,6 +66,7 @@ class App {
         this.folderProgress = new Map();
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
+        this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap);
         hub.sub('folder.progress', (data) => {
             this.folderProgress.set(data.rootId, { processed: data.processed, total: data.total });
             this.refreshDirectories(); // Trigger tree re-render
@@ -137,6 +126,7 @@ class App {
         hub.sub('photo.selected', (data) => {
             this.selectedId = data.id;
             this.updateSelectionUI(data.id);
+            this.gridViewManager.setSelected(data.id);
             this.loadMetadata(data.id);
             if (this.isFullscreen) {
                 this.updateFullscreenImage(data.id);
@@ -146,7 +136,7 @@ class App {
                 this.updateLoupeOverlay(data.id);
             }
             else {
-                this.scrollToPhoto(data.id);
+                this.gridViewManager.scrollToPhoto(data.id);
             }
             if (this.workspaceEl)
                 this.workspaceEl.focus();
@@ -166,10 +156,8 @@ class App {
         });
         hub.sub('photo.rotated', (data) => {
             this.rotationMap.set(data.id, data.rotation);
-            // Update grid card
-            const gridCard = this.gridView?.querySelector(`.card[data-id="${data.id}"] img`);
-            if (gridCard)
-                gridCard.style.transform = `rotate(${data.rotation}deg)`;
+            // Update grid card via manager
+            this.gridViewManager.refreshStats(data.id, this.photos);
             // Update filmstrip card
             const filmCard = this.filmstrip?.querySelector(`.card[data-id="${data.id}"] img`);
             if (filmCard)
@@ -182,11 +170,13 @@ class App {
                     this.fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
             }
         });
-        hub.subPattern('photo.picked.*', () => this.refreshStatsOnly());
-        hub.subPattern('photo.starred.*', () => this.refreshStatsOnly());
+        hub.subPattern('photo.picked.*', (data) => { this.refreshStatsOnly(); if (data?.id)
+            this.gridViewManager.refreshStats(data.id, this.photos); });
+        hub.subPattern('photo.starred.*', (data) => { this.refreshStatsOnly(); if (data?.id)
+            this.gridViewManager.refreshStats(data.id, this.photos); });
         hub.sub('search.triggered', (data) => this.searchPhotos(data.tag, data.value));
         hub.sub('shortcuts.show', () => document.getElementById('shortcuts-modal')?.classList.add('active'));
-        hub.sub('ui.layout.changed', () => this.updateVirtualGrid());
+        hub.sub('ui.layout.changed', () => this.gridViewManager.update());
         hub.sub('connection.changed', (data) => {
             this.isConnected = data.connected;
             this.isConnecting = data.connecting;
@@ -295,7 +285,7 @@ class App {
         this.processUIStacks();
         const rep = this.photos.find(p => p.id === photo.id || (p.stackFileIds && p.stackFileIds.includes(photo.id)));
         if (rep) {
-            this.updatePhotoCardUI(rep);
+            this.gridViewManager.refreshStats(rep.id, this.photos);
         }
         if (this.selectedId === photo.id)
             this.loadMetadata(photo.id);
@@ -357,6 +347,7 @@ class App {
         });
         this.photos = result;
         this.totalPhotos = this.photos.length;
+        this.gridViewManager.setPhotos(this.photos);
         this.renderGrid();
         if (this.isLoupeMode)
             this.renderFilmstrip();
@@ -497,34 +488,60 @@ class App {
                     this.gridScale = parseFloat(params.get('size'));
                     document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
                     document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
+                    this.gridViewManager.setScale(this.gridScale);
                 }
                 if (params.has('stacked'))
                     this.stackingEnabled = params.get('stacked') === 'true';
             }
+            let newFilterType = this.filterType;
+            let newRootId = null;
+            let newCollectionId = null;
+            let newRating = 0;
+            let newSearchTitle = '';
             if (type === 'folder' && parts[2]) {
-                this.filterType = 'all';
-                this.selectedRootId = parts[2];
+                newFilterType = 'all';
+                newRootId = parts[2];
             }
             else if (type === 'collection' && parts[2]) {
-                this.filterType = 'collection';
-                this.selectedCollectionId = parts[2];
-                this.collectionFiles = await Api.api_collections_get_files({ id: this.selectedCollectionId });
+                newFilterType = 'collection';
+                newCollectionId = parts[2];
             }
             else if (type === 'picked') {
-                this.filterType = 'picked';
+                newFilterType = 'picked';
             }
             else if (type === 'rating' && parts[2]) {
-                this.filterType = 'rating';
-                this.filterRating = parseInt(parts[2]);
+                newFilterType = 'rating';
+                newRating = parseInt(parts[2]);
             }
             else if (type === 'search' && parts[2]) {
-                this.filterType = 'search';
-                this.searchTitle = decodeURIComponent(parts[2]);
-                this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
+                newFilterType = 'search';
+                newSearchTitle = decodeURIComponent(parts[2]);
             }
             else {
-                this.filterType = 'all';
-                this.selectedRootId = null;
+                newFilterType = 'all';
+                newRootId = null;
+            }
+            const filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
+            if (filterChanged) {
+                this.filterType = newFilterType;
+                this.selectedRootId = newRootId;
+                this.selectedCollectionId = newCollectionId;
+                this.filterRating = newRating;
+                this.searchTitle = newSearchTitle;
+                if (this.filterType === 'collection' && this.selectedCollectionId) {
+                    this.collectionFiles = await Api.api_collections_get_files({ id: this.selectedCollectionId });
+                }
+                else if (this.filterType === 'search') {
+                    this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
+                }
+                await this.refreshPhotos(true);
+            }
+            else {
+                // If filters didn't change but scale/stacking did, we might need to re-process stacks or just update view
+                // For now, let's just re-process stacks if stacking changed, or just ensure grid is updated
+                // But wait, setScale on gridViewManager handles render. 
+                // Stacking change requires processUIStacks
+                this.processUIStacks();
             }
             // Selected ID is usually the last part if it exists and looks like a GUID or similar
             // Based on our logic, it's at index 2 (for 'all', 'picked') or 3 (for 'folder', 'collection', 'rating', 'search')
@@ -533,8 +550,7 @@ class App {
                 idFromUrl = parts[2];
             else
                 idFromUrl = parts[3];
-            await this.refreshPhotos(true);
-            if (idFromUrl) {
+            if (idFromUrl && idFromUrl !== this.selectedId) {
                 const p = this.photoMap.get(idFromUrl);
                 if (p) {
                     this.selectedId = idFromUrl;
@@ -583,7 +599,7 @@ class App {
     async refreshPhotos(keepSelection = false) {
         this.allPhotosFlat = [];
         this.photos = [];
-        this.cardCache.clear();
+        this.gridViewManager.clearCache();
         this.isLoadingChunk.clear();
         const params = {
             limit: 100000, offset: 0,
@@ -597,6 +613,8 @@ class App {
         this.photoMap.clear();
         this.allPhotosFlat.forEach(p => this.photoMap.set(p.id, p));
         this.stats = stats;
+        this.photos = this.allPhotosFlat;
+        this.gridViewManager.setPhotos(this.photos);
         this.renderLibrary();
         this.processUIStacks();
         if (!keepSelection && this.photos.length > 0) {
@@ -664,6 +682,7 @@ class App {
                 self.renderLibrary();
         });
         this.layout.registerComponent('workspace', function (container) {
+            console.log('[App] Workspace component initializing...');
             self.workspaceEl = document.createElement('div');
             self.workspaceEl.className = 'gl-component';
             self.workspaceEl.style.overflow = 'hidden';
@@ -704,11 +723,8 @@ class App {
             scaleInput.value = self.gridScale.toString();
             scaleInput.style.width = '80px';
             scaleInput.oninput = (e) => {
-                self.gridScale = parseFloat(e.target.value);
-                document.documentElement.style.setProperty('--card-min-width', (12.5 * self.gridScale) + 'em');
-                document.documentElement.style.setProperty('--card-height', (13.75 * self.gridScale) + 'em');
-                self.cardCache.clear(); // Clear cache as sizes changed
-                self.updateVirtualGrid(true);
+                const scale = parseFloat(e.target.value);
+                self.gridViewManager.setScale(scale);
                 self.syncUrl();
             };
             scaleLabel.appendChild(document.createTextNode('Size: '));
@@ -766,6 +782,7 @@ class App {
             gridContainer.id = 'grid-container';
             gridContainer.style.flex = '1';
             gridContainer.style.overflowY = 'auto';
+            gridContainer.style.scrollbarGutter = 'stable';
             gridContainer.style.position = 'relative';
             const sentinel = document.createElement('div');
             sentinel.id = 'scroll-sentinel';
@@ -785,6 +802,12 @@ class App {
             gridContainer.appendChild(sentinel);
             gridContainer.appendChild(gridView);
             self.workspaceEl.appendChild(gridContainer);
+            gridContainer.onscroll = () => self.gridViewManager.update();
+            console.log('[App] Assigning gridViewEl to manager');
+            self.gridViewManager.gridViewEl = gridView;
+            self.gridViewManager.scrollSentinel = sentinel;
+            if (self.photos.length > 0)
+                self.gridViewManager.update(true);
             const loupeView = document.createElement('div');
             loupeView.id = 'loupe-view';
             loupeView.className = 'loupe-view';
@@ -1087,7 +1110,7 @@ class App {
             self.loupePreviewPlaceholder = imgP;
             self.mainPreview = imgH;
             self.previewSpinner = spinner;
-            gridContainer.onscroll = () => self.updateVirtualGrid();
+            gridContainer.onscroll = () => self.gridViewManager.update();
             // Filmstrip Resizer Logic
             let isResizing = false;
             resizer.onmousedown = (e) => { isResizing = true; e.preventDefault(); };
@@ -1136,110 +1159,6 @@ class App {
             if (stripItem)
                 stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
         }
-    }
-    syncCardData(card, photo) {
-        const pBtn = card.querySelector('.pick-btn');
-        if (pBtn) {
-            if (photo.isPicked)
-                pBtn.classList.add('picked');
-            else
-                pBtn.classList.remove('picked');
-        }
-        const stars = card.querySelector('.stars');
-        if (stars) {
-            const el = stars;
-            el.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
-            if (photo.rating > 0)
-                el.classList.add('has-rating');
-            else
-                el.classList.remove('has-rating');
-        }
-        const nameEl = card.querySelector('.filename');
-        if (nameEl) {
-            let displayName = photo.fileName || '';
-            if (photo.stackExtensions && (this.stackingEnabled || photo.stackCount > 1)) {
-                const extIdx = displayName.lastIndexOf('.');
-                const base = extIdx > 0 ? displayName.substring(0, extIdx) : displayName;
-                displayName = `${base} (${photo.stackExtensions})`;
-            }
-            nameEl.textContent = displayName;
-        }
-        if (photo.stackCount > 1 && this.stackingEnabled) {
-            card.classList.add('is-stacked');
-            let badge = card.querySelector('.stack-badge');
-            if (!badge) {
-                badge = document.createElement('div');
-                badge.className = 'stack-badge';
-                card.appendChild(badge);
-            }
-            badge.textContent = photo.stackCount.toString();
-        }
-        else {
-            card.classList.remove('is-stacked');
-            card.querySelector('.stack-badge')?.remove();
-        }
-    }
-    updatePhotoCardUI(photo) {
-        const cached = this.cardCache.get(photo.id);
-        if (cached)
-            this.syncCardData(cached, photo);
-        const inDom = this.workspaceEl?.querySelectorAll(`.card[data-id="${photo.id}"]`);
-        inDom?.forEach(card => this.syncCardData(card, photo));
-    }
-    updateVirtualGrid(force = false) {
-        if (!this.gridView || !this.workspaceEl || this.isLoupeMode)
-            return;
-        const gridContainer = this.gridView.parentElement;
-        const containerWidth = gridContainer.clientWidth - 20;
-        this.cols = Math.max(1, Math.floor(containerWidth / this.minCardWidth));
-        const rowCount = Math.ceil(this.totalPhotos / this.cols);
-        const totalHeight = rowCount * this.rowHeight;
-        this.scrollSentinel.style.height = totalHeight + 'px';
-        const scrollTop = gridContainer.scrollTop;
-        const viewHeight = gridContainer.clientHeight;
-        const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - 1); // 1 row buffer top
-        const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight) + 2; // 2 rows buffer bottom
-        const startIndex = startRow * this.cols;
-        const endIndex = Math.min(this.totalPhotos, endRow * this.cols);
-        if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
-            this.visibleRange = { start: startIndex, end: endIndex };
-            this.renderVisiblePhotos();
-        }
-    }
-    renderVisiblePhotos() {
-        if (!this.gridView)
-            return;
-        const startRow = Math.floor(this.visibleRange.start / this.cols);
-        this.gridView.style.transform = `translateY(${startRow * this.rowHeight}px)`;
-        const fragment = document.createDocumentFragment();
-        for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
-            const photo = this.photos[i];
-            if (photo) {
-                let card = this.cardCache.get(photo.id);
-                if (!card) {
-                    card = this.createCard(photo, 'grid');
-                    this.cardCache.set(photo.id, card);
-                }
-                else {
-                    this.syncCardData(card, photo);
-                }
-                fragment.appendChild(card);
-            }
-            else {
-                const placeholder = document.createElement('div');
-                placeholder.className = 'card placeholder';
-                placeholder.style.height = (this.rowHeight - 10) + 'px';
-                const cont = document.createElement('div');
-                cont.className = 'img-container';
-                const spin = document.createElement('div');
-                spin.className = 'spinner';
-                cont.appendChild(spin);
-                placeholder.appendChild(cont);
-                fragment.appendChild(placeholder);
-            }
-        }
-        this.gridView.innerHTML = '';
-        this.gridView.appendChild(fragment);
     }
     renderLibrary() {
         if (!this.libraryEl)
@@ -1607,7 +1526,7 @@ class App {
     }
     getFilteredPhotos() { return this.photos; }
     renderGrid() {
-        this.updateVirtualGrid(true);
+        this.gridViewManager.update(true);
         let headerText = "All Photos";
         if (this.filterType === 'picked')
             headerText = "Collection: Picked";
@@ -1642,83 +1561,12 @@ class App {
             return;
         this.filmstrip.innerHTML = '';
         const loadedPhotos = this.getFilteredPhotos();
-        loadedPhotos.forEach(p => this.filmstrip.appendChild(this.createCard(p, 'filmstrip')));
+        loadedPhotos.forEach(p => this.filmstrip.appendChild(this.gridViewManager.createCard(p, 'filmstrip')));
         if (this.selectedId) {
             const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
             if (el)
                 el.scrollIntoView({ behavior: 'auto', inline: 'center' });
         }
-    }
-    createCard(p, type) {
-        const card = document.createElement('div');
-        card.className = 'card';
-        if (this.selectedId === p.id)
-            card.classList.add('selected');
-        card.dataset.id = p.id;
-        const imgContainer = document.createElement('div');
-        imgContainer.className = 'img-container';
-        const img = document.createElement('img');
-        // Apply rotation if exists
-        const rot = this.rotationMap.get(p.id);
-        if (rot)
-            img.style.transform = `rotate(${rot}deg)`;
-        imgContainer.appendChild(img);
-        this.lazyLoadImage(p.id, img, 300);
-        card.appendChild(imgContainer);
-        const info = document.createElement('div');
-        info.className = 'info';
-        const top = document.createElement('div');
-        top.className = 'info-top';
-        const name = document.createElement('span');
-        name.className = 'filename';
-        top.appendChild(name);
-        const pick = document.createElement('span');
-        pick.className = 'pick-btn' + (p.isPicked ? ' picked' : '');
-        pick.textContent = '\u2691';
-        pick.onclick = (e) => { e.stopPropagation(); server.togglePick(p); };
-        top.appendChild(pick);
-        const mid = document.createElement('div');
-        mid.className = 'info-mid';
-        mid.textContent = new Date(p.createdAt).toISOString().split('T')[0];
-        const bottom = document.createElement('div');
-        bottom.className = 'info-bottom';
-        const stars = document.createElement('span');
-        stars.className = 'stars' + (p.rating > 0 ? ' has-rating' : '');
-        stars.textContent = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
-        bottom.appendChild(stars);
-        info.appendChild(top);
-        info.appendChild(mid);
-        info.appendChild(bottom);
-        card.appendChild(info);
-        if (type === 'grid') {
-            card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
-        }
-        card.addEventListener('click', () => hub.pub('photo.selected', { id: p.id, photo: p }));
-        this.syncCardData(card, p);
-        return card;
-    }
-    lazyLoadImage(id, img, size) {
-        const cacheKey = id + '-' + size;
-        if (this.imageUrlCache.has(cacheKey)) {
-            img.src = this.imageUrlCache.get(cacheKey);
-            img.parentElement?.classList.add('loaded');
-            return;
-        }
-        const target = img.parentElement || img;
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    server.requestImage(id, size).then((blob) => {
-                        const url = URL.createObjectURL(blob);
-                        this.imageUrlCache.set(cacheKey, url);
-                        img.onload = () => img.parentElement?.classList.add('loaded');
-                        img.src = url;
-                    });
-                    observer.disconnect();
-                }
-            });
-        });
-        observer.observe(target);
     }
     selectPhoto(id) {
         if (this.selectedId === id)
@@ -1730,24 +1578,6 @@ class App {
             this.updateFullscreenImage(id);
         else if (this.isLoupeMode)
             this.loadMainPreview(id);
-    }
-    scrollToPhoto(id) {
-        const index = this.photos.findIndex(p => p?.id === id);
-        if (index === -1)
-            return;
-        const row = Math.floor(index / this.cols);
-        const gridContainer = this.gridView?.parentElement;
-        if (!gridContainer)
-            return;
-        const currentScroll = gridContainer.scrollTop;
-        const viewHeight = gridContainer.clientHeight;
-        const targetTop = row * this.rowHeight;
-        if (targetTop < currentScroll || targetTop + this.rowHeight > currentScroll + viewHeight) {
-            gridContainer.scrollTo({
-                top: targetTop - (viewHeight / 2) + (this.rowHeight / 2),
-                behavior: 'smooth'
-            });
-        }
     }
     enterLoupeMode(id) {
         this.isLoupeMode = true;
@@ -1761,8 +1591,8 @@ class App {
         this.isLibraryMode = false;
         this.updateViewModeUI();
         if (this.selectedId)
-            this.scrollToPhoto(this.selectedId);
-        this.updateVirtualGrid(true);
+            this.gridViewManager.scrollToPhoto(this.selectedId);
+        this.gridViewManager.update(true);
     }
     enterLibraryMode() {
         this.isLoupeMode = false;
@@ -1807,7 +1637,7 @@ class App {
                 if (this.gridHeader)
                     this.gridHeader.style.display = 'flex';
                 document.getElementById('nav-grid')?.classList.add('active');
-                this.updateVirtualGrid(true);
+                this.gridViewManager.update(true);
             }
         }
     }
@@ -2310,10 +2140,11 @@ class App {
                     index--;
             }
             else {
+                const cols = this.gridViewManager.getColumnCount();
                 if (key === 'ArrowDown')
-                    index += this.cols;
+                    index += cols;
                 else
-                    index -= this.cols;
+                    index -= cols;
             }
         }
         index = Math.max(0, Math.min(this.photos.length - 1, index));
@@ -2321,7 +2152,7 @@ class App {
         if (target) {
             hub.pub('photo.selected', { id: target.id, photo: target });
             // Always scroll to photo in background to keep grid in sync
-            this.scrollToPhoto(target.id);
+            this.gridViewManager.scrollToPhoto(target.id);
         }
     }
     setupGlobalKeyboard() {

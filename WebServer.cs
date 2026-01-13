@@ -163,9 +163,24 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<NameRequest>();
                 if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
 
+                // Check if name contains a limit suffix like "|1000" or similar, 
+                // or better, we should have updated the Request model. 
+                // Since I can't easily change the model and regenerate without potential issues, 
+                // I'll try to parse it from the string if present or just use a default.
+                // Wait, I can update the model! Let's update NameRequest or add a new one.
+                
+                int limit = 1000;
+                string path = req.name;
+                if (path.Contains("|")) {
+                    var parts = path.Split('|');
+                    path = parts[0];
+                    int.TryParse(parts[1], out limit);
+                }
+                limit = Math.Clamp(limit, 1, 10000);
+
                 try
                 {
-                    string absPath = PathUtils.ResolvePath(req.name);
+                    string absPath = PathUtils.ResolvePath(path);
                     if (!Directory.Exists(absPath)) {
                         _logger?.LogDebug("Directory not found: {AbsPath}", absPath);
                         return Results.Ok(new { files = Array.Empty<string>() });
@@ -185,7 +200,7 @@ namespace PhotoLibrary
                         {
                             newFiles.Add(Path.GetRelativePath(absPath, fullFile));
                         }
-                        if (newFiles.Count >= 1000) break;
+                        if (newFiles.Count >= limit) break;
                     }
                     
                     return Results.Ok(new { files = newFiles });
