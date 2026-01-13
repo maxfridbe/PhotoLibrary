@@ -134,7 +134,7 @@ export function visualizeLensData(metadata, containerId, cameraThumbUrl) {
     // UPDATED: Padding reduced slightly to accommodate smaller sizes better
     visRoot.innerHTML = `
         <div style="width: 100%; text-align: center; background: #222; padding: 15px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: #e0e0e0; box-sizing: border-box;">
-            <svg id="visualizer-${uid}" width="100%" height="auto" viewBox="0 0 300 300" style="display: block; margin: 0 auto; background: #2a2a2a; border-radius: 8px; box-shadow: inset 0 0 20px #000;">
+            <svg id="visualizer-${uid}" width="100%" height="100%" viewBox="0 0 300 300" style="display: block; margin: 0 auto; background: #2a2a2a; border-radius: 8px; box-shadow: inset 0 0 20px #000;">
                 <defs>
                     <clipPath id="housing-clip-${uid}">
                         <circle cx="150" cy="150" r="100" />

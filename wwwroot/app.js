@@ -1144,6 +1144,7 @@ class App {
             const filmstrip = document.createElement('div');
             filmstrip.id = 'filmstrip';
             filmstrip.className = 'filmstrip';
+            filmstrip.style.scrollbarGutter = 'stable';
             loupeView.appendChild(previewArea);
             loupeView.appendChild(resizer);
             loupeView.appendChild(filmstrip);
@@ -1154,6 +1155,7 @@ class App {
             self.scrollSentinel = sentinel;
             self.loupeView = loupeView;
             self.filmstrip = filmstrip;
+            self.gridViewManager.filmstripEl = filmstrip;
             self.loupePreviewPlaceholder = imgP;
             self.mainPreview = imgH;
             self.previewSpinner = spinner;
@@ -1708,6 +1710,7 @@ class App {
         const lowResKey = id + '-300';
         const highResKey = id + '-1024';
         const requestHighRes = () => {
+            // console.log(`[Loupe] Requesting high-res for ${id}`);
             server.requestImage(id, 1024).then((blob) => {
                 if (this.selectedId === id && this.isLoupeMode) {
                     const url = URL.createObjectURL(blob);
@@ -1719,10 +1722,20 @@ class App {
                             this.previewSpinner.style.display = 'none';
                         }
                     };
+                    this.mainPreview.onerror = () => {
+                        console.error(`[Loupe] High-res load error for ${id}`);
+                        if (this.selectedId === id)
+                            this.previewSpinner.style.display = 'none';
+                    };
                 }
+            }).catch(e => {
+                console.error(`[Loupe] High-res request failed for ${id}`, e);
+                if (this.selectedId === id)
+                    this.previewSpinner.style.display = 'none';
             });
         };
         if (this.imageUrlCache.has(highResKey)) {
+            // console.log(`[Loupe] High-res cache hit for ${id}`);
             this.mainPreview.src = this.imageUrlCache.get(highResKey);
             this.mainPreview.classList.add('loaded');
             this.previewSpinner.style.display = 'none';
@@ -1730,12 +1743,14 @@ class App {
             return;
         }
         if (this.imageUrlCache.has(lowResKey)) {
+            // console.log(`[Loupe] Low-res cache hit for ${id}`);
             this.loupePreviewPlaceholder.src = this.imageUrlCache.get(lowResKey);
             this.loupePreviewPlaceholder.style.display = 'block';
             requestHighRes();
         }
         else {
             this.loupePreviewPlaceholder.style.display = 'none';
+            // console.log(`[Loupe] Requesting low-res for ${id}`);
             server.requestImage(id, 300).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 this.imageUrlCache.set(lowResKey, url);
@@ -1744,6 +1759,9 @@ class App {
                     this.loupePreviewPlaceholder.style.display = 'block';
                     requestHighRes();
                 }
+            }).catch(e => {
+                console.error(`[Loupe] Low-res request failed for ${id}`, e);
+                requestHighRes(); // Try high-res anyway?
             });
         }
     }

@@ -4,6 +4,7 @@ export class GridView {
     constructor(imageUrlCache, rotationMap) {
         this.gridViewEl = null;
         this.scrollSentinel = null;
+        this.filmstripEl = null;
         this.cardCache = new Map();
         this.cols = 5;
         this.gridScale = 1.0;
@@ -42,12 +43,17 @@ export class GridView {
             else
                 card.classList.remove('generating');
         }
-        const el = this.gridViewEl?.querySelector(`.card[data-id="${id}"]`);
-        if (el) {
-            if (show)
-                el.classList.add('generating');
-            else
-                el.classList.remove('generating');
+        const containers = [this.gridViewEl, this.filmstripEl];
+        for (const cont of containers) {
+            if (!cont)
+                continue;
+            const el = cont.querySelector(`.card[data-id="${id}"]`);
+            if (el) {
+                if (show)
+                    el.classList.add('generating');
+                else
+                    el.classList.remove('generating');
+            }
         }
     }
     get rowHeight() {
@@ -73,9 +79,14 @@ export class GridView {
         const card = this.cardCache.get(id);
         if (card)
             card.classList.toggle('selected', isSelected);
-        const el = this.gridViewEl?.querySelector(`.card[data-id="${id}"]`);
-        if (el)
-            el.classList.toggle('selected', isSelected);
+        const containers = [this.gridViewEl, this.filmstripEl];
+        for (const cont of containers) {
+            if (!cont)
+                continue;
+            const el = cont.querySelector(`.card[data-id="${id}"]`);
+            if (el)
+                el.classList.toggle('selected', isSelected);
+        }
     }
     setScale(scale) {
         this.gridScale = scale;
@@ -114,33 +125,28 @@ export class GridView {
         const startRow = Math.floor(this.visibleRange.start / this.cols);
         this.gridViewEl.style.transform = `translateY(${startRow * this.rowHeight}px)`;
         const fragment = document.createDocumentFragment();
-        let hits = 0, misses = 0;
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
             if (photo) {
                 let card = this.cardCache.get(photo.id);
                 if (!card) {
-                    misses++;
                     card = this.createCard(photo);
                     this.cardCache.set(photo.id, card);
                 }
                 else {
-                    hits++;
                     this.syncCardData(card, photo);
                 }
                 fragment.appendChild(card);
             }
-            else {
-                // placeholder
-            }
         }
-        console.log(`[Grid] Render: ${hits} hits, ${misses} misses`);
         this.gridViewEl.innerHTML = '';
         this.gridViewEl.appendChild(fragment);
     }
     createCard(p, mode = 'grid') {
         const card = document.createElement('div');
         card.className = 'card loading'; // Start with loading
+        if (this.generatingIds.has(p.id))
+            card.classList.add('generating');
         if (this.selectedId === p.id)
             card.classList.add('selected');
         card.dataset.id = p.id;
@@ -288,8 +294,13 @@ export class GridView {
         const cached = this.cardCache.get(id);
         if (cached)
             this.syncCardData(cached, photo);
-        const inDom = this.gridViewEl?.querySelectorAll(`.card[data-id="${id}"]`);
-        inDom?.forEach(card => this.syncCardData(card, photo));
+        const containers = [this.gridViewEl, this.filmstripEl];
+        for (const cont of containers) {
+            if (!cont)
+                continue;
+            const inDom = cont.querySelectorAll(`.card[data-id="${id}"]`);
+            inDom?.forEach(card => this.syncCardData(card, photo));
+        }
     }
     clearCache() {
         this.cardCache.clear();
