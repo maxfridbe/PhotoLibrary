@@ -39,6 +39,7 @@ namespace PhotoLibrary
                     {Column.RootPaths.ParentId} TEXT,
                     {Column.RootPaths.Name} TEXT,
                     {Column.RootPaths.Annotation} TEXT,
+                    {Column.RootPaths.Color} TEXT,
                     FOREIGN KEY({Column.RootPaths.ParentId}) REFERENCES {TableName.RootPaths}({Column.RootPaths.Id}),
                     UNIQUE({Column.RootPaths.ParentId}, {Column.RootPaths.Name})
                 );",
@@ -123,6 +124,15 @@ namespace PhotoLibrary
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = $"ALTER TABLE {TableName.RootPaths} ADD COLUMN {Column.RootPaths.Annotation} TEXT;";
+                command.ExecuteNonQuery();
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
+
+            // Ensure Color column exists (Migration)
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = $"ALTER TABLE {TableName.RootPaths} ADD COLUMN {Column.RootPaths.Color} TEXT;";
                 command.ExecuteNonQuery();
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
@@ -392,13 +402,13 @@ namespace PhotoLibrary
             }
 
             // Folders
-            var folderRecords = new List<(string id, string name, string? parentId, int count, string? annotation)>();
+            var folderRecords = new List<(string id, string name, string? parentId, int count, string? annotation, string? color)>();
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = $@"
                     SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.Name}, r.{Column.RootPaths.ParentId},
                            (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}) as Count,
-                           r.{Column.RootPaths.Annotation}
+                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color}
                     FROM {TableName.RootPaths} r";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -408,7 +418,8 @@ namespace PhotoLibrary
                         reader.GetString(1),
                         reader.IsDBNull(2) ? null : reader.GetString(2),
                         reader.GetInt32(3),
-                        reader.IsDBNull(4) ? null : reader.GetString(4)
+                        reader.IsDBNull(4) ? null : reader.GetString(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5)
                     ));
                 }
             }
@@ -422,7 +433,8 @@ namespace PhotoLibrary
                     Path = fullPath ?? rec.name,
                     ParentId = rec.parentId,
                     ImageCount = rec.count,
-                    Annotation = rec.annotation
+                    Annotation = rec.annotation,
+                    Color = rec.color
                 });
             }
 
@@ -1061,7 +1073,7 @@ namespace PhotoLibrary
                 command.CommandText = $@"
                     SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name},
                            (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}),
-                           r.{Column.RootPaths.Annotation}
+                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color}
                     FROM {TableName.RootPaths} r";
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) items.Add(new RootPathResponse { 
@@ -1069,20 +1081,28 @@ namespace PhotoLibrary
                     ParentId = reader.IsDBNull(1) ? null : reader.GetString(1), 
                     Name = reader.GetString(2),
                     ImageCount = reader.GetInt32(3),
-                    Annotation = reader.IsDBNull(4) ? null : reader.GetString(4)
+                    Annotation = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    Color = reader.IsDBNull(5) ? null : reader.GetString(5)
                 });
             }
             return items;
         }
 
-        public void SetFolderAnnotation(string folderId, string annotation)
+        public void SetFolderAnnotation(string folderId, string annotation, string? color = null)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.Annotation} = $Annotation WHERE {Column.RootPaths.Id} = $Id";
+                var setClauses = new List<string> { $"{Column.RootPaths.Annotation} = $Annotation" };
                 command.Parameters.AddWithValue("$Annotation", annotation);
+                if (color != null)
+                {
+                    setClauses.Add($"{Column.RootPaths.Color} = $Color");
+                    command.Parameters.AddWithValue("$Color", color);
+                }
+                
+                command.CommandText = $"UPDATE {TableName.RootPaths} SET {string.Join(", ", setClauses)} WHERE {Column.RootPaths.Id} = $Id";
                 command.Parameters.AddWithValue("$Id", folderId);
                 command.ExecuteNonQuery();
             }

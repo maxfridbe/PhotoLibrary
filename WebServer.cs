@@ -322,7 +322,7 @@ namespace PhotoLibrary
             {
                 var req = await context.Request.ReadFromJsonAsync<FolderAnnotationRequest>();
                 if (req == null) return Results.BadRequest();
-                db.SetFolderAnnotation(req.folderId, req.annotation);
+                db.SetFolderAnnotation(req.folderId, req.annotation, req.color);
                 return Results.Ok(new { });
             });
 

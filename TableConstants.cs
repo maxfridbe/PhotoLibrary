@@ -22,6 +22,7 @@ namespace PhotoLibrary
                 public const string ParentId = "ParentId";
                 public const string Name = "Name";
                 public const string Annotation = "Annotation";
+                public const string Color = "Color";
             }
             public static class FileEntry
             {

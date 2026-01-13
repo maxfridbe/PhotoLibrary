@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-12T18:21:56.1143161-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-12T22:20:49.7013243-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -56,6 +56,7 @@ export interface GenerateThumbnailsRequest {
 export interface FolderAnnotationRequest {
     folderId: string;
     annotation: string;
+    color?: string;
 }
 
 export interface PagedPhotosRequest {

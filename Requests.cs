@@ -12,7 +12,7 @@ namespace PhotoLibrary
     public record SettingRequest(string key, string value);
     public record ImportBatchRequest(string rootPath, string[] relativePaths, bool generateLow, bool generateMedium);
     public record GenerateThumbnailsRequest(string rootId, bool recursive);
-    public record FolderAnnotationRequest(string folderId, string annotation);
+    public record FolderAnnotationRequest(string folderId, string annotation, string? color);
     public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificIds, bool? stacked);
     public class ImageRequest { public int requestId { get; set; } public string fileId { get; set; } = ""; public int size { get; set; } }
 }

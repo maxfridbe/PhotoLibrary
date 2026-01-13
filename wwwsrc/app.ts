@@ -1248,23 +1248,43 @@ class App {
             pill.className = 'annotation-pill' + (item.node.annotation ? ' has-content' : '');
             pill.contentEditable = 'true';
             pill.textContent = item.node.annotation || '';
+            if (item.node.color) pill.style.backgroundColor = item.node.color;
             
-            const saveAnnotation = async () => {
+            const saveAnnotation = async (color?: string) => {
                 const raw = pill.textContent || '';
                 const words = raw.trim().split(/\s+/).slice(0, 3).join(' ');
-                if (words !== (item.node.annotation || '')) {
-                    await Api.api_library_set_annotation({ folderId: item.node.id, annotation: words });
+                const targetColor = color || item.node.color;
+                if (words !== (item.node.annotation || '') || color) {
+                    await Api.api_library_set_annotation({ folderId: item.node.id, annotation: words, color: targetColor || undefined });
                     item.node.annotation = words;
+                    if (targetColor) {
+                        item.node.color = targetColor;
+                        pill.style.backgroundColor = targetColor;
+                    }
                 }
                 pill.textContent = words;
                 pill.classList.toggle('has-content', !!words);
             };
 
-            pill.onblur = saveAnnotation;
+            pill.onblur = () => saveAnnotation();
             pill.onfocus = () => {
                 pill.classList.add('has-content'); // Ensure visible during edit
             };
             pill.onclick = (e) => e.stopPropagation();
+            pill.oncontextmenu = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const input = document.createElement('input');
+                input.type = 'color';
+                input.value = item.node.color || '#00bcd4'; // Default accent
+                input.oninput = () => {
+                    pill.style.backgroundColor = input.value;
+                };
+                input.onchange = () => {
+                    saveAnnotation(input.value);
+                };
+                input.click();
+            };
             pill.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
