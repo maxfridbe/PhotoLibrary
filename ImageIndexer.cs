@@ -190,8 +190,6 @@ namespace PhotoLibrary
 
                 if (fileId != null)
                 {
-                    OnFileProcessed?.Invoke(fileId, file.FullName);
-                    
                     var metadata = ExtractMetadata(stream);
                     _db.InsertMetadata(fileId, metadata);
 
@@ -200,6 +198,9 @@ namespace PhotoLibrary
                         stream.Position = 0;
                         GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
                     }
+                    
+                    // Notify UI only after everything is ready (DB + Previews)
+                    OnFileProcessed?.Invoke(fileId, file.FullName);
                 }
                 return true;
             }

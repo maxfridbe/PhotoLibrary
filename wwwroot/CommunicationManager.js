@@ -60,6 +60,12 @@ export class CommunicationManager {
                     else if (msg.type === 'preview.generated') {
                         hub.pub('preview.generated', { fileId: msg.fileId, rootId: msg.rootId });
                     }
+                    else if (msg.type === 'preview.generating') {
+                        hub.pub('preview.generating', { fileId: msg.fileId });
+                    }
+                    else if (msg.type === 'scan.finished') {
+                        hub.pub('library.updated', {});
+                    }
                 }
                 catch (err) {
                     console.error("Failed to parse WS text message", err);

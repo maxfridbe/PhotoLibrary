@@ -921,6 +921,19 @@ namespace PhotoLibrary
             }
         }
 
+        public void UpdateFileHash(string fileId, string hash)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
+                command.Parameters.AddWithValue("$Hash", hash);
+                command.Parameters.AddWithValue("$Id", fileId);
+                command.ExecuteNonQuery();
+            }
+        }
+
         public (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null)
         {
             var fileName = Path.GetFileName(fullPath);

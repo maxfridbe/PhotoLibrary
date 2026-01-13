@@ -12,10 +12,43 @@ export class GridView {
         this.visibleRange = { start: 0, end: 50 };
         this.photos = [];
         this.selectedId = null;
-        this.instanceId = Math.floor(Math.random() * 10000);
-        console.log(`[Grid] Created instance ${this.instanceId}`);
+        this.generatingIds = new Set();
         this.imageUrlCache = imageUrlCache;
         this.rotationMap = rotationMap;
+        hub.sub('preview.generating', (data) => {
+            this.generatingIds.add(data.fileId);
+            this.updateCardSpinner(data.fileId, true);
+        });
+        hub.sub('preview.generated', (data) => {
+            this.generatingIds.delete(data.fileId);
+            this.updateCardSpinner(data.fileId, false);
+            // Also force image reload if visible?
+            // lazyLoadImage will handle cache check, but we might need to force re-check
+            // Actually, lazyLoadImage sets cache. 
+            // If we are showing spinner, image is not loaded.
+            // We should re-trigger load or just let lazyLoad handle it?
+            // If the card is visible, lazyLoadImage's observer has already fired request.
+            // We need to update the img src if it was empty/placeholder.
+            // But requestImage awaits... so it should resolve now?
+            // No, requestImage resolves when server responds.
+            // So we don't need to do anything else here except hide spinner.
+        });
+    }
+    updateCardSpinner(id, show) {
+        const card = this.cardCache.get(id);
+        if (card) {
+            if (show)
+                card.classList.add('generating');
+            else
+                card.classList.remove('generating');
+        }
+        const el = this.gridViewEl?.querySelector(`.card[data-id="${id}"]`);
+        if (el) {
+            if (show)
+                el.classList.add('generating');
+            else
+                el.classList.remove('generating');
+        }
     }
     get rowHeight() {
         return (this.baseRowHeight + 10) * this.gridScale;
@@ -24,13 +57,11 @@ export class GridView {
         return (this.baseMinCardWidth + 10) * this.gridScale;
     }
     setPhotos(photos) {
-        console.log(`[Grid] setPhotos: ${photos.length} photos`);
         this.photos = photos;
         this.cardCache.clear();
         this.update(true);
     }
     setSelected(id) {
-        // console.log(`[Grid] setSelected: ${id}`);
         const oldId = this.selectedId;
         this.selectedId = id;
         if (oldId)
@@ -47,7 +78,6 @@ export class GridView {
             el.classList.toggle('selected', isSelected);
     }
     setScale(scale) {
-        console.log(`[Grid] setScale: ${scale}`);
         this.gridScale = scale;
         document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
         document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
@@ -55,17 +85,12 @@ export class GridView {
         this.update(true);
     }
     update(force = false) {
-        if (!this.gridViewEl) {
-            console.warn(`[Grid ${this.instanceId}] update skipped: gridViewEl is null`);
+        if (!this.gridViewEl)
             return;
-        }
         const gridContainer = this.gridViewEl.parentElement;
-        if (!gridContainer) {
-            console.warn(`[Grid ${this.instanceId}] update skipped: gridContainer is null`);
+        if (!gridContainer)
             return;
-        }
         const containerWidth = gridContainer.clientWidth - 20;
-        // console.log(`[Grid] containerWidth: ${containerWidth}, minCardWidth: ${this.minCardWidth}`);
         this.cols = Math.max(1, Math.floor(containerWidth / this.minCardWidth));
         document.documentElement.style.setProperty('--grid-cols', this.cols.toString());
         const rowCount = Math.ceil(this.photos.length / this.cols);
@@ -78,7 +103,6 @@ export class GridView {
         const endRow = Math.ceil((scrollTop + viewHeight) / this.rowHeight) + 2;
         const startIndex = startRow * this.cols;
         const endIndex = Math.min(this.photos.length, endRow * this.cols);
-        // console.log(`[Grid] update: photos=${this.photos.length} cols=${this.cols} range=${startIndex}-${endIndex} force=${force}`);
         if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.render();
@@ -87,49 +111,45 @@ export class GridView {
     render() {
         if (!this.gridViewEl)
             return;
-        console.log(`[Grid] render: ${this.visibleRange.start} to ${this.visibleRange.end}`);
         const startRow = Math.floor(this.visibleRange.start / this.cols);
         this.gridViewEl.style.transform = `translateY(${startRow * this.rowHeight}px)`;
         const fragment = document.createDocumentFragment();
+        let hits = 0, misses = 0;
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
             if (photo) {
                 let card = this.cardCache.get(photo.id);
                 if (!card) {
-                    // console.log(`[Grid] Creating card for ${photo.id}`);
+                    misses++;
                     card = this.createCard(photo);
                     this.cardCache.set(photo.id, card);
                 }
                 else {
+                    hits++;
                     this.syncCardData(card, photo);
                 }
                 fragment.appendChild(card);
             }
             else {
-                const placeholder = document.createElement('div');
-                placeholder.className = 'card placeholder';
-                placeholder.style.height = (this.rowHeight - 10) + 'px';
-                const cont = document.createElement('div');
-                cont.className = 'img-container';
-                const spin = document.createElement('div');
-                spin.className = 'spinner';
-                cont.appendChild(spin);
-                placeholder.appendChild(cont);
-                fragment.appendChild(placeholder);
+                // placeholder
             }
         }
+        console.log(`[Grid] Render: ${hits} hits, ${misses} misses`);
         this.gridViewEl.innerHTML = '';
         this.gridViewEl.appendChild(fragment);
     }
     createCard(p, mode = 'grid') {
         const card = document.createElement('div');
-        card.className = 'card';
+        card.className = 'card loading'; // Start with loading
         if (this.selectedId === p.id)
             card.classList.add('selected');
         card.dataset.id = p.id;
         const imgContainer = document.createElement('div');
         imgContainer.className = 'img-container';
         const img = document.createElement('img');
+        const spinner = document.createElement('div');
+        spinner.className = 'card-spinner';
+        imgContainer.appendChild(spinner);
         const rot = this.rotationMap.get(p.id);
         if (rot)
             img.style.transform = `rotate(${rot}deg)`;
@@ -200,23 +220,42 @@ export class GridView {
             const rot = this.rotationMap.get(photo.id) || 0;
             img.style.transform = `rotate(${rot}deg)`;
         }
+        if (this.generatingIds.has(photo.id))
+            card.classList.add('generating');
+        else
+            card.classList.remove('generating');
     }
     lazyLoadImage(id, img, size) {
         const cacheKey = id + '-' + size;
         if (this.imageUrlCache.has(cacheKey)) {
+            // console.log(`[Grid] Cache hit for ${id}`);
             img.src = this.imageUrlCache.get(cacheKey);
             img.parentElement?.classList.add('loaded');
+            img.closest('.card')?.classList.remove('loading');
             return;
         }
         const target = img.parentElement || img;
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
+                    // console.log(`[Grid] Requesting ${id}`);
                     server.requestImage(id, size).then((blob) => {
+                        // console.log(`[Grid] Received blob for ${id}, size: ${blob.size}`);
                         const url = URL.createObjectURL(blob);
                         this.imageUrlCache.set(cacheKey, url);
-                        img.onload = () => img.parentElement?.classList.add('loaded');
+                        img.onload = () => {
+                            // console.log(`[Grid] Image loaded ${id}`);
+                            img.parentElement?.classList.add('loaded');
+                            img.closest('.card')?.classList.remove('loading');
+                        };
+                        img.onerror = () => {
+                            console.error(`[Grid] Image load error ${id}`);
+                            img.closest('.card')?.classList.remove('loading'); // Stop spinner on error
+                        };
                         img.src = url;
+                    }).catch(e => {
+                        console.error(`[Grid] Request failed for ${id}`, e);
+                        img.closest('.card')?.classList.remove('loading');
                     });
                     observer.disconnect();
                 }

@@ -137,7 +137,25 @@
 
         .img-container { flex: 1; background: var(--bg-black); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 2px 2px 0 0; }
         .card.selected .img-container { background: transparent; }
-        .img-container img { width: 100%; height: 100%; object-fit: contain; background: #050505; }
+        .img-container img { width: 100%; height: 100%; object-fit: contain; background: #050505; transition: opacity 0.3s ease-in; opacity: 0; }
+        .img-container.loaded img { opacity: 1; }
+        
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .card.loading .img-container {
+            background: linear-gradient(135deg, #111 25%, #1a1a1a 50%, #111 75%);
+            background-size: 200% 100%;
+            animation: shimmer 3s infinite linear;
+        }
+        .card-spinner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.1); 
+            border-top-color: var(--accent); border-radius: 50%; 
+            animation: spin 1s linear infinite; display: none; z-index: 5;
+        }
+        .card.loading .card-spinner, .card.generating .card-spinner { display: block; }
         
         .info { padding: 0.35em; font-size: 0.75em; white-space: nowrap; overflow: hidden; background: var(--bg-card); display: flex; flex-direction: column; border-radius: 0 0 4px 4px; }
         .info-top { display: flex; justify-content: space-between; align-items: flex-start; }

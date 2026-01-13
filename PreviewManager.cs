@@ -87,25 +87,30 @@ namespace PhotoLibrary
 
         public void SavePreview(string hash, int longEdge, byte[] data)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            using var transaction = connection.BeginTransaction();
+            try {
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
+                using var transaction = connection.BeginTransaction();
 
-            using (var command = connection.CreateCommand())
-            {
-                command.Transaction = transaction;
-                command.CommandText = $@"
-                    INSERT INTO {TableName.Previews} ({Column.Previews.Hash}, {Column.Previews.LongEdge}, {Column.Previews.Data})
-                    VALUES ($Hash, $LongEdge, $Data)
-                    ON CONFLICT({Column.Previews.Hash}, {Column.Previews.LongEdge}) DO UPDATE SET {Column.Previews.Data} = excluded.{Column.Previews.Data};
-                ";
-                command.Parameters.AddWithValue("$Hash", hash);
-                command.Parameters.AddWithValue("$LongEdge", longEdge);
-                command.Parameters.AddWithValue("$Data", data);
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = $@"
+                        INSERT INTO {TableName.Previews} ({Column.Previews.Hash}, {Column.Previews.LongEdge}, {Column.Previews.Data})
+                        VALUES ($Hash, $LongEdge, $Data)
+                        ON CONFLICT({Column.Previews.Hash}, {Column.Previews.LongEdge}) DO UPDATE SET {Column.Previews.Data} = excluded.{Column.Previews.Data};
+                    ";
+                    command.Parameters.AddWithValue("$Hash", hash);
+                    command.Parameters.AddWithValue("$LongEdge", longEdge);
+                    command.Parameters.AddWithValue("$Data", data);
 
-                command.ExecuteNonQuery();
+                    command.ExecuteNonQuery();
+                }
+                transaction.Commit();
+                // _logger.LogDebug("Saved preview for hash {Hash} size {Size}", hash, longEdge);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to save preview for hash {Hash}", hash);
             }
-            transaction.Commit();
         }
 
         public byte[]? GetPreviewData(string hash, int longEdge)
@@ -119,7 +124,9 @@ namespace PhotoLibrary
                 command.Parameters.AddWithValue("$Hash", hash);
                 command.Parameters.AddWithValue("$LongEdge", longEdge);
 
-                return command.ExecuteScalar() as byte[];
+                var res = command.ExecuteScalar() as byte[];
+                if (res == null) _logger.LogDebug("Preview miss for hash {Hash} size {Size}", hash, longEdge);
+                return res;
             }
         }
     }

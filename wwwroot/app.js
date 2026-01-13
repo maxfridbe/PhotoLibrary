@@ -501,19 +501,34 @@ class App {
             const mode = parts[0];
             const type = parts[1];
             this.isLoupeMode = (mode === 'loupe');
+            let sortChanged = false;
+            let stackChanged = false;
             // Handle query params
             if (queryPart) {
                 const params = new URLSearchParams(queryPart);
-                if (params.has('sort'))
-                    this.sortBy = params.get('sort');
-                if (params.has('size')) {
-                    this.gridScale = parseFloat(params.get('size'));
-                    document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
-                    document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
-                    this.gridViewManager.setScale(this.gridScale);
+                if (params.has('sort')) {
+                    const newSort = params.get('sort');
+                    if (newSort !== this.sortBy) {
+                        this.sortBy = newSort;
+                        sortChanged = true;
+                    }
                 }
-                if (params.has('stacked'))
-                    this.stackingEnabled = params.get('stacked') === 'true';
+                if (params.has('size')) {
+                    const newScale = parseFloat(params.get('size'));
+                    if (Math.abs(newScale - this.gridScale) > 0.001) {
+                        this.gridScale = newScale;
+                        document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
+                        document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
+                        this.gridViewManager.setScale(this.gridScale);
+                    }
+                }
+                if (params.has('stacked')) {
+                    const newStack = params.get('stacked') === 'true';
+                    if (newStack !== this.stackingEnabled) {
+                        this.stackingEnabled = newStack;
+                        stackChanged = true;
+                    }
+                }
             }
             let newFilterType = this.filterType;
             let newRootId = null;
@@ -544,7 +559,9 @@ class App {
                 newRootId = null;
             }
             const filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
+            console.log(`[App] applyUrlState: filterChanged=${filterChanged} sort=${sortChanged} stack=${stackChanged}`);
             if (filterChanged) {
+                console.log(`[App] Filter change details: Type ${this.filterType}->${newFilterType}, Root ${this.selectedRootId}->${newRootId}, Coll ${this.selectedCollectionId}->${newCollectionId}`);
                 this.filterType = newFilterType;
                 this.selectedRootId = newRootId;
                 this.selectedCollectionId = newCollectionId;
@@ -558,11 +575,7 @@ class App {
                 }
                 await this.refreshPhotos(true);
             }
-            else {
-                // If filters didn't change but scale/stacking did, we might need to re-process stacks or just update view
-                // For now, let's just re-process stacks if stacking changed, or just ensure grid is updated
-                // But wait, setScale on gridViewManager handles render. 
-                // Stacking change requires processUIStacks
+            else if (sortChanged || stackChanged) {
                 this.processUIStacks();
             }
             // Selected ID is usually the last part if it exists and looks like a GUID or similar
@@ -578,6 +591,13 @@ class App {
                     this.selectedId = idFromUrl;
                     hub.pub('photo.selected', { id: p.id, photo: p });
                 }
+            }
+            else if (!idFromUrl && this.selectedId) {
+                // Deselection via URL? Usually we want to keep selection unless explicit.
+                // But if URL has no ID, and we are in grid mode, maybe we should clear?
+                // For now, let's assume navigating to a folder view without ID means no selection.
+                // this.selectedId = null;
+                // hub.pub('photo.selected', { id: '', photo: null as any }); 
             }
             this.updateHeaderUI();
             this.updateViewModeUI();

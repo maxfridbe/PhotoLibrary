@@ -19,6 +19,7 @@ export interface EventMap {
     'folder.progress': { rootId: string, processed: number, total: number };
     'folder.finished': { rootId: string };
     'preview.generated': { fileId: string, rootId: string };
+    'preview.generating': { fileId: string };
     'search.triggered': { tag: string, value: string };
     'shortcuts.show': {};
 

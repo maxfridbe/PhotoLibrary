@@ -551,10 +551,15 @@ namespace PhotoLibrary
                                                 hasher.Append(stream);
                                                 hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
                                                 stream.Position = 0;
+                                                db.UpdateFileHash(req.fileId, hash);
                                             }
 
                                             using var image = new ImageMagick.MagickImage(stream);
-                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Dimensions: {W}x{H}", req.fileId, ext, image.Width, image.Height);
+                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, hash, image.Width, image.Height);
+                                            
+                                            // Notify clients that generation is starting (slow op)
+                                            _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
+
                                             image.AutoOrient();
                                             if (!isRaw && image.Width <= req.size && image.Height <= req.size) { data = File.ReadAllBytes(sourcePath); }
                                             else {
