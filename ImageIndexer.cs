@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.IO.Hashing;
+using System.Diagnostics;
 using ImageMagick;
 using MetadataExtractor;
 using Microsoft.Extensions.Logging;
@@ -228,18 +229,19 @@ namespace PhotoLibrary
 
             string? hash = _db.GetFileHash(fileId);
             
+            // Even if hash exists, we must check if thumbnails actually exist in the CURRENT previews.db
             if (hash != null)
             {
-                bool missing = false;
+                bool allExist = true;
                 foreach (var size in _longEdges)
                 {
                     if (_previewManager != null && !_previewManager.HasPreview(hash, size))
                     {
-                        missing = true;
+                        allExist = false;
                         break;
                     }
                 }
-                if (!missing) return ThumbnailResult.Skipped;
+                if (allExist) return ThumbnailResult.Skipped;
             }
 
             var file = new FileInfo(fullPath);
@@ -250,14 +252,15 @@ namespace PhotoLibrary
 
                 if (hash == null)
                 {
-                    _logger.LogInformation("Hashing {FileName}...", file.Name);
+                    long hashStart = Stopwatch.GetTimestamp();
                     hash = CalculateHash(stream);
                     _db.UpdateFileHash(fileId, hash);
                     stream.Position = 0;
                     wasHashed = true;
+                    _logger.LogInformation("Hashed {FileName} in {Elapsed}ms", file.Name, Stopwatch.GetElapsedTime(hashStart).TotalMilliseconds.ToString("F2"));
                 }
 
-                // Double check previews now that we have the hash
+                // Double check previews now that we have the hash (always check, don't assume)
                 bool missingAny = false;
                 foreach (var size in _longEdges)
                 {
@@ -270,8 +273,9 @@ namespace PhotoLibrary
 
                 if (missingAny)
                 {
-                    _logger.LogInformation("Generating previews for {FileName}...", file.Name);
+                    long genStart = Stopwatch.GetTimestamp();
                     GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+                    _logger.LogInformation("Generated previews for {FileName} in {Elapsed}ms", file.Name, Stopwatch.GetElapsedTime(genStart).TotalMilliseconds.ToString("F2"));
                     return wasHashed ? ThumbnailResult.HashedAndGenerated : ThumbnailResult.Generated;
                 }
 

@@ -18,15 +18,9 @@ export class CommunicationManager {
         this.ws = null;
         this.clientId = Math.random().toString(36).substring(2, 15);
         this.requestMap = new Map();
+        this.pendingRequests = new Map();
         this.nextRequestId = 1;
         this.isConnected = false;
-        this.imageQueue = [];
-        this.inFlightRequests = 0;
-        this.maxInFlight = 12;
-        this.lastResponseTime = 500;
-        this.lastSendTime = 0;
-        this.requestSendTimes = new Map();
-        this.processTimer = null;
         this.reconnectAttempts = 0;
         this.maxReconnectDelay = 256000;
         this.connectWs();
@@ -41,7 +35,6 @@ export class CommunicationManager {
             this.isConnected = true;
             this.reconnectAttempts = 0;
             hub.pub(ps.CONNECTION_CHANGED, { connected: true, connecting: false });
-            this.processQueue();
         };
         this.ws.onclose = () => {
             this.isConnected = false;
@@ -96,96 +89,45 @@ export class CommunicationManager {
         const reqId = view.getInt32(0, true);
         const data = buffer.slice(4);
         if (this.requestMap.has(reqId)) {
-            const sendTime = this.requestSendTimes.get(reqId);
-            if (sendTime) {
-                const duration = Date.now() - sendTime;
-                // Weight new measurements more heavily if they are slow
-                const weight = duration > this.lastResponseTime ? 0.4 : 0.1;
-                this.lastResponseTime = this.lastResponseTime * (1 - weight) + duration * weight;
-                this.requestSendTimes.delete(reqId);
-            }
-            this.inFlightRequests--;
             const resolve = this.requestMap.get(reqId);
             this.requestMap.delete(reqId);
             resolve(new Blob([data], { type: 'image/webp' }));
-            // Re-process queue immediately when a slot opens
-            this.processQueue();
         }
         else {
             console.warn(`[WS] Received response for unknown/stale requestId: ${reqId}`);
         }
     }
     // REQ-SVC-00003
+    // REQ-ARCH-00010
     requestImage(fileId, size, priority = 0) {
-        return new Promise((resolve) => {
+        const cacheKey = `${fileId}-${size}`;
+        if (this.pendingRequests.has(cacheKey))
+            return this.pendingRequests.get(cacheKey);
+        const start = Date.now();
+        const promise = new Promise((resolve) => {
+            if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                // If not connected, we can't fulfill now. 
+                // Return empty blob or wait? For now, just return.
+                return;
+            }
             const requestId = this.nextRequestId++;
-            const req = { type: 'image', requestId, fileId, size };
             // Boost priority for high-res/fullscreen requests
             let p = priority;
             if (size === 0)
                 p += 100000;
             else if (size === 1024)
                 p += 10000;
-            this.imageQueue.push({ req, resolve, priority: p, index: requestId });
-            // If we are significantly under capacity, process immediately
-            if (this.inFlightRequests < Math.floor(this.maxInFlight / 2)) {
-                this.processQueue();
-            }
-            else if (!this.processTimer) {
-                this.processQueue();
-            }
-        });
-    }
-    processQueue() {
-        if (!this.isConnected || this.ws?.readyState !== WebSocket.OPEN)
-            return;
-        // Sorting is expensive, only do it if we have something to potentially send
-        if (this.imageQueue.length > 0 && this.inFlightRequests < this.maxInFlight) {
-            this.imageQueue.sort((a, b) => {
-                if (b.priority !== a.priority)
-                    return b.priority - a.priority;
-                return a.index - b.index;
+            const req = { type: 'image', requestId, fileId, size, priority: p };
+            this.requestMap.set(requestId, (blob) => {
+                this.pendingRequests.delete(cacheKey);
+                const elapsed = Date.now() - start;
+                console.log(`requested ${fileId} took ${elapsed}ms for resp`);
+                resolve(blob);
             });
-            if (this.imageQueue.length > 0) {
-                console.log(`[QUEUE] In-flight: ${this.inFlightRequests}/${this.maxInFlight}, Queue: ${this.imageQueue.length}, Delay: ${Math.round(this.lastResponseTime)}ms. Next: ${this.imageQueue[0].req.fileId} (s:${this.imageQueue[0].req.size})`);
-            }
-        }
-        const now = Date.now();
-        const timeSinceLast = now - this.lastSendTime;
-        const targetDelay = Math.max(50, Math.min(5000, this.lastResponseTime));
-        if (this.inFlightRequests < this.maxInFlight && this.imageQueue.length > 0) {
-            if (timeSinceLast >= targetDelay) {
-                if (this.processTimer)
-                    clearTimeout(this.processTimer);
-                this.processTimer = null;
-                // Send a batch
-                let sentInBatch = 0;
-                const batchSize = this.lastResponseTime < 200 ? 6 : 3;
-                while (sentInBatch < batchSize && this.inFlightRequests < this.maxInFlight && this.imageQueue.length > 0) {
-                    const item = this.imageQueue.shift();
-                    this.inFlightRequests++;
-                    this.lastSendTime = Date.now();
-                    this.requestSendTimes.set(item.req.requestId, this.lastSendTime);
-                    this.requestMap.set(item.req.requestId, item.resolve);
-                    this.ws.send(JSON.stringify(item.req));
-                    sentInBatch++;
-                }
-                // Schedule next batch
-                if (this.imageQueue.length > 0) {
-                    this.processTimer = setTimeout(() => {
-                        this.processTimer = null;
-                        this.processQueue();
-                    }, targetDelay);
-                }
-            }
-            else if (!this.processTimer) {
-                // Schedule check for when the delay expires
-                this.processTimer = setTimeout(() => {
-                    this.processTimer = null;
-                    this.processQueue();
-                }, targetDelay - timeSinceLast);
-            }
-        }
+            this.ws.send(JSON.stringify(req));
+        });
+        this.pendingRequests.set(cacheKey, promise);
+        return promise;
     }
     // --- High-Level Actions ---
     // REQ-WFE-00006

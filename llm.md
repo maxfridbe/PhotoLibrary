@@ -10,8 +10,11 @@ The system is built to handle hundreds of thousands of images over slow network 
 - **Path Normalization**: Uses a hierarchical `RootPaths` table to represent directory structures, allowing for library portability and efficient folder-based filtering.
 
 ### Binary Image Streaming
-- **Binary WebSocket Protocol**: Thumbnails and previews are delivered over a custom binary WebSocket protocol. This avoids the overhead of Base64 encoding and reduces HTTP request latency.
-- **Sidecar-Aware Previews**: The system automatically detects sibling JPGs for RAW files (ARW/NEF/CR2/DNG/etc.), using them as high-speed sources for preview generation.
+- **Binary WebSocket Protocol**: (See REQ-ARCH-00001) Previews are delivered over a custom binary protocol. This avoids the overhead of Base64 encoding and reduces HTTP request latency.
+- **WebP Optimized**: (See REQ-ARCH-00011) All thumbnails and previews use the WebP format (Quality 80) for superior compression and faster transfer.
+- **Concurrent Processing**: (See REQ-ARCH-00010) The backend handles WebSocket requests in parallel background tasks, ensuring high-priority navigation is never blocked by background image processing.
+- **Request De-duplication**: The frontend maintains a `pendingRequests` map to prevent redundant network traffic for the same asset.
+
 
 ## 2. Frontend Architecture: "Manager-Component Pattern"
 The UI is a TypeScript SPA broken down into specialized managers to ensure maintainability.

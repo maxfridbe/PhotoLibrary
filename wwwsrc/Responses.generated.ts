@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-14T13:17:13.7960600-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-14T16:44:09.5339033-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -71,6 +71,7 @@ export interface LibraryInfoResponse {
     isIndexing: boolean;
     indexedCount: number;
     totalToIndex: number;
+    totalThumbnailedImages: number;
     folders: LibraryFolderResponse[];
 }
 

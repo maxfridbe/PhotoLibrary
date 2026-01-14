@@ -21,36 +21,17 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Rotation**: Rotate images 90° with `[` and `]`, fully synced between Loupe, Grid, and Filmstrip views.
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
--   **Library Maintenance Mode**:
+-   **Advanced Search & Discovery**:
+    *   **Multi-Criteria Search**: Powerful query engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`).
+    *   **Interactive Query Builder**: On-the-fly search assistance via a dynamic overlay helping construct complex queries.
+    *   **Reveal in Folders**: Jump instantly from search results to the source directory while preserving your selection.
     *   **Find New Images**: Scans your directories and identifies files not yet in the database with a visual search overlay.
-    *   **Targeted Batch Import**: Efficiently index only the specific files found during search, rather than re-scanning entire trees.
-    *   **Task Cancellation**: Instantly cancel background indexing or thumbnail generation tasks via "CANCEL" buttons.
-    *   **Real-Time Discovery**: New folders and images appear in the library tree instantly as they are discovered by the indexer.
-    *   **Autoscroll Progress**: The "Found Files" list automatically tracks and scrolls to the latest imported item.
-    *   **Folder-Level Actions**: Right-click any folder in the tree to trigger "Generate Thumbnails" (Recursive or single-folder).
-    *   **Live Progress**: Real-time progress bars for background thumbnail generation directly in the folder tree.
-    *   **Smart Indexing**: Automatically skips unmodified, already-indexed files based on timestamp checks.
-    *   **Robust Hashing**: Uses xxHash64 for ultra-fast, consistent file identification and duplicate detection.
-    *   **Proactive Normalization**: Automatically calculates and builds deep folder hierarchies during import, ensuring correct parenting and stable IDs.
-    *   **On-the-Fly Previews**: Live generation and caching of missing thumbnails and previews during browsing.
-    *   **Database Stats**: Real-time tracking of image counts and database file sizes.
--   **High-Performance Web Interface**:
-    *   **Virtualized Grid**: Custom rendering engine that handles hundreds of thousands of images.
-    *   **20+ VS Code Themes**: Dynamic theming with popular palettes (One Dark Pro, Dracula, Nord, etc.).
-    *   **Global Toast Notifications**: Real-time feedback for indexing progress and user actions.
-    *   **Customizable Overlays**: Configurable Loupe view overlay with support for any metadata variable (e.g., `{Filename}`, `{MD:Lens Model}`).
--   **Aperture & Lens Visualization**: 
-    *   **Dynamic SVG Render**: Generates a real-time visualization of the aperture blades and field-of-view cone based on EXIF data.
-    *   **Sensor-Aware**: Automatically detects and displays sensor sizes (Full Frame, APS-C, 1/2.7", etc.) using focal plane resolution and crop factor calculations.
-    *   **Live Metadata Readout**: Displays f-stop, focal length, ISO, and shutter speed in a sleek, integrated dashboard at the top of the metadata panel.
 -   **Robust Backend & Architecture**:
+    *   **WebP Optimized Previews**: All thumbnails and previews use the WebP format (Quality 80) for 30% smaller database size and faster network delivery.
+    *   **Concurrent WebSocket Processing**: Backend processes image requests in parallel, preventing slow RAW conversions from blocking high-priority navigation.
+    *   **Frontend Request De-duplication**: Intelligent caching of pending requests ensures only one WebSocket message is sent for the same image across multiple UI components.
+    *   **Multi-Client Support**: Trackable client identifiers ensure private responses are routed correctly while maintaining global real-time library synchronization across all open tabs.
     *   **Decoupled PubSub**: Frontend uses a type-safe, constant-driven event bus for seamless communication between components.
-    *   **Container-Aware Fitting**: Rotated images automatically adapt their dimensions to fit their containers perfectly, preventing cropping in all view modes.
-    *   **URL State Persistence**: Deep-linking support for all view modes (Grid, Loupe, Library), filters, sorting, and selections.
-    *   **Improved Task Reporting**: Granular progress tracking for background operations with real-time console and UI feedback.
-    *   **Stable Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
-    *   **Automatic Configuration**: Zero-config startup with `~/.config/PhotoLibrary/config.json`.
-    *   **Binary WebSocket Streaming**: Optimized binary protocol for high-speed image delivery.
 -   **Stability & Feedback**:
     *   **Connection Tracking**: Status bar shows exact offline duration (e.g., `Disconnected (45s ago)`) during network interruptions.
     *   **Graceful Shutdown**: Responds instantly to `Ctrl+C` via integrated cancellation tokens.

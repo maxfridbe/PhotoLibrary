@@ -19,10 +19,7 @@
     <Compile Remove="TypeGen\**" />
     <EmbeddedResource Remove="TypeGen\**" />
     <None Remove="TypeGen\**" />
-    <Compile Remove="MigrationUtil\**" />
-    <EmbeddedResource Remove="MigrationUtil\**" />
-    <None Remove="MigrationUtil\**" />
-  </ItemGroup>
+ </ItemGroup>
 
   <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">
     <Exec Command="dotnet run --project TypeGen/TypeGen.csproj" ContinueOnError="true" />

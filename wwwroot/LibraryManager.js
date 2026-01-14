@@ -330,6 +330,9 @@ export class LibraryManager {
                 <div style="display: flex; justify-content: space-between; font-size: 0.9em; border-top: 1px solid var(--border-dim); padding-top: 0.5em;">
                     <div style="color: var(--text-muted);">Total Images:</div><div style="font-weight: bold; color: var(--text-bright)">${info.totalImages.toLocaleString()}</div>
                 </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                    <div style="color: var(--text-muted);">Thumbnailed (Hashes):</div><div style="font-weight: bold; color: var(--text-bright)">${info.totalThumbnailedImages.toLocaleString()}</div>
+                </div>
             `;
         }
     }

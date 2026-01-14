@@ -15,5 +15,5 @@ namespace PhotoLibrary
     public record FolderAnnotationRequest(string folderId, string annotation, string? color);
     public record ForceUpdatePreviewRequest(string id);
     public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificIds, bool? stacked);
-    public class ImageRequest { public int requestId { get; set; } public string fileId { get; set; } = ""; public int size { get; set; } }
+    public class ImageRequest { public int requestId { get; set; } public string fileId { get; set; } = ""; public int size { get; set; } public double priority { get; set; } }
 }

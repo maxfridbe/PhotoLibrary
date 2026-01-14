@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-14T13:17:13.7504024-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-14T16:44:09.4967665-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -78,5 +78,6 @@ export interface ImageRequest {
     requestId: number;
     fileId: string;
     size: number;
+    priority: number;
 }
 

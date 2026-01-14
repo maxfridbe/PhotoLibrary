@@ -247,38 +247,37 @@ export class GridView {
             // console.log(`[Grid] Cache hit for ${id}`);
             img.src = this.imageUrlCache.get(cacheKey);
             img.parentElement?.classList.add('loaded');
-            img.closest('.card')?.classList.remove('loading');
+            const card = img.closest('.card');
+            if (card) {
+                card.classList.remove('loading');
+                if (!this.generatingIds.has(id))
+                    card.classList.remove('generating');
+            }
             return;
         }
-        const target = img.parentElement || img;
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    // console.log(`[Grid] Requesting ${id}`);
-                    const priority = this.priorityProvider(id);
-                    server.requestImage(id, size, priority).then((blob) => {
-                        // console.log(`[Grid] Received blob for ${id}, size: ${blob.size}`);
-                        const url = URL.createObjectURL(blob);
-                        this.imageUrlCache.set(cacheKey, url);
-                        img.onload = () => {
-                            // console.log(`[Grid] Image loaded ${id}`);
-                            img.parentElement?.classList.add('loaded');
-                            img.closest('.card')?.classList.remove('loading');
-                        };
-                        img.onerror = () => {
-                            console.error(`[Grid] Image load error ${id}`);
-                            img.closest('.card')?.classList.remove('loading'); // Stop spinner on error
-                        };
-                        img.src = url;
-                    }).catch(e => {
-                        console.error(`[Grid] Request failed for ${id}`, e);
-                        img.closest('.card')?.classList.remove('loading');
-                    });
-                    observer.disconnect();
+        const priority = this.priorityProvider(id);
+        server.requestImage(id, size, priority).then((blob) => {
+            // console.log(`[Grid] Received blob for ${id}, size: ${blob.size}`);
+            const url = URL.createObjectURL(blob);
+            this.imageUrlCache.set(cacheKey, url);
+            img.onload = () => {
+                // console.log(`[Grid] Image loaded ${id}`);
+                img.parentElement?.classList.add('loaded');
+                const card = img.closest('.card');
+                if (card) {
+                    card.classList.remove('loading');
+                    card.classList.remove('generating');
                 }
-            });
+            };
+            img.onerror = () => {
+                console.error(`[Grid] Image load error ${id}`);
+                img.closest('.card')?.classList.remove('loading');
+            };
+            img.src = url;
+        }).catch(e => {
+            console.error(`[Grid] Request failed for ${id}`, e);
+            img.closest('.card')?.classList.remove('loading');
         });
-        observer.observe(target);
     }
     scrollToPhoto(id) {
         const index = this.photos.findIndex(p => p?.id === id);

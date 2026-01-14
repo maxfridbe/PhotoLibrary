@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.IO.Hashing;
+using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using static PhotoLibrary.TableConstants;
@@ -14,6 +15,7 @@ namespace PhotoLibrary
     {
         private readonly string _connectionString;
         private readonly ILogger<DatabaseManager> _logger;
+        private readonly ConcurrentDictionary<string, string> _hashCache = new();
         public string DbPath { get; }
 
         public event Action<string, string>? OnFolderCreated;
@@ -905,12 +907,16 @@ namespace PhotoLibrary
 
         public string? GetFileHash(string fileId)
         {
+            if (_hashCache.TryGetValue(fileId, out string? cached)) return cached;
+
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = $"SELECT {Column.FileEntry.Hash} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
-            return command.ExecuteScalar() as string;
+            string? hash = command.ExecuteScalar() as string;
+            if (hash != null) _hashCache[fileId] = hash;
+            return hash;
         }
 
         public string? GetFullFilePath(string fileId)
@@ -989,15 +995,14 @@ namespace PhotoLibrary
 
         public void UpdateFileHash(string fileId, string hash)
         {
+            _hashCache[fileId] = hash;
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            using (var command = connection.CreateCommand())
-            {
-                command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
-                command.Parameters.AddWithValue("$Hash", hash);
-                command.Parameters.AddWithValue("$Id", fileId);
-                command.ExecuteNonQuery();
-            }
+            using var command = connection.CreateCommand();
+            command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$Hash", hash);
+            command.Parameters.AddWithValue("$Id", fileId);
+            command.ExecuteNonQuery();
         }
 
         public (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null)

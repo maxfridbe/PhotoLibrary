@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.IO.Compression;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Diagnostics;
 
 namespace PhotoLibrary
 {
@@ -23,15 +24,28 @@ namespace PhotoLibrary
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
 
-        private record QueuedImageRequest(
-            ImageRequest Request, 
-            WebSocket Socket, 
-            SemaphoreSlim Lock, 
-            TaskCompletionSource<byte[]> Tcs,
-            CancellationToken ct
-        );
+        private class QueuedImageRequest
+        {
+            public ImageRequest Request { get; }
+            public WebSocket Socket { get; }
+            public SemaphoreSlim Lock { get; }
+            public TaskCompletionSource<byte[]> Tcs { get; }
+            public CancellationToken ct { get; }
+            public long StartTime { get; }
+            public double Priority { get; }
+            
+            public double QueueMs { get; set; }
+            public double RetrievalMs { get; set; }
+            public double GeneratingMs { get; set; }
+            public byte[]? Payload { get; set; }
 
-        private static readonly ConcurrentQueue<QueuedImageRequest> _requestQueue = new();
+            public QueuedImageRequest(ImageRequest request, WebSocket socket, SemaphoreSlim lockobj, TaskCompletionSource<byte[]> tcs, CancellationToken ct, long startTime, double priority)
+            {
+                Request = request; Socket = socket; Lock = lockobj; Tcs = tcs; this.ct = ct; StartTime = startTime; Priority = priority;
+            }
+        }
+
+        private static readonly PriorityQueue<QueuedImageRequest, double> _requestQueue = new();
         private static readonly SemaphoreSlim _queueSemaphore = new(0);
         private static readonly object _queueLock = new();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
@@ -42,6 +56,7 @@ namespace PhotoLibrary
 
             // Start Background Workers for Image Processing
             int workerCount = Math.Max(1, Environment.ProcessorCount / 2);
+            _logger?.LogInformation("Starting {Count} background image worker threads.", workerCount);
             for (int i = 0; i < workerCount; i++)
             {
                 StartImageWorker(dbManager, previewManager);
@@ -104,6 +119,7 @@ namespace PhotoLibrary
                 info.IsIndexing = ImageIndexer.IsIndexing;
                 info.IndexedCount = ImageIndexer.IndexedCount;
                 info.TotalToIndex = ImageIndexer.TotalToIndex;
+                info.TotalThumbnailedImages = pm.GetTotalUniqueHashes();
                 return Results.Ok(info);
             });
 
@@ -529,20 +545,19 @@ namespace PhotoLibrary
                 {
                     await _queueSemaphore.WaitAsync();
                     QueuedImageRequest? item = null;
-                    int countBefore = 0;
                     lock (_queueLock)
                     {
-                        countBefore = _requestQueue.Count;
-                        _requestQueue.TryDequeue(out item);
+                        _requestQueue.TryDequeue(out item, out _);
                     }
 
                     if (item == null) continue;
-                    Console.WriteLine($"[QUEUE] Now processing: {item.Request.fileId} (Size {item.Request.size}). Queue was: {countBefore}");
-                    _logger?.LogDebug("[QUEUE] Dequeued {FileId} (Size {Size}). Queue count: {Count}", item.Request.fileId, item.Request.size, _requestQueue.Count);
+                    
+                    long dequeuedTime = Stopwatch.GetTimestamp();
+                    item.QueueMs = Stopwatch.GetElapsedTime(item.StartTime, dequeuedTime).TotalMilliseconds;
 
                     if (item.ct.IsCancellationRequested || item.Socket.State != WebSocketState.Open)
                     {
-                        item.Tcs.SetCanceled();
+                        item.Tcs.TrySetCanceled();
                         continue;
                     }
 
@@ -550,6 +565,7 @@ namespace PhotoLibrary
                     {
                         var req = item.Request;
                         byte[]? data = null;
+                        long retrievalStart = Stopwatch.GetTimestamp();
 
                         if (req.size == 0) // Full Resolution Request
                         {
@@ -559,20 +575,25 @@ namespace PhotoLibrary
                                 string ext = Path.GetExtension(fullPath);
                                 if (TableConstants.RawExtensions.Contains(ext))
                                 {
+                                    item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                    long genStart = Stopwatch.GetTimestamp();
                                     var fileLock = _fileLocks.GetOrAdd(req.fileId, _ => new SemaphoreSlim(1, 1));
                                     await fileLock.WaitAsync();
                                     try
                                     {
                                         using var image = new ImageMagick.MagickImage(fullPath);
-                                        _logger?.LogDebug("[WS] Converted RAW {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, db.GetFileHash(req.fileId), image.Width, image.Height);
                                         image.AutoOrient();
                                         image.Format = ImageMagick.MagickFormat.Jpg;
                                         image.Quality = 90;
                                         data = image.ToByteArray();
                                     }
                                     finally { fileLock.Release(); }
+                                    item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                                 }
-                                else data = await File.ReadAllBytesAsync(fullPath, item.ct);
+                                else {
+                                    data = await File.ReadAllBytesAsync(fullPath, item.ct);
+                                    item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                }
                             }
                         }
                         else 
@@ -604,30 +625,27 @@ namespace PhotoLibrary
                                             db.UpdateFileHash(req.fileId, hash);
                                         }
 
-                                        // Re-check previews DB now that we have the hash (in case another worker just finished it)
+                                        // Re-check previews DB
                                         data = pm.GetPreviewData(hash, req.size);
                                         if (data != null) {
-                                            item.Tcs.SetResult(data);
+                                            item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                            item.Payload = data;
+                                            item.Tcs.TrySetResult(data);
                                             continue;
                                         }
 
+                                        long genStart = Stopwatch.GetTimestamp();
                                         var fileLock = _fileLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
                                         await fileLock.WaitAsync();
                                         try
                                         {
                                             using var image = new ImageMagick.MagickImage(stream);
-                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, hash, image.Width, image.Height);
-                                            
-                                            // Notify clients that generation is starting
                                             _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
-
                                             image.AutoOrient();
 
-                                            // Generate BOTH standard sizes at once to save CPU/IO
                                             int[] targetSizes = { 300, 1024 };
                                             foreach (var targetSize in targetSizes)
                                             {
-                                                // Skip if it's not raw and original is already smaller than target
                                                 if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
                                                 {
                                                     var bytes = File.ReadAllBytes(sourcePath);
@@ -640,8 +658,8 @@ namespace PhotoLibrary
                                                 if (clone.Width > clone.Height) clone.Resize((uint)targetSize, 0);
                                                 else clone.Resize(0, (uint)targetSize);
                                                 
-                                                clone.Format = ImageMagick.MagickFormat.Jpg;
-                                                clone.Quality = 85;
+                                                clone.Format = ImageMagick.MagickFormat.WebP;
+                                                clone.Quality = 80;
                                                 var generated = clone.ToByteArray();
                                                 
                                                 pm.SavePreview(hash, targetSize, generated);
@@ -649,21 +667,22 @@ namespace PhotoLibrary
                                             }
                                         }
                                         finally { fileLock.Release(); }
-
-                                        string? rootId = db.GetFileRootId(req.fileId);
-                                        if (rootId != null) _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId });
-                                    } catch (Exception ex) { 
-                                        _logger?.LogError(ex, "Live preview gen failed for {FileId} ({FilePath}). Error: {Message}", req.fileId, fullPath, ex.Message); 
-                                    }
+                                        item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
+                                        
+                                        string? fileRootId = db.GetFileRootId(req.fileId);
+                                        _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId = fileRootId });
+                                    } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileId); }
                                 }
                             }
+                            item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds - item.GeneratingMs;
                         }
 
-                        item.Tcs.SetResult(data ?? Array.Empty<byte>());
+                        byte[] finalData = data ?? Array.Empty<byte>();
+                        item.Payload = finalData;
+                        item.Tcs.TrySetResult(finalData);
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "Worker processing failed");
                         item.Tcs.TrySetException(ex);
                     }
                 }
@@ -677,56 +696,79 @@ namespace PhotoLibrary
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
                 try {
-                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                    if (result.MessageType == WebSocketMessageType.Text)
+                    var wsResult = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                    if (wsResult.MessageType == WebSocketMessageType.Text)
                     {
-                        var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        var req = JsonSerializer.Deserialize<ImageRequest>(json);
-                        if (req != null)
-                        {
-                            _logger?.LogDebug("[WS] Received request {ReqId} for file {FileId} size {Size}", req.requestId, req.fileId, req.size);
-                            
-                            // Optimization: Check DB immediately before enqueuing.
-                            // If it exists, we don't need to block a worker or wait in line.
-                            string? hash = db.GetFileHash(req.fileId);
-                            byte[]? immediateData = (hash != null && req.size > 0) ? pm.GetPreviewData(hash, req.size) : null;
-
-                            byte[] payload;
-                            if (immediateData != null)
-                            {
-                                payload = immediateData;
-                            }
-                            else
-                            {
-                                var tcs = new TaskCompletionSource<byte[]>();
-                                lock (_queueLock)
+                        var json = Encoding.UTF8.GetString(buffer, 0, wsResult.Count);
+                        
+                        // REQ-ARCH-00010: Process each request concurrently so slow generations don't block the socket
+                        _ = Task.Run(async () => {
+                            try {
+                                var req = JsonSerializer.Deserialize<ImageRequest>(json);
+                                if (req != null)
                                 {
-                                    _requestQueue.Enqueue(new QueuedImageRequest(req, ws, entry.lockobj, tcs, ct));
-                                    _logger?.LogDebug("[QUEUE] Enqueued {FileId} (Size {Size}). Queue count: {Count}", req.fileId, req.size, _requestQueue.Count);
-                                    Console.WriteLine($"[QUEUE] Enqueued: {req.fileId} (Size {req.size}). Total in queue: {_requestQueue.Count}");
-                                }
-                                _queueSemaphore.Release();
-                                payload = await tcs.Task;
-                            }
+                                    long startTime = Stopwatch.GetTimestamp();
+                                    
+                                    // Optimization: Check DB immediately before enqueuing.
+                                    string? hash = db.GetFileHash(req.fileId);
+                                    byte[]? immediateData = (hash != null && req.size > 0) ? pm.GetPreviewData(hash, req.size) : null;
 
-                            if (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
-                            {
-                                var response = new byte[4 + payload.Length];
-                                BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
-                                payload.CopyTo(response, 4);
-                                await entry.lockobj.WaitAsync();
-                                try {
-                                    await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, ct);
-                                } finally { entry.lockobj.Release(); }
-                            }
-                        }
+                                    byte[] payload;
+                                    QueuedImageRequest? reqObj = null;
+                                    double fastRetrievalMs = 0;
+
+                                    if (immediateData != null)
+                                    {
+                                        payload = immediateData;
+                                        fastRetrievalMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                                    }
+                                    else
+                                    {
+                                        var tcs = new TaskCompletionSource<byte[]>();
+                                        lock (_queueLock)
+                                        {
+                                            double p = req.priority;
+                                            reqObj = new QueuedImageRequest(req, ws, entry.lockobj, tcs, ct, startTime, p);
+                                            _requestQueue.Enqueue(reqObj, -p);
+                                        }
+                                        _queueSemaphore.Release();
+                                        payload = await tcs.Task;
+                                    }
+
+                                    if (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
+                                    {
+                                        long beforeSend = Stopwatch.GetTimestamp();
+                                        var response = new byte[4 + payload.Length];
+                                        BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
+                                        payload.CopyTo(response, 4);
+                                        
+                                        // Ensure only one thread sends to this socket at a time
+                                        await entry.lockobj.WaitAsync();
+                                        try {
+                                            if (ws.State == WebSocketState.Open)
+                                                await ws.SendAsync(new ArraySegment<byte>(response), WebSocketMessageType.Binary, true, ct);
+                                        } finally { entry.lockobj.Release(); }
+                                        
+                                        long sendingMs = (long)Stopwatch.GetElapsedTime(beforeSend).TotalMilliseconds;
+                                        if (reqObj != null)
+                                        {
+                                            Console.WriteLine($"Fetching {req.fileId} priority {reqObj.Priority} overall {Stopwatch.GetElapsedTime(startTime).TotalMilliseconds:F2}ms queuetime {reqObj.QueueMs:F2}ms retrieval {reqObj.RetrievalMs:F2}ms generatingpreview {reqObj.GeneratingMs:F2}ms sending {sendingMs}ms");
+                                        }
+                                        else if (immediateData != null)
+                                        {
+                                            Console.WriteLine($"Fetching {req.fileId} priority {req.priority} FASTPATH retrieval {fastRetrievalMs:F2}ms sending {sendingMs}ms");
+                                        }
+                                    }
+                                }
+                            } catch (Exception ex) { if (ws.State == WebSocketState.Open) _logger?.LogError(ex, "Error processing concurrent WS request"); }
+                        }, ct);
                     }
-                    else if (result.MessageType == WebSocketMessageType.Close)
+                    else if (wsResult.MessageType == WebSocketMessageType.Close)
                     {
                         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed", ct);
                     }
                 } catch (OperationCanceledException) { break; }
-                catch (Exception ex) { if (ws.State == WebSocketState.Open) _logger?.LogError(ex, "WS Error"); }
+                catch (Exception ex) { if (ws.State == WebSocketState.Open) _logger?.LogError(ex, "WS Receive Error"); }
             }
         }
 
