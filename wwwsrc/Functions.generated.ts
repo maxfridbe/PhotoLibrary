@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-13T18:00:15.3259505-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-13T18:15:18.6083883-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -83,6 +83,10 @@ export async function api_library_generate_thumbnails(data: any): Promise<any> {
 
 export async function api_library_set_annotation(data: any): Promise<any> {
     return await post<any>('/api/library/set-annotation', data);
+}
+
+export async function api_library_force_update_preview(data: any): Promise<any> {
+    return await post<any>('/api/library/force-update-preview', data);
 }
 
 export async function api_library_cancel_task(data: any): Promise<any> {

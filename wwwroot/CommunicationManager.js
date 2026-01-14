@@ -63,6 +63,9 @@ export class CommunicationManager {
                     else if (msg.type === 'preview.generating') {
                         hub.pub('preview.generating', { fileId: msg.fileId });
                     }
+                    else if (msg.type === 'preview.deleted') {
+                        hub.pub('preview.deleted', { fileId: msg.fileId });
+                    }
                     else if (msg.type === 'scan.finished') {
                         hub.pub('library.updated', {});
                     }

@@ -189,6 +189,21 @@ class App {
             }
             this.updateStatusUI();
         });
+        hub.sub('preview.deleted', (data) => {
+            // Clear local cache for all sizes
+            [0, 300, 1024].forEach(size => {
+                const key = `${data.fileId}-${size}`;
+                this.imageUrlCache.delete(key);
+            });
+            // Re-trigger load if visible
+            if (this.selectedId === data.fileId) {
+                if (this.isLoupeMode)
+                    this.loadMainPreview(data.fileId);
+                if (this.isFullscreen)
+                    this.updateFullscreenImage(data.fileId);
+            }
+            this.gridViewManager.refreshStats(data.fileId, this.photos);
+        });
         hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
         hub.sub('library.updated', () => {
             this.isIndexing = false;
@@ -875,6 +890,14 @@ class App {
             const imgH = document.createElement('img');
             imgH.id = 'main-preview';
             imgH.className = 'loupe-img highres';
+            const onLoupeCtx = (e) => {
+                if (self.selectedId) {
+                    e.preventDefault();
+                    self.showPhotoContextMenu(e, self.photoMap.get(self.selectedId));
+                }
+            };
+            imgP.oncontextmenu = onLoupeCtx;
+            imgH.oncontextmenu = onLoupeCtx;
             // Zoom Toolbar
             const zoomToolbar = document.createElement('div');
             zoomToolbar.className = 'zoom-toolbar';
@@ -1452,6 +1475,40 @@ class App {
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
     }
+    showPhotoContextMenu(e, p) {
+        const menu = document.getElementById('context-menu');
+        menu.innerHTML = '';
+        const addItem = (text, cb) => {
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = (e) => { e.stopPropagation(); cb(); menu.style.display = 'none'; };
+            menu.appendChild(el);
+        };
+        addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
+        if (this.userCollections.length > 0) {
+            const d = document.createElement('div');
+            d.className = 'context-menu-divider';
+            menu.appendChild(d);
+            this.userCollections.forEach(c => {
+                addItem(`Add to '${c.name}'`, () => {
+                    Api.api_collections_add_files({ collectionId: c.id, fileIds: [p.id] });
+                    this.showNotification(`Added to ${c.name}`, 'success');
+                    this.refreshCollections();
+                });
+            });
+        }
+        const d2 = document.createElement('div');
+        d2.className = 'context-menu-divider';
+        menu.appendChild(d2);
+        addItem('Force Update Preview', () => {
+            Api.api_library_force_update_preview({ id: p.id });
+            this.showNotification('Preview regeneration requested', 'info');
+        });
+        menu.style.display = 'block';
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+    }
     showPickedContextMenu(e) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = '';
@@ -1538,9 +1595,9 @@ class App {
         }
     }
     async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub('ui.notification', { message: 'Picked photos cleared', type: 'info' }); }
-    async storePickedToCollection(id) {
-        const pickedIds = await Api.api_picked_ids({});
-        if (pickedIds.length === 0)
+    async storePickedToCollection(id, specificIds) {
+        const fileIds = specificIds || await Api.api_picked_ids({});
+        if (fileIds.length === 0)
             return;
         let name = '';
         if (id === null) {
@@ -1554,7 +1611,7 @@ class App {
             const coll = this.userCollections.find(c => c.id === id);
             name = coll?.name || 'Collection';
         }
-        await Api.api_collections_add_files({ collectionId: id, fileIds: pickedIds });
+        await Api.api_collections_add_files({ collectionId: id, fileIds: fileIds });
         this.showNotification(`Collection ${name} updated`, 'success');
         await this.refreshCollections();
     }

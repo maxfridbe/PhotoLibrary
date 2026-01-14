@@ -129,5 +129,17 @@ namespace PhotoLibrary
                 return res;
             }
         }
+
+        public void DeletePreviewsByHash(string hash)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $"DELETE FROM {TableName.Previews} WHERE {Column.Previews.Hash} = $Hash";
+                command.Parameters.AddWithValue("$Hash", hash);
+                command.ExecuteNonQuery();
+            }
+        }
     }
 }

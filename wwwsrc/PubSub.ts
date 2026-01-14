@@ -20,6 +20,7 @@ export interface EventMap {
     'folder.finished': { rootId: string };
     'preview.generated': { fileId: string, rootId: string };
     'preview.generating': { fileId: string };
+    'preview.deleted': { fileId: string };
     'search.triggered': { tag: string, value: string };
     'shortcuts.show': {};
 

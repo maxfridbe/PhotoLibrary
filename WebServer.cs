@@ -32,7 +32,7 @@ namespace PhotoLibrary
         private static readonly PriorityQueue<QueuedImageRequest, long> _requestQueue = new();
         private static readonly SemaphoreSlim _queueSemaphore = new(0);
         private static readonly object _queueLock = new();
-        private static readonly object _imageProcessingLock = new();
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
         private static long _requestCounter = 0;
 
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
@@ -357,6 +357,27 @@ namespace PhotoLibrary
                 return Results.Ok(new { });
             });
 
+            app.MapPost("/api/library/force-update-preview", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<ForceUpdatePreviewRequest>();
+                if (req == null) return Results.BadRequest();
+                
+                string? hash = db.GetFileHash(req.id);
+                if (hash != null)
+                {
+                    pm.DeletePreviewsByHash(hash);
+                    // Broadcast that preview is generating to show spinner
+                    _ = Broadcast(new { type = "preview.generating", fileId = req.id });
+                    
+                    // The next time the client asks for this image, it will be missing and regenerated live.
+                    // Or we could trigger it here? Triggering here is safer to ensure it finishes.
+                    // We don't have a direct reference to workers here, but the WebSocket request will trigger it.
+                    // Let's broadcast that it was 'deleted' so client clears cache
+                    _ = Broadcast(new { type = "preview.deleted", fileId = req.id });
+                }
+                return Results.Ok(new { });
+            });
+
             app.MapPost("/api/library/cancel-task", async (HttpContext context) =>
             {
                 var req = await context.Request.ReadFromJsonAsync<IdRequest>();
@@ -496,7 +517,9 @@ namespace PhotoLibrary
                                 string ext = Path.GetExtension(fullPath);
                                 if (TableConstants.RawExtensions.Contains(ext))
                                 {
-                                    lock (_imageProcessingLock)
+                                    var fileLock = _fileLocks.GetOrAdd(req.fileId, _ => new SemaphoreSlim(1, 1));
+                                    await fileLock.WaitAsync();
+                                    try
                                     {
                                         using var image = new ImageMagick.MagickImage(fullPath);
                                         _logger?.LogDebug("[WS] Converted RAW {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, db.GetFileHash(req.fileId), image.Width, image.Height);
@@ -505,6 +528,7 @@ namespace PhotoLibrary
                                         image.Quality = 90;
                                         data = image.ToByteArray();
                                     }
+                                    finally { fileLock.Release(); }
                                 }
                                 else data = await File.ReadAllBytesAsync(fullPath, item.ct);
                             }
@@ -545,7 +569,9 @@ namespace PhotoLibrary
                                             continue;
                                         }
 
-                                        lock (_imageProcessingLock)
+                                        var fileLock = _fileLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
+                                        await fileLock.WaitAsync();
+                                        try
                                         {
                                             using var image = new ImageMagick.MagickImage(stream);
                                             _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, hash, image.Width, image.Height);
@@ -580,6 +606,7 @@ namespace PhotoLibrary
                                                 if (targetSize == req.size) data = generated;
                                             }
                                         }
+                                        finally { fileLock.Release(); }
 
                                         string? rootId = db.GetFileRootId(req.fileId);
                                         if (rootId != null) _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId });

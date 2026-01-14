@@ -191,6 +191,10 @@ export class GridView {
             card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
         }
         card.addEventListener('click', () => hub.pub('photo.selected', { id: p.id, photo: p }));
+        card.oncontextmenu = (e) => {
+            e.preventDefault();
+            window.app.showPhotoContextMenu(e, p);
+        };
         this.syncCardData(card, p);
         return card;
     }
