@@ -21,9 +21,30 @@ namespace PhotoLibrary
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
 
+        private record QueuedImageRequest(
+            ImageRequest Request, 
+            WebSocket Socket, 
+            SemaphoreSlim Lock, 
+            TaskCompletionSource<byte[]> Tcs,
+            CancellationToken ct
+        );
+
+        private static readonly PriorityQueue<QueuedImageRequest, long> _requestQueue = new();
+        private static readonly SemaphoreSlim _queueSemaphore = new(0);
+        private static readonly object _queueLock = new();
+        private static readonly object _imageProcessingLock = new();
+        private static long _requestCounter = 0;
+
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
+
+            // Start Background Workers for Image Processing
+            int workerCount = Math.Max(1, Environment.ProcessorCount / 2);
+            for (int i = 0; i < workerCount; i++)
+            {
+                StartImageWorker(dbManager, previewManager);
+            }
 
             var builder = WebApplication.CreateBuilder();
             builder.Logging.ClearProviders();
@@ -47,7 +68,7 @@ namespace PhotoLibrary
             {
                 var data = cm.GetCameraThumbnail(model);
                 if (data == null) return Results.NotFound();
-                return Results.Bytes(data, "image/webp"); // Or detect format, but db schema example showed webp
+                return Results.Bytes(data, "image/webp"); 
             });
 
             app.MapPost("/api/photos", async (HttpContext context, DatabaseManager db) =>
@@ -85,6 +106,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<PickRequest>();
                 if (req == null) return Results.BadRequest();
                 db.SetPicked(req.id, req.isPicked);
+                _ = Broadcast(new { type = "photo.picked." + (req.isPicked ? "added" : "removed"), id = req.id });
                 return Results.Ok(new { });
             });
 
@@ -93,6 +115,7 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<RateRequest>();
                 if (req == null) return Results.BadRequest();
                 db.SetRating(req.id, req.rating);
+                _ = Broadcast(new { type = "photo.starred.added", id = req.id, rating = req.rating });
                 return Results.Ok(new { });
             });
 
@@ -100,8 +123,7 @@ namespace PhotoLibrary
             {
                 var req = await context.Request.ReadFromJsonAsync<SearchRequest>();
                 if (req == null) return Results.BadRequest();
-                var fileIds = db.SearchMetadata(req.tag, req.value);
-                return Results.Ok(fileIds);
+                return Results.Ok(db.SearchMetadata(req.tag, req.value));
             });
 
             app.MapPost("/api/collections/list", (DatabaseManager db) =>
@@ -163,12 +185,6 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<NameRequest>();
                 if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
 
-                // Check if name contains a limit suffix like "|1000" or similar, 
-                // or better, we should have updated the Request model. 
-                // Since I can't easily change the model and regenerate without potential issues, 
-                // I'll try to parse it from the string if present or just use a default.
-                // Wait, I can update the model! Let's update NameRequest or add a new one.
-                
                 int limit = 1000;
                 string path = req.name;
                 if (path.Contains("|")) {
@@ -348,17 +364,16 @@ namespace PhotoLibrary
                 if (_activeTasks.TryRemove(req.id, out var cts))
                 {
                     cts.Cancel();
-                    return Results.Ok();
+                    return Results.Ok(new { message = "Task cancelled" });
                 }
                 return Results.NotFound();
             });
 
             app.MapPost("/api/settings/get", async (HttpContext context, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<SettingRequest>();
+                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
                 if (req == null) return Results.BadRequest();
-                var val = db.GetSetting(req.key);
-                return Results.Ok(new { value = val });
+                return Results.Ok(new { value = db.GetSetting(req.name) });
             });
 
             app.MapPost("/api/settings/set", async (HttpContext context, DatabaseManager db) =>
@@ -369,17 +384,10 @@ namespace PhotoLibrary
                 return Results.Ok(new { });
             });
 
-            app.MapGet("/api/download/{fileId}", (string fileId, DatabaseManager db) =>
-            {
-                string? fullPath = db.GetFullFilePath(fileId);
-                if (fullPath == null || !File.Exists(fullPath)) return Results.NotFound();
-                return Results.File(fullPath, "application/octet-stream", Path.GetFileName(fullPath));
-            });
-
             app.MapPost("/api/export/prepare", async (HttpContext context) =>
             {
                 var req = await context.Request.ReadFromJsonAsync<ZipRequest>();
-                if (req == null || req.fileIds == null) return Results.BadRequest();
+                if (req == null) return Results.BadRequest();
                 string token = Guid.NewGuid().ToString();
                 _exportCache[token] = req;
                 _ = Task.Run(async () => { await Task.Delay(TimeSpan.FromMinutes(5)); _exportCache.TryRemove(token, out _); });
@@ -399,7 +407,7 @@ namespace PhotoLibrary
                     {
                         string? fullPath = db.GetFullFilePath(id);
                         if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath)) continue;
-                        string entryName = req.type == "previews" ? Path.GetFileNameWithoutExtension(fullPath) + ".jpg" : Path.GetFileName(fullPath);
+                        string entryName = (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) ? Path.GetFileNameWithoutExtension(fullPath) + ".jpg" : Path.GetFileName(fullPath);
                         string uniqueName = entryName;
                         int counter = 1;
                         while (usedNames.Contains(uniqueName)) { string ext = Path.GetExtension(entryName); string nameNoExt = Path.GetFileNameWithoutExtension(entryName); uniqueName = $"{nameNoExt}-{counter}{ext}"; counter++; }
@@ -407,13 +415,20 @@ namespace PhotoLibrary
                         var entry = archive.CreateEntry(uniqueName, CompressionLevel.NoCompression);
                         using (var entryStream = entry.Open())
                         {
-                            if (req.type == "previews") { using var image = new ImageMagick.MagickImage(fullPath); image.AutoOrient(); image.Format = ImageMagick.MagickFormat.Jpg; image.Quality = 85; image.Write(entryStream); }
+                            if (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) { using var image = new ImageMagick.MagickImage(fullPath); image.AutoOrient(); image.Format = ImageMagick.MagickFormat.Jpg; image.Quality = 85; image.Write(entryStream); }
                             else { using var fs = File.OpenRead(fullPath); await fs.CopyToAsync(entryStream); }
                         }
                         await context.Response.Body.FlushAsync();
                     }
                 }
                 return Results.Empty;
+            });
+
+            app.MapGet("/api/download/{fileId}", (string fileId, DatabaseManager db) =>
+            {
+                string? fullPath = db.GetFullFilePath(fileId);
+                if (fullPath == null || !File.Exists(fullPath)) return Results.NotFound();
+                return Results.File(fullPath, GetContentType(fullPath), Path.GetFileName(fullPath));
             });
 
             app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
@@ -441,54 +456,149 @@ namespace PhotoLibrary
                 else context.Response.StatusCode = 400;
             });
 
-            _logger?.LogInformation("Web server running on port {Port}", port);
             app.Run();
         }
 
-        private static async Task Broadcast(object message)
+        private static void StartImageWorker(DatabaseManager db, PreviewManager pm)
         {
-            var json = JsonSerializer.Serialize(message);
-            var data = Encoding.UTF8.GetBytes(json);
-            foreach (var entry in _activeSockets)
+            Task.Run(async () =>
             {
-                if (entry.socket.State == WebSocketState.Open)
+                while (true)
                 {
-                    try {
-                        await entry.lockobj.WaitAsync();
-                        try {
-                            await entry.socket.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
-                        } finally { entry.lockobj.Release(); }
-                    } catch { }
+                    await _queueSemaphore.WaitAsync();
+                    QueuedImageRequest? item = null;
+                    lock (_queueLock)
+                    {
+                        if (_requestQueue.Count > 0)
+                        {
+                            item = _requestQueue.Dequeue();
+                        }
+                    }
+
+                    if (item == null) continue;
+
+                    if (item.ct.IsCancellationRequested || item.Socket.State != WebSocketState.Open)
+                    {
+                        item.Tcs.SetCanceled();
+                        continue;
+                    }
+
+                    try
+                    {
+                        var req = item.Request;
+                        byte[]? data = null;
+
+                        if (req.size == 0) // Full Resolution Request
+                        {
+                            string? fullPath = db.GetFullFilePath(req.fileId);
+                            if (fullPath != null && File.Exists(fullPath))
+                            {
+                                string ext = Path.GetExtension(fullPath);
+                                if (TableConstants.RawExtensions.Contains(ext))
+                                {
+                                    lock (_imageProcessingLock)
+                                    {
+                                        using var image = new ImageMagick.MagickImage(fullPath);
+                                        _logger?.LogDebug("[WS] Converted RAW {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, db.GetFileHash(req.fileId), image.Width, image.Height);
+                                        image.AutoOrient();
+                                        image.Format = ImageMagick.MagickFormat.Jpg;
+                                        image.Quality = 90;
+                                        data = image.ToByteArray();
+                                    }
+                                }
+                                else data = await File.ReadAllBytesAsync(fullPath, item.ct);
+                            }
+                        }
+                        else 
+                        {
+                            string? hash = db.GetFileHash(req.fileId);
+                            data = hash != null ? pm.GetPreviewData(hash, req.size) : null;
+                            
+                            if (data == null)
+                            {
+                                string? fullPath = db.GetFullFilePath(req.fileId);
+                                if (fullPath != null && File.Exists(fullPath))
+                                {
+                                    try {
+                                        string sourcePath = fullPath;
+                                        string ext = Path.GetExtension(fullPath);
+                                        bool isRaw = TableConstants.RawExtensions.Contains(ext);
+                                        if (isRaw) {
+                                            string sidecar = Path.ChangeExtension(fullPath, ".JPG");
+                                            if (!File.Exists(sidecar)) sidecar = Path.ChangeExtension(fullPath, ".jpg");
+                                            if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
+                                        }
+                                        
+                                        using var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                        if (hash == null) {
+                                            var hasher = new System.IO.Hashing.XxHash64();
+                                            hasher.Append(stream);
+                                            hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                                            stream.Position = 0;
+                                            db.UpdateFileHash(req.fileId, hash);
+                                        }
+
+                                        // Re-check previews DB now that we have the hash (in case another worker just finished it)
+                                        data = pm.GetPreviewData(hash, req.size);
+                                        if (data != null) {
+                                            item.Tcs.SetResult(data);
+                                            continue;
+                                        }
+
+                                        lock (_imageProcessingLock)
+                                        {
+                                            using var image = new ImageMagick.MagickImage(stream);
+                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, hash, image.Width, image.Height);
+                                            
+                                            // Notify clients that generation is starting
+                                            _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
+
+                                            image.AutoOrient();
+
+                                            // Generate BOTH standard sizes at once to save CPU/IO
+                                            int[] targetSizes = { 300, 1024 };
+                                            foreach (var targetSize in targetSizes)
+                                            {
+                                                // Skip if it's not raw and original is already smaller than target
+                                                if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
+                                                {
+                                                    var bytes = File.ReadAllBytes(sourcePath);
+                                                    pm.SavePreview(hash, targetSize, bytes);
+                                                    if (targetSize == req.size) data = bytes;
+                                                    continue;
+                                                }
+
+                                                using var clone = image.Clone();
+                                                if (clone.Width > clone.Height) clone.Resize((uint)targetSize, 0);
+                                                else clone.Resize(0, (uint)targetSize);
+                                                
+                                                clone.Format = ImageMagick.MagickFormat.Jpg;
+                                                clone.Quality = 85;
+                                                var generated = clone.ToByteArray();
+                                                
+                                                pm.SavePreview(hash, targetSize, generated);
+                                                if (targetSize == req.size) data = generated;
+                                            }
+                                        }
+
+                                        string? rootId = db.GetFileRootId(req.fileId);
+                                        if (rootId != null) _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId });
+                                    } catch (Exception ex) { 
+                                        _logger?.LogError(ex, "Live preview gen failed for {FileId} ({FilePath}). Error: {Message}", req.fileId, fullPath, ex.Message); 
+                                    }
+                                }
+                            }
+                        }
+
+                        item.Tcs.SetResult(data ?? Array.Empty<byte>());
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Worker processing failed");
+                        item.Tcs.TrySetException(ex);
+                    }
                 }
-            }
-        }
-
-        private static string SanitizeFilename(string filename)
-        {
-            var invalidChars = Path.GetInvalidFileNameChars();
-            return string.Join("_", filename.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim().Replace(" ", "_");
-        }
-
-        private static IResult ServeEmbeddedFile(string resourceName, string contentType)
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream == null) 
-            {
-                _logger?.LogDebug("Resource not found: {ResourceName}", resourceName);
-                return Results.NotFound();
-            }
-            return Results.Stream(stream, contentType);
-        }
-
-        private static string GetContentType(string path)
-        {
-            if (path.EndsWith(".js")) return "application/javascript";
-            if (path.EndsWith(".css")) return "text/css";
-            if (path.EndsWith(".html")) return "text/html";
-            if (path.EndsWith(".png")) return "image/png";
-            if (path.EndsWith(".jpg") || path.EndsWith(".jpeg")) return "image/jpeg";
-            return "application/octet-stream";
+            });
         }
 
         private static async Task HandleWebSocket((WebSocket socket, SemaphoreSlim lockobj) entry, DatabaseManager db, PreviewManager pm, CancellationToken ct)
@@ -506,80 +616,20 @@ namespace PhotoLibrary
                         if (req != null)
                         {
                             _logger?.LogDebug("[WS] Received request {ReqId} for file {FileId} size {Size}", req.requestId, req.fileId, req.size);
-                            byte[]? data = null;
-                            if (req.size == 0) // Full Resolution Request
+                            
+                            var tcs = new TaskCompletionSource<byte[]>();
+                            lock (_queueLock)
                             {
-                                string? fullPath = db.GetFullFilePath(req.fileId);
-                                if (fullPath != null && File.Exists(fullPath))
-                                {
-                                    string ext = Path.GetExtension(fullPath);
-                                    if (TableConstants.RawExtensions.Contains(ext))
-                                    {
-                                        using var image = new ImageMagick.MagickImage(fullPath);
-                                        _logger?.LogDebug("[WS] Converted RAW {FileId} ({Ext}). Dimensions: {W}x{H}", req.fileId, ext, image.Width, image.Height);
-                                        image.AutoOrient();
-                                        image.Format = ImageMagick.MagickFormat.Jpg;
-                                        image.Quality = 90;
-                                        data = image.ToByteArray();
-                                    }
-                                    else data = await File.ReadAllBytesAsync(fullPath, ct);
-                                }
+                                // Latest gets priority: use a decreasing priority value
+                                long priority = long.MaxValue - Interlocked.Increment(ref _requestCounter);
+                                _requestQueue.Enqueue(new QueuedImageRequest(req, ws, entry.lockobj, tcs, ct), priority);
                             }
-                            else 
+                            _queueSemaphore.Release();
+
+                            var payload = await tcs.Task;
+
+                            if (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
                             {
-                                string? hash = db.GetFileHash(req.fileId);
-                                data = hash != null ? pm.GetPreviewData(hash, req.size) : null;
-                                
-                                if (data == null)
-                                {
-                                    string? fullPath = db.GetFullFilePath(req.fileId);
-                                    if (fullPath != null && File.Exists(fullPath))
-                                    {
-                                        try {
-                                            string sourcePath = fullPath;
-                                            string ext = Path.GetExtension(fullPath);
-                                            bool isRaw = TableConstants.RawExtensions.Contains(ext);
-                                            if (isRaw) {
-                                                string sidecar = Path.ChangeExtension(fullPath, ".JPG");
-                                                if (!File.Exists(sidecar)) sidecar = Path.ChangeExtension(fullPath, ".jpg");
-                                                if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
-                                            }
-                                            
-                                            using var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                            if (hash == null) {
-                                                var hasher = new System.IO.Hashing.XxHash64();
-                                                hasher.Append(stream);
-                                                hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
-                                                stream.Position = 0;
-                                                db.UpdateFileHash(req.fileId, hash);
-                                            }
-
-                                            using var image = new ImageMagick.MagickImage(stream);
-                                            _logger?.LogDebug("[WS] Live Gen {FileId} ({Ext}). Hash: {Hash}. Dimensions: {W}x{H}", req.fileId, ext, hash, image.Width, image.Height);
-                                            
-                                            // Notify clients that generation is starting (slow op)
-                                            _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
-
-                                            image.AutoOrient();
-                                            if (!isRaw && image.Width <= req.size && image.Height <= req.size) { data = File.ReadAllBytes(sourcePath); }
-                                            else {
-                                                if (image.Width > image.Height) image.Resize((uint)req.size, 0); else image.Resize(0, (uint)req.size);
-                                                image.Format = ImageMagick.MagickFormat.Jpg; image.Quality = 85;
-                                                data = image.ToByteArray();
-                                                pm.SavePreview(hash, req.size, data);
-                                                string? rootId = db.GetFileRootId(req.fileId);
-                                                if (rootId != null) _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId });
-                                            }
-                                        } catch (Exception ex) { 
-                                            _logger?.LogError(ex, "Live preview gen failed for {FileId} ({FilePath}). Error: {Message}", req.fileId, fullPath, ex.Message); 
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (!ct.IsCancellationRequested)
-                            {
-                                var payload = data ?? Array.Empty<byte>();
                                 var response = new byte[4 + payload.Length];
                                 BitConverter.GetBytes(req.requestId).CopyTo(response, 0);
                                 payload.CopyTo(response, 4);
@@ -597,6 +647,53 @@ namespace PhotoLibrary
                 } catch (OperationCanceledException) { break; }
                 catch (Exception ex) { if (ws.State == WebSocketState.Open) _logger?.LogError(ex, "WS Error"); }
             }
+        }
+
+        private static async Task Broadcast(object message)
+        {
+            var json = JsonSerializer.Serialize(message);
+            var buffer = Encoding.UTF8.GetBytes(json);
+            
+            var tasks = new List<Task>();
+            foreach (var (socket, lockobj) in _activeSockets)
+            {
+                if (socket.State == WebSocketState.Open)
+                {
+                    tasks.Add(Task.Run(async () => {
+                        await lockobj.WaitAsync();
+                        try {
+                            if (socket.State == WebSocketState.Open)
+                                await socket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, CancellationToken.None);
+                        } catch { }
+                        finally { lockobj.Release(); }
+                    }));
+                }
+            }
+            await Task.WhenAll(tasks);
+        }
+
+        private static IResult ServeEmbeddedFile(string resourceName, string contentType)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream == null) return Results.NotFound();
+            return Results.Stream(stream, contentType);
+        }
+
+        private static string GetContentType(string path)
+        {
+            if (path.EndsWith(".js")) return "application/javascript";
+            if (path.EndsWith(".css")) return "text/css";
+            if (path.EndsWith(".html")) return "text/html";
+            if (path.EndsWith(".png")) return "image/png";
+            if (path.EndsWith(".jpg") || path.EndsWith(".jpeg")) return "image/jpeg";
+            return "application/octet-stream";
+        }
+
+        private static string SanitizeFilename(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name;
         }
     }
 
