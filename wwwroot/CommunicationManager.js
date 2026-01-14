@@ -32,6 +32,7 @@ export class CommunicationManager {
         this.connectWs();
     }
     // REQ-SVC-00003
+    // REQ-ARCH-00010
     connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws?clientId=${this.clientId}`);
@@ -106,7 +107,7 @@ export class CommunicationManager {
             this.inFlightRequests--;
             const resolve = this.requestMap.get(reqId);
             this.requestMap.delete(reqId);
-            resolve(new Blob([data], { type: 'image/jpeg' }));
+            resolve(new Blob([data], { type: 'image/webp' }));
             // Re-process queue immediately when a slot opens
             this.processQueue();
         }

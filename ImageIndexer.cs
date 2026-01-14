@@ -341,8 +341,8 @@ namespace PhotoLibrary
                             if (clone.Width > clone.Height) clone.Resize((uint)size, 0);
                             else clone.Resize(0, (uint)size);
 
-                            clone.Format = MagickFormat.Jpg;
-                            clone.Quality = 85; 
+                            clone.Format = MagickFormat.WebP;
+                            clone.Quality = 80; 
                             
                             byte[] data = clone.ToByteArray();
                             _previewManager.SavePreview(hash, size, data);

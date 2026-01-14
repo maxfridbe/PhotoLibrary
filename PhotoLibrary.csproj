@@ -19,6 +19,9 @@
     <Compile Remove="TypeGen\**" />
     <EmbeddedResource Remove="TypeGen\**" />
     <None Remove="TypeGen\**" />
+    <Compile Remove="MigrationUtil\**" />
+    <EmbeddedResource Remove="MigrationUtil\**" />
+    <None Remove="MigrationUtil\**" />
   </ItemGroup>
 
   <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">

@@ -114,7 +114,7 @@ export class CommunicationManager {
             this.inFlightRequests--;
             const resolve = this.requestMap.get(reqId)!;
             this.requestMap.delete(reqId);
-            resolve(new Blob([data], { type: 'image/jpeg' }));
+            resolve(new Blob([data], { type: 'image/webp' }));
             
             // Re-process queue immediately when a slot opens
             this.processQueue();
