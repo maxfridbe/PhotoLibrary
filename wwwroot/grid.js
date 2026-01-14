@@ -1,7 +1,9 @@
 import { hub } from './PubSub.js';
 import { server } from './CommunicationManager.js';
+import { constants } from './constants.js';
+const ps = constants.pubsub;
 export class GridView {
-    constructor(imageUrlCache, rotationMap) {
+    constructor(imageUrlCache, rotationMap, priorityProvider) {
         this.gridViewEl = null;
         this.scrollSentinel = null;
         this.filmstripEl = null;
@@ -16,11 +18,12 @@ export class GridView {
         this.generatingIds = new Set();
         this.imageUrlCache = imageUrlCache;
         this.rotationMap = rotationMap;
-        hub.sub('preview.generating', (data) => {
+        this.priorityProvider = priorityProvider;
+        hub.sub(ps.PREVIEW_GENERATING, (data) => {
             this.generatingIds.add(data.fileId);
             this.updateCardSpinner(data.fileId, true);
         });
-        hub.sub('preview.generated', (data) => {
+        hub.sub(ps.PREVIEW_GENERATED, (data) => {
             this.generatingIds.delete(data.fileId);
             this.updateCardSpinner(data.fileId, false);
             // Also force image reload if visible?
@@ -188,9 +191,9 @@ export class GridView {
         info.appendChild(bottom);
         card.appendChild(info);
         if (mode === 'grid') {
-            card.addEventListener('dblclick', () => hub.pub('view.mode.changed', { mode: 'loupe', id: p.id }));
+            card.addEventListener('dblclick', () => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id: p.id }));
         }
-        card.addEventListener('click', () => hub.pub('photo.selected', { id: p.id, photo: p }));
+        card.addEventListener('click', () => hub.pub(ps.PHOTO_SELECTED, { id: p.id, photo: p }));
         card.oncontextmenu = (e) => {
             e.preventDefault();
             window.app.showPhotoContextMenu(e, p);
@@ -229,6 +232,7 @@ export class GridView {
         if (img) {
             const rot = this.rotationMap.get(photo.id) || 0;
             img.style.transform = `rotate(${rot}deg)`;
+            img.classList.toggle('is-portrait-rotated', rot % 180 !== 0);
         }
         if (this.generatingIds.has(photo.id))
             card.classList.add('generating');
@@ -249,7 +253,8 @@ export class GridView {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     // console.log(`[Grid] Requesting ${id}`);
-                    server.requestImage(id, size).then((blob) => {
+                    const priority = this.priorityProvider(id);
+                    server.requestImage(id, size, priority).then((blob) => {
                         // console.log(`[Grid] Received blob for ${id}, size: ${blob.size}`);
                         const url = URL.createObjectURL(blob);
                         this.imageUrlCache.set(cacheKey, url);

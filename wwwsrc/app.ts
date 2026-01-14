@@ -10,6 +10,9 @@ import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
 import { themes } from './themes.js';
 import { GridView } from './grid.js';
+import { constants } from './constants.js';
+
+const ps = constants.pubsub;
 
 type Photo = Res.PhotoResponse;
 import { visualizeLensData } from './aperatureVis.js';
@@ -20,6 +23,17 @@ type Collection = Res.CollectionResponse;
 type Stats = Res.StatsResponse;
 
 type SortOption = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'rating-desc' | 'size-desc';
+
+interface FolderTreeNode {
+    node: RootPath;
+    children: FolderTreeNode[];
+}
+
+declare global {
+    interface Window {
+        app: App;
+    }
+}
 
 class App {
     public layout: any;
@@ -36,6 +50,9 @@ class App {
     public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0,0,0,0,0] };
     public totalPhotos = 0;
     
+    private expandedFolders: Set<string> = new Set();
+    private flatFolderList: string[] = [];
+
     private imageUrlCache: Map<string, string> = new Map();
     private cameraThumbCache: Map<string, string> = new Map();
 
@@ -54,13 +71,20 @@ class App {
 
     private gridScale = 1.0;
     private isLoadingChunk = new Set<number>();
-    private rotationMap = new Map<string, number>();
+    public rotationMap = new Map<string, number>();
+    private prioritySession = 1;
 
     public isLoupeMode = false;
     public isLibraryMode = false;
     public isIndexing = false;
     private overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
     private loupeOverlayEl: HTMLElement | null = null;
+
+    // View methods added during layout registration
+    public setViewTransform?: (r: number, s: number, pl: number, pt: number) => void;
+    public rotateLeft?: () => void;
+    public rotateRight?: () => void;
+    public getPriority?: (id: string) => number;
     
     // Connection State
     private disconnectedAt: number | null = null;
@@ -94,21 +118,35 @@ class App {
 
     private importedBatchCount = 0;
     private importedBatchTimer: any = null;
-    private folderProgress: Map<string, { processed: number, total: number }> = new Map();
+    private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
 
     constructor() {
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
-        this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap);
-
-        hub.sub('folder.progress', (data) => {
-            this.folderProgress.set(data.rootId, { processed: data.processed, total: data.total });
-            this.refreshDirectories(); // Trigger tree re-render
+        this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap, (id) => {
+            const index = this.photos.findIndex(p => p.id === id);
+            const subPriority = index !== -1 ? (1 - (index / Math.max(1, this.photos.length))) : 0;
+            const totalPriority = this.prioritySession + subPriority;
+            // console.log(`[Priority] Requesting ${id} at index ${index} with priority ${totalPriority}`);
+            return totalPriority;
         });
 
-        hub.sub('folder.finished', (data) => {
-            this.folderProgress.delete(data.rootId);
-            this.refreshDirectories();
+        hub.sub(ps.FOLDER_PROGRESS, (data) => {
+            let prog = this.folderProgress.get(data.rootId);
+            if (!prog) {
+                prog = { processed: data.processed, total: data.total, thumbnailed: data.thumbnailed };
+            } else {
+                prog.processed = data.processed;
+                prog.total = data.total;
+                if (data.thumbnailed !== undefined) prog.thumbnailed = data.thumbnailed;
+            }
+            this.folderProgress.set(data.rootId, prog);
+            this.updateFolderProgressUI(data.rootId);
+        });
+
+        hub.sub(ps.FOLDER_FINISHED, (data) => {
+            // Keep the data but mark as not-batching if we want, but for now just update UI
+            this.updateFolderProgressUI(data.rootId);
         });
 
         this.themeManager.loadSettings().then(() => {
@@ -166,7 +204,7 @@ class App {
     }
 
     private initPubSub() {
-        hub.sub('photo.selected', (data) => {
+        hub.sub(ps.PHOTO_SELECTED, (data) => {
             this.selectedId = data.id;
             this.updateSelectionUI(data.id);
             this.gridViewManager.setSelected(data.id);
@@ -174,6 +212,11 @@ class App {
             
             if (this.isFullscreen) {
                 this.updateFullscreenImage(data.id);
+                // Also update loupe in background if we are in that mode
+                if (this.isLoupeMode) {
+                    this.loadMainPreview(data.id);
+                    this.updateLoupeOverlay(data.id);
+                }
             } else if (this.isLoupeMode) {
                 this.loadMainPreview(data.id);
                 this.updateLoupeOverlay(data.id);
@@ -185,30 +228,49 @@ class App {
             this.syncUrl();
         });
 
-        hub.sub('view.mode.changed', (data) => {
+        hub.sub(ps.VIEW_MODE_CHANGED, (data) => {
             this.isLoupeMode = data.mode === 'loupe';
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.id) {
-                hub.pub('photo.selected', { id: data.id, photo: this.photoMap.get(data.id)! });
+                hub.pub(ps.PHOTO_SELECTED, { id: data.id, photo: this.photoMap.get(data.id)! });
                 this.updateLoupeOverlay(data.id);
             }
             this.syncUrl();
         });
 
-        hub.sub('photo.updated', (data) => {
-            this.handlePhotoUpdate(data.photo);
+        hub.sub(ps.PHOTO_UPDATED, (data) => {
+            // Update local map
+            this.photoMap.set(data.id, data.photo);
+            
+            // If it's in our current list, update it there too
+            const idx = this.photos.findIndex(p => p.id === data.id);
+            if (idx !== -1) this.photos[idx] = data.photo;
+
+            const flatIdx = this.allPhotosFlat.findIndex(p => p.id === data.id);
+            if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = data.photo;
+
+            this.gridViewManager.refreshStats(data.id, this.photos);
+            if (this.selectedId === data.id) {
+                this.updateSelectionUI(data.id);
+                if (this.isLoupeMode) this.updateLoupeOverlay(data.id);
+            }
         });
 
-        hub.sub('photo.rotated', (data) => {
+        hub.sub(ps.PHOTO_ROTATED, (data) => {
             this.rotationMap.set(data.id, data.rotation);
-            this.savePhotoPreferences(data.id, data.rotation);
-            
-            // Update grid card via manager
             this.gridViewManager.refreshStats(data.id, this.photos);
             
-            // Update filmstrip card
-            const filmCard = this.filmstrip?.querySelector(`.card[data-id="${data.id}"] img`) as HTMLElement;
-            if (filmCard) filmCard.style.transform = `rotate(${data.rotation}deg)`;
+            // Update loupe
+            if (this.selectedId === data.id && this.isLoupeMode) {
+                if (this.mainPreview) {
+                    this.mainPreview.style.transform = `rotate(${data.rotation}deg)`;
+                    this.mainPreview.classList.toggle('is-portrait-rotated', data.rotation % 180 !== 0);
+                }
+                if (this.loupePreviewPlaceholder) {
+                    this.loupePreviewPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
+                    this.loupePreviewPlaceholder.classList.toggle('is-portrait-rotated', data.rotation % 180 !== 0);
+                }
+            }
 
             // Update fullscreen image
             if (this.isFullscreen && this.selectedId === data.id) {
@@ -217,113 +279,61 @@ class App {
             }
         });
 
-        hub.subPattern('photo.picked.*', (data) => { this.refreshStatsOnly(); if (data?.id) this.gridViewManager.refreshStats(data.id, this.photos); });
-        hub.subPattern('photo.starred.*', (data) => { this.refreshStatsOnly(); if (data?.id) this.gridViewManager.refreshStats(data.id, this.photos); });
+        hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag, data.value));
 
-        hub.sub('search.triggered', (data) => this.searchPhotos(data.tag, data.value));
-        hub.sub('shortcuts.show', () => document.getElementById('shortcuts-modal')?.classList.add('active'));
+        hub.sub(ps.SHORTCUTS_SHOW, () => document.getElementById('shortcuts-modal')?.classList.add('active'));
 
-        hub.sub('ui.layout.changed', () => this.gridViewManager.update());
-        
-        hub.sub('connection.changed', (data) => {
+        hub.sub(ps.UI_LAYOUT_CHANGED, () => this.gridViewManager.update());
+
+        hub.sub(ps.CONNECTION_CHANGED, (data) => {
             this.isConnected = data.connected;
             this.isConnecting = data.connecting;
-            if (this.isConnected) {
-                this.disconnectedAt = null;
-            } else if (this.disconnectedAt === null) {
-                this.disconnectedAt = Date.now();
-            }
+            if (data.connected) this.disconnectedAt = null;
+            else if (!data.connecting) this.disconnectedAt = Date.now();
             this.updateStatusUI();
         });
 
-        hub.sub('preview.deleted', (data) => {
-            // Clear local cache for all sizes
-            [0, 300, 1024].forEach(size => {
-                const key = `${data.fileId}-${size}`;
-                this.imageUrlCache.delete(key);
-            });
-            
-            // Re-trigger load if visible
-            if (this.selectedId === data.fileId) {
-                if (this.isLoupeMode) this.loadMainPreview(data.fileId);
-                if (this.isFullscreen) this.updateFullscreenImage(data.fileId);
-            }
+        hub.sub(ps.PREVIEW_DELETED, (data) => {
+            const cacheKey = data.fileId + '-300';
+            this.imageUrlCache.delete(cacheKey);
+            this.imageUrlCache.delete(data.fileId + '-2000');
             this.gridViewManager.refreshStats(data.fileId, this.photos);
         });
 
-        hub.sub('ui.notification', (data) => this.showNotification(data.message, data.type));
+        hub.sub(ps.UI_NOTIFICATION, (data) => this.showNotification(data.message, data.type));
 
-        hub.sub('library.updated', () => {
-            this.isIndexing = false;
+        hub.sub(ps.LIBRARY_UPDATED, () => {
             this.loadData();
-            this.refreshDirectories();
-            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
+            this.showNotification('Library updated', 'success');
         });
 
-        hub.sub('photo.imported', (data) => {
-            // Live update counts in the tree
-            if (data.rootId) {
-                const node = this.roots.find(r => r.id === data.rootId);
-                if (node) {
-                    node.imageCount++;
-                    this.refreshDirectories(); // Re-render tree with new counts
-                }
-            }
-
+        hub.sub(ps.PHOTO_IMPORTED, (data) => {
             this.importedBatchCount++;
-
-            if (this.isIndexing) {
-                // Periodically update UI during bulk indexing (every 50 items)
-                if (this.importedBatchCount % 50 === 0) {
-                    this.refreshStatsOnly();
-                    this.refreshPhotos(true);
-                }
-                return;
-            }
-            
-            this.refreshStatsOnly();
-            this.refreshDirectories();
-            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
-            
             if (this.importedBatchTimer) clearTimeout(this.importedBatchTimer);
             this.importedBatchTimer = setTimeout(() => {
-                this.showNotification(`Finished importing ${this.importedBatchCount} photos`, "success");
+                this.showNotification(`Imported ${this.importedBatchCount} photos`, 'success');
                 this.importedBatchCount = 0;
-            }, 2000);
+                this.loadData();
+            }, 1000);
         });
 
-        hub.sub('preview.generated', (data) => {
-            let prog = this.folderProgress.get(data.rootId);
-            const root = this.roots.find(r => r.id === data.rootId);
-            const total = root ? root.imageCount : 100; // fallback
-
-            if (!prog) {
-                prog = { processed: 1, total };
-                this.folderProgress.set(data.rootId, prog);
-            } else {
-                prog.processed++;
-                if (prog.total < prog.processed) prog.total = prog.processed;
-            }
-
-            // If we've hit the total, clear it after a short delay
-            if (prog.processed >= prog.total) {
-                setTimeout(() => {
-                    this.folderProgress.delete(data.rootId);
+        hub.sub(ps.PREVIEW_GENERATED, (data) => {
+            this.gridViewManager.refreshStats(data.fileId, this.photos);
+            if (data.rootId) {
+                let prog = this.folderProgress.get(data.rootId);
+                if (!prog) {
+                    const root = this.roots.find(r => r.id === data.rootId);
+                    if (root) {
+                        prog = { processed: root.thumbnailedCount, total: root.imageCount, thumbnailed: root.thumbnailedCount };
+                    }
+                }
+                if (prog) {
+                    prog.thumbnailed = (prog.thumbnailed || 0) + 1;
+                    prog.processed = Math.max(prog.processed, prog.thumbnailed); // Keep processed in sync for fallback
+                    this.folderProgress.set(data.rootId, prog);
                     this.updateFolderProgressUI(data.rootId);
-                }, 3000);
+                }
             }
-
-            this.updateFolderProgressUI(data.rootId);
-        });
-
-        hub.sub('folder.progress', (data) => {
-            this.folderProgress.set(data.rootId, { processed: data.processed, total: data.total });
-            this.updateFolderProgressUI(data.rootId);
-        });
-
-        hub.sub('folder.finished', (data) => {
-            this.folderProgress.delete(data.rootId);
-            this.updateFolderProgressUI(data.rootId);
         });
     }
 
@@ -637,10 +647,9 @@ class App {
 
             const filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
 
-            console.log(`[App] applyUrlState: filterChanged=${filterChanged} sort=${sortChanged} stack=${stackChanged}`);
             if (filterChanged) {
-                console.log(`[App] Filter change details: Type ${this.filterType}->${newFilterType}, Root ${this.selectedRootId}->${newRootId}, Coll ${this.selectedCollectionId}->${newCollectionId}`);
-                this.filterType = newFilterType as any;
+                this.prioritySession++;
+                this.filterType = newFilterType as 'all' | 'picked' | 'rating' | 'search' | 'collection';
                 this.selectedRootId = newRootId;
                 this.selectedCollectionId = newCollectionId;
                 this.filterRating = newRating;
@@ -666,14 +675,14 @@ class App {
                 const p = this.photoMap.get(idFromUrl);
                 if (p) {
                     this.selectedId = idFromUrl;
-                    hub.pub('photo.selected', { id: p.id, photo: p });
+                    hub.pub(ps.PHOTO_SELECTED, { id: p.id, photo: p });
                 }
             } else if (!idFromUrl && this.selectedId) {
                 // Deselection via URL? Usually we want to keep selection unless explicit.
                 // But if URL has no ID, and we are in grid mode, maybe we should clear?
                 // For now, let's assume navigating to a folder view without ID means no selection.
                 // this.selectedId = null;
-                // hub.pub('photo.selected', { id: '', photo: null as any }); 
+                // hub.pub(ps.PHOTO_SELECTED, { id: '', photo: null as any }); 
             }
 
             this.updateHeaderUI();
@@ -696,14 +705,22 @@ class App {
 
     async loadData() {
         try {
-            const [roots, colls, stats] = await Promise.all([
+            const [roots, colls, stats, expState] = await Promise.all([
                 Api.api_directories({}),
                 Api.api_collections_list({}),
-                Api.api_stats({})
+                Api.api_stats({}),
+                Api.api_settings_get({ name: 'folder-expanded-state' })
             ]);
             this.roots = roots;
             this.userCollections = colls;
             this.stats = stats;
+
+            if (expState && expState.value) {
+                try {
+                    const ids = JSON.parse(expState.value);
+                    if (Array.isArray(ids)) this.expandedFolders = new Set(ids);
+                } catch (e) { console.error("Failed to parse expanded folders", e); }
+            }
             
             if (window.location.hash.startsWith('#!/')) {
                 await this.applyUrlState();
@@ -737,12 +754,20 @@ class App {
         
         this.stats = stats;
         this.photos = this.allPhotosFlat;
+
+        // Initialize folder progress counts from current state
+        this.roots.forEach(r => {
+            if (!this.folderProgress.has(r.id)) {
+                this.folderProgress.set(r.id, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
+            }
+        });
+
         this.gridViewManager.setPhotos(this.photos);
         this.renderLibrary();
         this.processUIStacks();
 
         if (!keepSelection && this.photos.length > 0) {
-            hub.pub('photo.selected', { id: this.photos[0].id, photo: this.photos[0] });
+            hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
         }
     }
 
@@ -923,7 +948,7 @@ class App {
             gridContainer.id = 'grid-container';
             gridContainer.style.flex = '1';
             gridContainer.style.overflowY = 'auto';
-            (gridContainer.style as any).scrollbarGutter = 'stable';
+            (gridContainer.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
             gridContainer.style.position = 'relative';
             const sentinel = document.createElement('div');
             sentinel.id = 'scroll-sentinel';
@@ -970,14 +995,6 @@ class App {
             imgH.id = 'main-preview';
             imgH.className = 'loupe-img highres';
 
-            const onLoupeCtx = (e: MouseEvent) => {
-                if (self.selectedId) {
-                    e.preventDefault();
-                    self.showPhotoContextMenu(e, self.photoMap.get(self.selectedId)!);
-                }
-            };
-            imgP.oncontextmenu = onLoupeCtx;
-            imgH.oncontextmenu = onLoupeCtx;
             
             // Zoom Toolbar
             const zoomToolbar = document.createElement('div');
@@ -1105,20 +1122,20 @@ class App {
             };
 
             // Expose for restore
-            (self as any).setViewTransform = (r: number, s: number, pl: number, pt: number) => {
+            self.setViewTransform = (r: number, s: number, pl: number, pt: number) => {
                 rotation = r; scale = s;
                 // Restore pan from percentages
                 pX = pl * previewArea.clientWidth;
                 pY = pt * previewArea.clientHeight;
                 updateTransform(true, true); // skip save and transition on restore
-                if (self.selectedId) hub.pub('photo.rotated', { id: self.selectedId, rotation });
+                if (self.selectedId) hub.pub(ps.PHOTO_ROTATED, { id: self.selectedId, rotation });
             };
 
             // Controls
             const triggerRotate = () => {
                 updateTransform();
                 showToolbar();
-                if (self.selectedId) hub.pub('photo.rotated', { id: self.selectedId, rotation });
+                if (self.selectedId) hub.pub(ps.PHOTO_ROTATED, { id: self.selectedId, rotation });
             };
 
             btnRotateLeft.onclick = (e) => { e.stopPropagation(); rotation -= 90; triggerRotate(); };
@@ -1235,14 +1252,21 @@ class App {
             });
 
             // Reset on load
-            hub.sub('photo.selected', () => {
-                scale = 1; rotation = 0; pX = 0; pY = 0; isFullResLoaded = false;
-                updateTransform(true, true); // Skip save AND transition
+            hub.sub(ps.PHOTO_SELECTED, (data) => {
+                scale = 1; 
+                rotation = self.rotationMap.get(data.id) || 0;
+                pX = 0; pY = 0; isFullResLoaded = false;
+                
+                // Hide highres and apply rotation CSS BEFORE loading new src
+                imgH.classList.remove('loaded');
+                imgH.classList.toggle('is-portrait-rotated', rotation % 180 !== 0);
+                imgP.classList.toggle('is-portrait-rotated', rotation % 180 !== 0);
+                updateTransform(true, true); 
             });
             
             // Expose rotation handlers for keyboard
-            (self as any).rotateLeft = () => { rotation -= 90; triggerRotate(); };
-            (self as any).rotateRight = () => { rotation += 90; triggerRotate(); };
+            self.rotateLeft = () => { rotation -= 90; triggerRotate(); };
+            self.rotateRight = () => { rotation += 90; triggerRotate(); };
 
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
@@ -1250,7 +1274,7 @@ class App {
             const filmstrip = document.createElement('div');
             filmstrip.id = 'filmstrip';
             filmstrip.className = 'filmstrip';
-            (filmstrip.style as any).scrollbarGutter = 'stable';
+            (filmstrip.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
             
             loupeView.appendChild(previewArea);
             loupeView.appendChild(resizer);
@@ -1303,9 +1327,9 @@ class App {
         window.addEventListener('resize', () => { 
             this.layout.updateSize(); 
             if (this.libraryManager.libraryLayout) this.libraryManager.libraryLayout.updateSize();
-            hub.pub('ui.layout.changed', {}); 
+            hub.pub(ps.UI_LAYOUT_CHANGED, {}); 
         });
-        this.layout.on('stateChanged', () => hub.pub('ui.layout.changed', {}));
+        this.layout.on('stateChanged', () => hub.pub(ps.UI_LAYOUT_CHANGED, {}));
     }
 
     private updateSelectionUI(id: string) {
@@ -1319,8 +1343,43 @@ class App {
         }
     }
 
+    private ensureSelectedFolderVisible() {
+        if (!this.selectedRootId) return;
+        
+        let changed = false;
+        let currentId: string | undefined = this.selectedRootId;
+
+        // Expand the selected folder itself
+        if (!this.expandedFolders.has(currentId)) {
+            this.expandedFolders.add(currentId);
+            changed = true;
+        }
+
+        // Trace up and expand ancestors
+        while (currentId) {
+            const node = this.roots.find(r => r.id === currentId);
+            if (node && node.parentId) {
+                if (!this.expandedFolders.has(node.parentId)) {
+                    this.expandedFolders.add(node.parentId);
+                    changed = true;
+                }
+                currentId = node.parentId;
+            } else {
+                break;
+            }
+        }
+
+        if (changed) {
+            Api.api_settings_set({ 
+                key: 'folder-expanded-state', 
+                value: JSON.stringify(Array.from(this.expandedFolders)) 
+            });
+        }
+    }
+
     renderLibrary() {
         if (!this.libraryEl) return;
+        this.ensureSelectedFolderVisible();
         this.libraryEl.innerHTML = '';
         const createSection = (title: string) => {
             const el = document.createElement('div');
@@ -1332,9 +1391,10 @@ class App {
         const searchBox = document.createElement('div');
         searchBox.className = 'search-box';
         const searchInput = document.createElement('input');
+        searchInput.type = 'text';
         searchInput.className = 'search-input';
-        searchInput.placeholder = 'Tag search...';
-        searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub('search.triggered', { tag: 'FileName', value: searchInput.value }); };
+        searchInput.placeholder = 'Search by filename...';
+        searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub(ps.SEARCH_TRIGGERED, { tag: 'FileName', value: searchInput.value }); };
         
         const searchSpinner = document.createElement('div');
         searchSpinner.className = 'search-loading';
@@ -1370,17 +1430,31 @@ class App {
         const el = container || document.getElementById(`folder-prog-${rootId}`);
         if (!el) return;
 
-        if (!prog) {
+        if (!prog || prog.total === 0) {
             el.innerHTML = '';
             return;
         }
 
-        const percent = Math.round((prog.processed / prog.total) * 100);
+        const total = prog.total;
+        const thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
+        
+        // Disappear if 100%
+        if (thumbnailed >= total) {
+            el.innerHTML = '';
+            return;
+        }
+
+        const notThumbnailed = total - thumbnailed;
+        
+        // Formula: (thumbnailed - notthumbnailed) / total
+        const rawPercent = ((thumbnailed - notThumbnailed) / total) * 100;
+        const displayPercent = Math.max(0, Math.round(rawPercent));
+
         el.innerHTML = `
-            <div style="width: 60px; height: 8px; background: var(--bg-input); border-radius: 4px; overflow: hidden; margin: 0 0.5em;" title="${prog.processed} / ${prog.total}">
-                <div style="width: ${percent}%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+            <div style="width: 60px; height: 8px; background: var(--bg-input); border: 1px solid var(--border-light); border-radius: 4px; overflow: hidden; margin: 0 0.5em; position: relative;" title="Thumbnailed: ${thumbnailed}, Remaining: ${notThumbnailed}, Total: ${total}">
+                <div style="width: ${displayPercent}%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
             </div>
-            <span class="cancel-task" style="cursor: pointer; padding: 0 4px; color: var(--text-muted);" title="Cancel">&times;</span>
+            <span class="cancel-task" style="cursor: pointer; padding: 0 4px; color: var(--text-muted); font-size: 1.2em; line-height: 1;" title="Cancel">&times;</span>
         `;
         
         el.querySelector('.cancel-task')?.addEventListener('click', (e) => {
@@ -1389,25 +1463,58 @@ class App {
         });
     }
 
+    private getContrastColor(hexcolor: string): string {
+        // If no color provided, default to white text
+        if (!hexcolor) return '#ffffff';
+        
+        // Remove # if present
+        const hex = hexcolor.replace('#', '');
+        
+        // Convert to RGB
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        
+        // Calculate YIQ brightness
+        const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+        
+        // Return black or white based on brightness
+        return (yiq >= 128) ? '#000000' : '#ffffff';
+    }
+
     private renderFolderTree(container: HTMLElement) {
-        const map = new Map<string, { node: RootPath, children: any[] }>();
+        const map = new Map<string, FolderTreeNode>();
         this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
         
-        const roots: any[] = [];
+        const roots: FolderTreeNode[] = [];
         this.roots.forEach(r => { 
-            if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id)); 
-            else roots.push(map.get(r.id)); 
+            if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(map.get(r.id)!); 
+            else roots.push(map.get(r.id)!); 
         });
 
-        const renderNode = (item: any, target: HTMLElement) => {
+        this.flatFolderList = [];
+
+        const saveExpansionState = () => {
+            Api.api_settings_set({ 
+                key: 'folder-expanded-state', 
+                value: JSON.stringify(Array.from(this.expandedFolders)) 
+            });
+        };
+
+        const renderNode = (item: FolderTreeNode, target: HTMLElement) => {
+            this.flatFolderList.push(item.node.id);
             const el = document.createElement('div');
             el.className = 'tree-item' + (this.selectedRootId === item.node.id ? ' selected' : '');
+            el.id = `folder-item-${item.node.id}`;
             
             const pill = document.createElement('span');
             pill.className = 'annotation-pill' + (item.node.annotation ? ' has-content' : '');
             pill.contentEditable = 'true';
             pill.textContent = item.node.annotation || '';
-            if (item.node.color) pill.style.backgroundColor = item.node.color;
+            if (item.node.color) {
+                pill.style.backgroundColor = item.node.color;
+                pill.style.color = this.getContrastColor(item.node.color);
+            }
             
             const saveAnnotation = async (color?: string) => {
                 const raw = pill.textContent || '';
@@ -1419,6 +1526,7 @@ class App {
                     if (targetColor) {
                         item.node.color = targetColor;
                         pill.style.backgroundColor = targetColor;
+                        pill.style.color = this.getContrastColor(targetColor);
                     }
                 }
                 pill.textContent = words;
@@ -1438,6 +1546,7 @@ class App {
                 input.value = item.node.color || '#00bcd4'; // Default accent
                 input.oninput = () => {
                     pill.style.backgroundColor = input.value;
+                    pill.style.color = this.getContrastColor(input.value);
                 };
                 input.onchange = () => {
                     saveAnnotation(input.value);
@@ -1461,12 +1570,13 @@ class App {
                 pill.focus();
             };
 
+            const isExpanded = this.expandedFolders.has(item.node.id);
             const toggle = document.createElement('span');
             toggle.style.width = '1.2em';
             toggle.style.display = 'inline-block';
             toggle.style.textAlign = 'center';
             toggle.style.cursor = 'pointer';
-            toggle.innerHTML = item.children.length > 0 ? '&#9662;' : '&nbsp;';
+            toggle.innerHTML = item.children.length > 0 ? (isExpanded ? '&#9662;' : '&#9656;') : '&nbsp;';
 
             el.appendChild(annotationIcon);
             el.appendChild(pill);
@@ -1503,7 +1613,7 @@ class App {
             const childrenContainer = document.createElement('div');
             childrenContainer.className = 'tree-children';
             childrenContainer.style.paddingLeft = '1em';
-            childrenContainer.style.display = 'block';
+            childrenContainer.style.display = isExpanded ? 'block' : 'none';
             target.appendChild(childrenContainer);
 
             el.onclick = () => this.setFilter('all', 0, item.node.id);
@@ -1512,19 +1622,27 @@ class App {
                 this.showFolderContextMenu(e, item.node.id);
             };
 
+            if (this.selectedRootId === item.node.id) {
+                setTimeout(() => el.scrollIntoView({ behavior: 'auto', block: 'nearest' }), 50);
+            }
+
             if (item.children.length > 0) {
                 toggle.onclick = (e) => {
                     e.stopPropagation();
-                    if (childrenContainer.style.display === 'none') {
+                    const nowExpanded = childrenContainer.style.display === 'none';
+                    if (nowExpanded) {
                         childrenContainer.style.display = 'block';
                         toggle.innerHTML = '&#9662;';
+                        this.expandedFolders.add(item.node.id);
                     } else {
                         childrenContainer.style.display = 'none';
                         toggle.innerHTML = '&#9656;';
+                        this.expandedFolders.delete(item.node.id);
                     }
+                    saveExpansionState();
                 };
 
-                item.children.forEach((c: any) => renderNode(c, childrenContainer));
+                item.children.forEach((c: FolderTreeNode) => renderNode(c, childrenContainer));
             }
         };
 
@@ -1544,6 +1662,7 @@ class App {
     }
 
     setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null) {
+        this.prioritySession++;
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
@@ -1553,6 +1672,7 @@ class App {
     }
 
     async setCollectionFilter(c: Collection) {
+        this.prioritySession++;
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
@@ -1646,7 +1766,7 @@ class App {
     }
 
     private async downloadZip(type: 'previews' | 'originals', collectionId?: string) {
-        hub.pub('ui.notification', { message: 'Preparing download...', type: 'info' });
+        hub.pub(ps.UI_NOTIFICATION, { message: 'Preparing download...', type: 'info' });
         
         let fileIds: string[] = [];
         let exportName = 'picked';
@@ -1678,17 +1798,17 @@ class App {
                 const { token } = await prep.json();
                 // 2. Trigger native browser download stream
                 window.location.href = `/api/export/download?token=${token}`;
-                hub.pub('ui.notification', { message: 'Download started', type: 'success' });
+                hub.pub(ps.UI_NOTIFICATION, { message: 'Download started', type: 'success' });
             } else {
-                hub.pub('ui.notification', { message: 'Failed to prepare export', type: 'error' });
+                hub.pub(ps.UI_NOTIFICATION, { message: 'Failed to prepare export', type: 'error' });
             }
         } catch (e) {
             console.error(e);
-            hub.pub('ui.notification', { message: 'Error starting download', type: 'error' });
+            hub.pub(ps.UI_NOTIFICATION, { message: 'Error starting download', type: 'error' });
         }
     }
 
-    async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub('ui.notification', { message: 'Picked photos cleared', type: 'info' }); }
+    async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub(ps.UI_NOTIFICATION, { message: 'Picked photos cleared', type: 'info' }); }
 
     async storePickedToCollection(id: string | null, specificIds?: string[]) {
         const fileIds = specificIds || await Api.api_picked_ids({});
@@ -1777,6 +1897,7 @@ class App {
     }
 
     enterLoupeMode(id: string) {
+        this.prioritySession++;
         this.isLoupeMode = true;
         this.isLibraryMode = false;
         this.updateViewModeUI();
@@ -1840,6 +1961,9 @@ class App {
         if (!this.mainPreview || !this.loupePreviewPlaceholder || !this.previewSpinner) return;
         
         this.mainPreview.classList.remove('loaded');
+        this.mainPreview.src = ''; // Clear to prevent showing old image with new rotation
+        this.loupePreviewPlaceholder.style.display = 'none';
+        this.loupePreviewPlaceholder.src = '';
         this.previewSpinner.style.display = 'block';
         
         const lowResKey = id + '-300';
@@ -1847,7 +1971,8 @@ class App {
 
         const requestHighRes = () => {
             // console.log(`[Loupe] Requesting high-res for ${id}`);
-            server.requestImage(id, 1024).then((blob: Blob) => {
+            const priority = this.getPriority?.(id) || (this.prioritySession + 2); // Boost loupe priority
+            server.requestImage(id, 1024, priority).then((blob: Blob) => {
                 if (this.selectedId === id && this.isLoupeMode) {
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
@@ -1886,7 +2011,8 @@ class App {
         } else {
             this.loupePreviewPlaceholder.style.display = 'none';
             // console.log(`[Loupe] Requesting low-res for ${id}`);
-            server.requestImage(id, 300).then((blob: Blob) => {
+            const priority = this.getPriority?.(id) || (this.prioritySession + 2);
+            server.requestImage(id, 300, priority).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 this.imageUrlCache.set(lowResKey, url);
                 if (this.selectedId === id && this.isLoupeMode) {
@@ -1905,6 +2031,9 @@ class App {
         if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner || !this.fullscreenOverlay) return;
         
         this.fullscreenImgHighRes.classList.remove('loaded');
+        this.fullscreenImgHighRes.src = '';
+        this.fullscreenImgPlaceholder.style.display = 'none';
+        this.fullscreenImgPlaceholder.src = '';
         this.fullscreenSpinner.style.display = 'block';
         
         const rot = this.rotationMap.get(id) || 0;
@@ -1997,6 +2126,12 @@ class App {
             this.fullscreenImgHighRes = null;
             this.fullscreenSpinner = null;
             this.isFullscreen = false;
+            
+            // Refresh loupe if we are returning to it
+            if (this.isLoupeMode && this.selectedId) {
+                this.loadMainPreview(this.selectedId);
+                this.updateLoupeOverlay(this.selectedId);
+            }
             return;
         }
 
@@ -2074,10 +2209,10 @@ class App {
 
             // Restore View Preferences
             const viewPref = meta.find(m => m.tag === 'ViewPreferences');
-            if (viewPref && viewPref.value && this.isLoupeMode && (this as any).setViewTransform) {
+            if (viewPref && viewPref.value && this.isLoupeMode && this.setViewTransform) {
                 try {
                     const p = JSON.parse(viewPref.value);
-                    (this as any).setViewTransform(p.rotation, p.zoom, p.panL, p.panT);
+                    this.setViewTransform(p.rotation, p.zoom, p.panL, p.panT);
                 } catch (e) { console.error('Failed to restore view prefs', e); }
             }
 
@@ -2122,7 +2257,7 @@ class App {
                 const hasFocal = meta.some(m => m.tag === 'Focal Length');
                 if (hasAperture && hasFocal) {
                     this.metaVisEl!.style.display = 'block';
-                    visualizeLensData(meta as any, 'meta-vis-container', thumbUrl);
+                    visualizeLensData(meta as Parameters<typeof visualizeLensData>[0], 'meta-vis-container', thumbUrl);
                 } else {
                     this.metaVisEl!.style.display = 'none';
                 }
@@ -2185,7 +2320,7 @@ class App {
                     const valSpan = row.querySelector('.meta-val') as HTMLElement;
                     valSpan.textContent = m.value || '';
                     const searchBtn = row.querySelector('.meta-search-btn') as HTMLElement;
-                    searchBtn.onclick = () => hub.pub('search.triggered', { tag: m.tag!, value: m.value! });
+                    searchBtn.onclick = () => hub.pub(ps.SEARCH_TRIGGERED, { tag: m.tag!, value: m.value! });
                 }
 
                 for (const [tag, rowEl] of groupInfo.rows.entries()) {
@@ -2275,12 +2410,12 @@ class App {
         }
         if (key === 'g') {
             if (this.isFullscreen) this.toggleFullscreen();
-            hub.pub('view.mode.changed', { mode: 'grid' });
+            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'grid' });
         }
         if (key === 'l' || key === 'enter' || e.key === ' ') {
             e.preventDefault();
             if (this.isFullscreen) this.toggleFullscreen();
-            hub.pub('view.mode.changed', { mode: 'loupe', id: this.selectedId || undefined });
+            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id: this.selectedId || undefined });
         }
         if (key === 'f') {
             e.preventDefault();
@@ -2306,23 +2441,23 @@ class App {
                 if (p) server.setRating(p, parseInt(key));
             }
         }
-        if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); hub.pub('shortcuts.show', {}); } }
+        if (key === '?' || key === '/') { if (key === '?' || (key === '/' && e.shiftKey)) { e.preventDefault(); hub.pub(ps.SHORTCUTS_SHOW, {}); } }
         
         if (key === '[') {
             if (this.selectedId) {
-                if (this.isLoupeMode && (this as any).rotateLeft) (this as any).rotateLeft();
+                if (this.isLoupeMode && this.rotateLeft) this.rotateLeft();
                 else {
                     const current = this.rotationMap.get(this.selectedId) || 0;
-                    hub.pub('photo.rotated', { id: this.selectedId, rotation: current - 90 });
+                    hub.pub(ps.PHOTO_ROTATED, { id: this.selectedId, rotation: current - 90 });
                 }
             }
         }
         if (key === ']') {
             if (this.selectedId) {
-                if (this.isLoupeMode && (this as any).rotateRight) (this as any).rotateRight();
+                if (this.isLoupeMode && this.rotateRight) this.rotateRight();
                 else {
                     const current = this.rotationMap.get(this.selectedId) || 0;
-                    hub.pub('photo.rotated', { id: this.selectedId, rotation: current + 90 });
+                    hub.pub(ps.PHOTO_ROTATED, { id: this.selectedId, rotation: current + 90 });
                 }
             }
         }
@@ -2330,6 +2465,28 @@ class App {
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
             e.preventDefault();
             this.navigate(e.key);
+        }
+
+        if (key === 'pageup' || key === 'pagedown') {
+            e.preventDefault();
+            this.navigateFolders(key === 'pageup' ? 'prev' : 'next');
+        }
+    }
+
+    private navigateFolders(direction: 'next' | 'prev') {
+        if (this.flatFolderList.length === 0) return;
+        
+        let index = this.selectedRootId ? this.flatFolderList.indexOf(this.selectedRootId) : -1;
+        
+        if (direction === 'next') index++;
+        else index--;
+
+        index = Math.max(0, Math.min(this.flatFolderList.length - 1, index));
+        const targetId = this.flatFolderList[index];
+        
+        if (targetId && targetId !== this.selectedRootId) {
+            this.setFilter('all', 0, targetId);
+            // Scrolling is handled by renderFolderTree which is triggered by setFilter -> refreshPhotos
         }
     }
 
@@ -2348,20 +2505,38 @@ class App {
             }
         }
         
-        index = Math.max(0, Math.min(this.photos.length - 1, index));
-        const target = this.photos[index];
-        if (target) {
-            hub.pub('photo.selected', { id: target.id, photo: target });
-            // Always scroll to photo in background to keep grid in sync
-            this.gridViewManager.scrollToPhoto(target.id);
+                index = Math.max(0, Math.min(this.photos.length - 1, index));
+        
+                const target = this.photos[index];
+        
+                if (target) {
+        
+                    hub.pub(ps.PHOTO_SELECTED, { id: target.id, photo: target });
+        
+                    // Always scroll to photo in background to keep grid in sync
+        
+                    this.gridViewManager.scrollToPhoto(target.id);
+        
+                }
+        
+            }
+        
+        
+        
+            private setupGlobalKeyboard() {
+        
+                document.addEventListener('keydown', (e) => this.handleKey(e));
+        
+            }
+        
         }
-    }
-
-    private setupGlobalKeyboard() {
-        document.addEventListener('keydown', (e) => this.handleKey(e));
-    }
-}
-
-const app = new App();
-(window as any).app = app;
-hub.pub('ui.layout.changed', {}); hub.pub('connection.changed', { connected: false, connecting: true });
+        
+        
+        
+        const app = new App();
+        
+        window.app = app;
+        
+        hub.pub(ps.UI_LAYOUT_CHANGED, {}); hub.pub(ps.CONNECTION_CHANGED, { connected: false, connecting: true });
+        
+        

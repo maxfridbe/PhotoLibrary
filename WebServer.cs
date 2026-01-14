@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.IO.Compression;
 using System.Collections.Concurrent;
+using System.Linq;
 
 namespace PhotoLibrary
 {
@@ -29,11 +30,10 @@ namespace PhotoLibrary
             CancellationToken ct
         );
 
-        private static readonly PriorityQueue<QueuedImageRequest, long> _requestQueue = new();
+        private static readonly ConcurrentQueue<QueuedImageRequest> _requestQueue = new();
         private static readonly SemaphoreSlim _queueSemaphore = new(0);
         private static readonly object _queueLock = new();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
-        private static long _requestCounter = 0;
 
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
@@ -315,7 +315,11 @@ namespace PhotoLibrary
                         var fileIds = db.GetFileIdsUnderRoot(req.rootId, req.recursive);
                         int total = fileIds.Count;
                         int processed = 0;
+                        int thumbnailed = 0;
                         _logger?.LogInformation("Starting thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
+
+                        // Initial progress report
+                        _ = Broadcast(new { type = "folder.progress", rootId = req.rootId, processed = 0, total, thumbnailed = 0 });
 
                         var indexer = new ImageIndexer(db, logFact.CreateLogger<ImageIndexer>(), pm, new[] { 300, 1024 });
 
@@ -325,21 +329,42 @@ namespace PhotoLibrary
 
                             processed++;
                             string? hash = db.GetFileHash(fId);
-                            if (hash == null) continue;
-
-                            var low = pm.GetPreviewData(hash, 300);
-                            var med = pm.GetPreviewData(hash, 1024);
-
-                            if (low == null || med == null)
+                            bool hasThumb = false;
+                            
+                            if (hash != null)
                             {
-                                string? fullPath = db.GetFullFilePath(fId);
-                                if (fullPath != null && File.Exists(fullPath))
+                                // Check if previews exist
+                                if (pm.HasPreview(hash, 300) && pm.HasPreview(hash, 1024))
                                 {
-                                    indexer.GeneratePreviews(new FileInfo(fullPath), fId);
+                                    hasThumb = true;
+                                }
+                                else
+                                {
+                                    string? fullPath = db.GetFullFilePath(fId);
+                                    if (fullPath != null && File.Exists(fullPath))
+                                    {
+                                        indexer.GeneratePreviews(new FileInfo(fullPath), fId);
+                                        hasThumb = true;
+                                    }
                                 }
                             }
+
+                            if (hasThumb) thumbnailed++;
+
+                            if (processed % 10 == 0 || processed == total)
+                            {
+                                // Send both processed (for task completion) and thumbnailed (for state)
+                                _ = Broadcast(new { 
+                                    type = "folder.progress", 
+                                    rootId = req.rootId, 
+                                    processed, 
+                                    total,
+                                    thumbnailed 
+                                });
+                            }
                         }
-                        _logger?.LogInformation("Finished thumbnail generation for root {RootId}. Processed {Count}/{Total}.", req.rootId, processed, total);
+                        _logger?.LogInformation("Finished thumbnail generation for root {RootId}. Processed {Count}/{Total}. Actual thumbnailed: {Thumbnailed}", req.rootId, processed, total, thumbnailed);
+                        await Broadcast(new { type = "folder.finished", rootId = req.rootId });
                         await Broadcast(new { type = "scan.finished" });
                     }
                     catch (Exception ex) { _logger?.LogError(ex, "[WS] Thumbnail gen error"); }
@@ -488,15 +513,16 @@ namespace PhotoLibrary
                 {
                     await _queueSemaphore.WaitAsync();
                     QueuedImageRequest? item = null;
+                    int countBefore = 0;
                     lock (_queueLock)
                     {
-                        if (_requestQueue.Count > 0)
-                        {
-                            item = _requestQueue.Dequeue();
-                        }
+                        countBefore = _requestQueue.Count;
+                        _requestQueue.TryDequeue(out item);
                     }
 
                     if (item == null) continue;
+                    Console.WriteLine($"[QUEUE] Now processing: {item.Request.fileId} (Size {item.Request.size}). Queue was: {countBefore}");
+                    _logger?.LogDebug("[QUEUE] Dequeued {FileId} (Size {Size}). Queue count: {Count}", item.Request.fileId, item.Request.size, _requestQueue.Count);
 
                     if (item.ct.IsCancellationRequested || item.Socket.State != WebSocketState.Open)
                     {
@@ -644,16 +670,28 @@ namespace PhotoLibrary
                         {
                             _logger?.LogDebug("[WS] Received request {ReqId} for file {FileId} size {Size}", req.requestId, req.fileId, req.size);
                             
-                            var tcs = new TaskCompletionSource<byte[]>();
-                            lock (_queueLock)
-                            {
-                                // Latest gets priority: use a decreasing priority value
-                                long priority = long.MaxValue - Interlocked.Increment(ref _requestCounter);
-                                _requestQueue.Enqueue(new QueuedImageRequest(req, ws, entry.lockobj, tcs, ct), priority);
-                            }
-                            _queueSemaphore.Release();
+                            // Optimization: Check DB immediately before enqueuing.
+                            // If it exists, we don't need to block a worker or wait in line.
+                            string? hash = db.GetFileHash(req.fileId);
+                            byte[]? immediateData = (hash != null && req.size > 0) ? pm.GetPreviewData(hash, req.size) : null;
 
-                            var payload = await tcs.Task;
+                            byte[] payload;
+                            if (immediateData != null)
+                            {
+                                payload = immediateData;
+                            }
+                            else
+                            {
+                                var tcs = new TaskCompletionSource<byte[]>();
+                                lock (_queueLock)
+                                {
+                                    _requestQueue.Enqueue(new QueuedImageRequest(req, ws, entry.lockobj, tcs, ct));
+                                    _logger?.LogDebug("[QUEUE] Enqueued {FileId} (Size {Size}). Queue count: {Count}", req.fileId, req.size, _requestQueue.Count);
+                                    Console.WriteLine($"[QUEUE] Enqueued: {req.fileId} (Size {req.size}). Total in queue: {_requestQueue.Count}");
+                                }
+                                _queueSemaphore.Release();
+                                payload = await tcs.Task;
+                            }
 
                             if (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
                             {

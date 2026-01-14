@@ -1,0 +1,26 @@
+export const constants = {
+    pubsub: {
+        VIEW_MODE_CHANGED: 'view.mode.changed' as const,
+        PHOTO_SELECTED: 'photo.selected' as const,
+        PHOTO_UPDATED: 'photo.updated' as const,
+        PHOTO_ROTATED: 'photo.rotated' as const,
+        PHOTO_PICKED_ADDED: 'photo.picked.added' as const,
+        PHOTO_PICKED_REMOVED: 'photo.picked.removed' as const,
+        PHOTO_STARRED_ADDED: 'photo.starred.added' as const,
+        PHOTO_STARRED_REMOVED: 'photo.starred.removed' as const,
+        PHOTO_STARRED_CHANGED: 'photo.starred.changed' as const,
+        LIBRARY_REFRESH: 'library.refresh' as const,
+        LIBRARY_UPDATED: 'library.updated' as const,
+        PHOTO_IMPORTED: 'photo.imported' as const,
+        FOLDER_PROGRESS: 'folder.progress' as const,
+        FOLDER_FINISHED: 'folder.finished' as const,
+        PREVIEW_GENERATED: 'preview.generated' as const,
+        PREVIEW_GENERATING: 'preview.generating' as const,
+        PREVIEW_DELETED: 'preview.deleted' as const,
+        SEARCH_TRIGGERED: 'search.triggered' as const,
+        SHORTCUTS_SHOW: 'shortcuts.show' as const,
+        UI_LAYOUT_CHANGED: 'ui.layout.changed' as const,
+        UI_NOTIFICATION: 'ui.notification' as const,
+        CONNECTION_CHANGED: 'connection.changed' as const,
+    }
+};

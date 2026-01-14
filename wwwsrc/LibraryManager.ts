@@ -5,10 +5,18 @@ import * as Res from './Responses.generated.js';
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
 import { server, post } from './CommunicationManager.js';
+import { constants } from './constants.js';
+
+const ps = constants.pubsub;
 
 interface ScanResultItem {
     path: string;
     status: 'pending' | 'indexed';
+}
+
+interface FolderTreeNode {
+    node: Res.LibraryFolderResponse;
+    children: FolderTreeNode[];
 }
 
 export class LibraryManager {
@@ -18,7 +26,7 @@ export class LibraryManager {
     private isIndexing = false;
 
     constructor() {
-        hub.sub('photo.imported', (data) => {
+        hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
                 item.status = 'indexed';
@@ -27,7 +35,7 @@ export class LibraryManager {
             }
         });
 
-        hub.sub('library.updated', () => {
+        hub.sub(ps.LIBRARY_UPDATED, () => {
             this.isIndexing = false;
             this.loadLibraryInfo();
             this.renderImportControls();
@@ -330,19 +338,19 @@ export class LibraryManager {
         foldersContent.innerHTML = '';
 
         // Build tree
-        const map = new Map<string, { node: Res.LibraryFolderResponse, children: any[] }>();
+        const map = new Map<string, FolderTreeNode>();
         info.folders.forEach(f => map.set(f.id, { node: f, children: [] }));
         
-        const roots: any[] = [];
+        const roots: FolderTreeNode[] = [];
         info.folders.forEach(f => {
             if (f.parentId && map.has(f.parentId)) {
-                map.get(f.parentId)!.children.push(map.get(f.id));
+                map.get(f.parentId)!.children.push(map.get(f.id)!);
             } else {
-                roots.push(map.get(f.id));
+                roots.push(map.get(f.id)!);
             }
         });
 
-        const renderNode = (item: any, container: HTMLElement) => {
+        const renderNode = (item: FolderTreeNode, container: HTMLElement) => {
             const row = document.createElement('div');
             row.style.paddingTop = '0.2em';
             row.style.paddingBottom = '0.2em';
@@ -400,14 +408,14 @@ export class LibraryManager {
                     }
                 };
 
-                item.children.forEach((c: any) => renderNode(c, childrenContainer));
+                item.children.forEach((c: FolderTreeNode) => renderNode(c, childrenContainer));
             }
         };
 
         roots.forEach(r => renderNode(r, foldersContent));
     }
 
-    public async triggerScan(showNotification: (msg: string, type: any) => void) {
+    public async triggerScan(showNotification: (msg: string, type: 'info' | 'error' | 'success') => void) {
         const pathInput = document.getElementById('scan-path-input') as HTMLInputElement;
         if (!pathInput) return;
         const path = pathInput.value;

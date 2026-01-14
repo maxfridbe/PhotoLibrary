@@ -17,16 +17,19 @@ The system is built to handle hundreds of thousands of images over slow network 
 The UI is a TypeScript SPA broken down into specialized managers to ensure maintainability.
 
 ### Specialized Managers
-- **CommunicationManager (`CommunicationManager.ts`)**: Centralizes the network layer, including the binary WebSocket protocol for image streaming and real-time push notifications.
-- **ThemeManager (`ThemeManager.ts`)**: Manages dynamic theming (20+ palettes), user preference persistence, and the customizable Loupe overlay.
-- **LibraryManager (`LibraryManager.ts`)**: Handles "Library Mode", including targeted batch imports, progress tracking, and hierarchy visualization.
-- **App (`app.ts`)**: Acts as the root orchestrator and UI coordinator.
+- **App (`wwwsrc/app.ts`)**: Acts as the root orchestrator and UI coordinator, managing layout registration and high-level state.
+- **CommunicationManager (`wwwsrc/CommunicationManager.ts`)**: Centralizes the network layer, including the binary WebSocket protocol for image streaming, request queueing, and real-time push notifications.
+- **ThemeManager (`wwwsrc/ThemeManager.ts`)**: Manages dynamic theming (20+ palettes defined in `wwwsrc/themes.ts`), user preference persistence, and Loupe overlay configurations.
+- **LibraryManager (`wwwsrc/LibraryManager.ts`)**: Handles "Library Mode", including targeted batch imports, directory scanning, and import progress visualization.
+- **GridView (`wwwsrc/grid.ts`)**: Manages the virtualized image grid and filmstrip, implementing DOM recycling and lazy-loading for performance.
+- **PubSub (`wwwsrc/PubSub.ts`)**: Provides a centralized event bus for decoupled communication between managers and components.
+- **Aperture Visualizer (`wwwsrc/aperatureVis.ts`)**: A specialized component for rendering SVG-based lens and sensor metadata visualizations.
 
 ### Surgical UI (Flicker-Free)
-- **Virtualized Grid**: Only the visible subset of images is rendered. 
-- **DOM Recycling**: Reuses `HTMLElement` nodes via a `cardCache` to prevent "black flashes".
-- **Dynamic Overlays**: Customizable Loupe overlays with support for any metadata via `{MD:tag}` syntax.
-- **Metadata Visualization**: An SVG-based aperture and FOV visualizer (`aperatureVis.ts`) is integrated into the metadata panel, providing real-time feedback on lens and sensor parameters.
+- **Virtualized Grid (`wwwsrc/grid.ts`)**: Only the visible subset of images is rendered to maintain 60fps performance even with large libraries.
+- **DOM Recycling (`wwwsrc/grid.ts`)**: Reuses `HTMLElement` nodes via a `cardCache` to prevent "black flashes" during scrolling.
+- **Dynamic Overlays (`wwwsrc/app.ts`)**: Customizable Loupe overlays with support for any metadata via `{MD:tag}` syntax.
+- **Metadata Visualization (`wwwsrc/aperatureVis.ts`)**: An SVG-based aperture and FOV visualizer integrated into the metadata panel, providing real-time feedback on lens and sensor parameters.
 
 ## 3. Backend Architecture: "Minimalist & Normalized"
 The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage.
@@ -37,7 +40,7 @@ The backend is a .NET 8 application focused on providing high-concurrency and ef
 - **Cycle-Safe Paths**: Manual path reconstruction logic with recursive loop detection ensures stability even with complex directory structures.
 
 ### Type Generation
-- **Detailed Build Output**: The `TypeGen` utility uses Roslyn to parse C# models and generate TypeScript interfaces, now providing detailed "from -> to" logs during the build process to ensure transparency.
+- **Detailed Build Output (`TypeGen/`)**: The `TypeGen` utility uses Roslyn to parse C# models and generate TypeScript interfaces, now providing detailed "from -> to" logs during the build process to ensure transparency.
 
 ### Normalized Storage
 - **Decoupled User Data**: User culling data (ratings/picks) is stored in specialized tables.

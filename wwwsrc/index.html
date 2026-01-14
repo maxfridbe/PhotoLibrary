@@ -39,11 +39,16 @@
 
         /* Loupe */
         .loupe-view { flex: 1; display: flex; flex-direction: column; background: var(--bg-dark); height: 100%; }
-        .preview-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+        .preview-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; container-type: size; }
         .loupe-img { position: absolute; width: 100%; height: 100%; object-fit: contain; }
         .loupe-img.placeholder { filter: blur(5px); opacity: 0.7; }
         .loupe-img.highres { opacity: 0; transition: opacity 0.3s ease-in; }
         .loupe-img.highres.loaded { opacity: 1; }
+        
+        .loupe-img.is-portrait-rotated, .img-container img.is-portrait-rotated {
+            width: 100cqh !important;
+            height: 100cqw !important;
+        }
         
         .loupe-overlay { position: absolute; top: 1em; left: 1em; background: rgba(0,0,0,0.5); color: #fff; padding: 0.5em 1em; border-radius: 4px; pointer-events: none; z-index: 10; font-size: 0.9em; white-space: pre-wrap; line-height: 1.4; text-shadow: 0 1px 2px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.1); }
         
@@ -76,7 +81,7 @@
             padding: 0.1em 0.5em; border-radius: 10px; font-size: 0.75em; font-weight: bold; 
             max-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; 
             z-index: 20; pointer-events: auto; border: 1px solid rgba(255,255,255,0.2);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3), inset 0 1px 3px rgba(0,0,0,0.2);
             display: none;
             text-align: right;
         }
@@ -135,7 +140,7 @@
             border: 1px solid var(--border-focus);
         }
 
-        .img-container { flex: 1; background: var(--bg-black); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 2px 2px 0 0; }
+        .img-container { flex: 1; background: var(--bg-black); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 2px 2px 0 0; container-type: size; }
         .card.selected .img-container { background: transparent; }
         .img-container img { width: 100%; height: 100%; object-fit: contain; background: #050505; transition: opacity 0.3s ease-in; opacity: 0; }
         .img-container.loaded img { opacity: 1; }
@@ -272,6 +277,7 @@
             <div class="shortcut-row"><span class="shortcut-desc">Toggle Metadata</span><span class="shortcut-key">M</span></div>
             <div class="shortcut-row"><span class="shortcut-desc">Toggle Library</span><span class="shortcut-key">B</span></div>
             <div class="shortcut-row"><span class="shortcut-desc">Navigate Photos</span><span class="shortcut-key">Arrows</span></div>
+            <div class="shortcut-row"><span class="shortcut-desc">Navigate Folders</span><span class="shortcut-key">PgUp/PgDn</span></div>
             <div class="shortcut-row"><span class="shortcut-desc">Show Shortcuts</span><span class="shortcut-key">?</span></div>
             <div style="margin-top: 20px; text-align: right;">
                 <button onclick="document.getElementById('shortcuts-modal').classList.remove('active')" style="padding: 5px 15px; cursor: pointer; background: #444; color: #fff; border: none; border-radius: 4px;">Close</button>

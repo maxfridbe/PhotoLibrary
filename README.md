@@ -40,8 +40,10 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Dynamic SVG Render**: Generates a real-time visualization of the aperture blades and field-of-view cone based on EXIF data.
     *   **Sensor-Aware**: Automatically detects and displays sensor sizes (Full Frame, APS-C, 1/2.7", etc.) using focal plane resolution and crop factor calculations.
     *   **Live Metadata Readout**: Displays f-stop, focal length, ISO, and shutter speed in a sleek, integrated dashboard at the top of the metadata panel.
--   **Stable Backend**:
-    *   **Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
+-   **Robust Backend & Architecture**:
+    *   **Decoupled PubSub**: Frontend uses a type-safe, constant-driven event bus for seamless communication between components.
+    *   **Container-Aware Fitting**: Rotated images automatically adapt their dimensions to fit their containers perfectly, preventing cropping in all view modes.
+    *   **Stable Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
     *   **Automatic Configuration**: Zero-config startup with `~/.config/PhotoLibrary/config.json`.
     *   **Binary WebSocket Streaming**: Optimized binary protocol for high-speed image delivery.
 -   **Stability & Feedback**:

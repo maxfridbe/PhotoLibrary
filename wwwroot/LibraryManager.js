@@ -1,11 +1,13 @@
 import { hub } from './PubSub.js';
 import { post } from './CommunicationManager.js';
+import { constants } from './constants.js';
+const ps = constants.pubsub;
 export class LibraryManager {
     constructor() {
         this.scanResults = [];
         this.infoCache = null;
         this.isIndexing = false;
-        hub.sub('photo.imported', (data) => {
+        hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
                 item.status = 'indexed';
@@ -13,7 +15,7 @@ export class LibraryManager {
                 this.updateProgressBar();
             }
         });
-        hub.sub('library.updated', () => {
+        hub.sub(ps.LIBRARY_UPDATED, () => {
             this.isIndexing = false;
             this.loadLibraryInfo();
             this.renderImportControls();

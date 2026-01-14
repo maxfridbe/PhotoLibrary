@@ -1,0 +1,26 @@
+export const constants = {
+    pubsub: {
+        VIEW_MODE_CHANGED: 'view.mode.changed',
+        PHOTO_SELECTED: 'photo.selected',
+        PHOTO_UPDATED: 'photo.updated',
+        PHOTO_ROTATED: 'photo.rotated',
+        PHOTO_PICKED_ADDED: 'photo.picked.added',
+        PHOTO_PICKED_REMOVED: 'photo.picked.removed',
+        PHOTO_STARRED_ADDED: 'photo.starred.added',
+        PHOTO_STARRED_REMOVED: 'photo.starred.removed',
+        PHOTO_STARRED_CHANGED: 'photo.starred.changed',
+        LIBRARY_REFRESH: 'library.refresh',
+        LIBRARY_UPDATED: 'library.updated',
+        PHOTO_IMPORTED: 'photo.imported',
+        FOLDER_PROGRESS: 'folder.progress',
+        FOLDER_FINISHED: 'folder.finished',
+        PREVIEW_GENERATED: 'preview.generated',
+        PREVIEW_GENERATING: 'preview.generating',
+        PREVIEW_DELETED: 'preview.deleted',
+        SEARCH_TRIGGERED: 'search.triggered',
+        SHORTCUTS_SHOW: 'shortcuts.show',
+        UI_LAYOUT_CHANGED: 'ui.layout.changed',
+        UI_NOTIFICATION: 'ui.notification',
+        CONNECTION_CHANGED: 'connection.changed',
+    }
+};

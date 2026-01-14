@@ -355,8 +355,9 @@ namespace PhotoLibrary
             }
         }
 
-        public string? GetSetting(string key)
+        public string? GetSetting(string? key)
         {
+            if (string.IsNullOrEmpty(key)) return null;
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using (var command = connection.CreateCommand())
@@ -367,15 +368,16 @@ namespace PhotoLibrary
             }
         }
 
-        public void SetSetting(string key, string value)
+        public void SetSetting(string? key, string? value)
         {
+            if (string.IsNullOrEmpty(key)) return;
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = "INSERT INTO Settings (Key, Value) VALUES ($Key, $Value) ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value";
                 command.Parameters.AddWithValue("$Key", key);
-                command.Parameters.AddWithValue("$Value", value);
+                command.Parameters.AddWithValue("$Value", value ?? (object)DBNull.Value);
                 command.ExecuteNonQuery();
             }
         }
@@ -397,21 +399,20 @@ namespace PhotoLibrary
             info.DbPath = connection.DataSource;
             info.DbSize = new FileInfo(connection.DataSource).Length;
             info.PreviewDbPath = previewDbPath;
+            info.PreviewDbSize = File.Exists(previewDbPath) ? new FileInfo(previewDbPath).Length : 0;
             info.ConfigPath = configPath;
             
-            if (File.Exists(previewDbPath))
-            {
-                info.PreviewDbSize = new FileInfo(previewDbPath).Length;
-            }
-
             // Folders
-            var folderRecords = new List<(string id, string name, string? parentId, int count, string? annotation, string? color)>();
+            var folderRecords = new List<(string id, string name, string? parentId, int count, string? annotation, string? color, int thumbCount)>();
             using (var cmd = connection.CreateCommand())
             {
+                string thumbSubquery = $"(SELECT COUNT(*) FROM {TableName.FileEntry} f2 WHERE f2.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id} AND f2.{Column.FileEntry.Hash} IS NOT NULL)";
+
                 cmd.CommandText = $@"
                     SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.Name}, r.{Column.RootPaths.ParentId},
                            (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}) as Count,
-                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color}
+                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color},
+                           {thumbSubquery}
                     FROM {TableName.RootPaths} r";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -422,7 +423,8 @@ namespace PhotoLibrary
                         reader.IsDBNull(2) ? null : reader.GetString(2),
                         reader.GetInt32(3),
                         reader.IsDBNull(4) ? null : reader.GetString(4),
-                        reader.IsDBNull(5) ? null : reader.GetString(5)
+                        reader.IsDBNull(5) ? null : reader.GetString(5),
+                        reader.GetInt32(6)
                     ));
                 }
             }
@@ -436,6 +438,7 @@ namespace PhotoLibrary
                     Path = fullPath ?? rec.name,
                     ParentId = rec.parentId,
                     ImageCount = rec.count,
+                    ThumbnailedCount = rec.thumbCount,
                     Annotation = rec.annotation,
                     Color = rec.color
                 });
@@ -1087,12 +1090,17 @@ namespace PhotoLibrary
             var items = new List<RootPathResponse>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
+
             using (var command = connection.CreateCommand())
             {
+                // Proxy for "has thumbnails" is having a Hash, since they are generated together
+                string thumbSubquery = $"(SELECT COUNT(*) FROM {TableName.FileEntry} f2 WHERE f2.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id} AND f2.{Column.FileEntry.Hash} IS NOT NULL)";
+
                 command.CommandText = $@"
                     SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name},
                            (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}),
-                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color}
+                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color},
+                           {thumbSubquery}
                     FROM {TableName.RootPaths} r";
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) items.Add(new RootPathResponse { 
@@ -1101,7 +1109,8 @@ namespace PhotoLibrary
                     Name = reader.GetString(2),
                     ImageCount = reader.GetInt32(3),
                     Annotation = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    Color = reader.IsDBNull(5) ? null : reader.GetString(5)
+                    Color = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    ThumbnailedCount = reader.GetInt32(6)
                 });
             }
             return items;

@@ -1,3 +1,5 @@
+import { constants } from './constants.js';
+const ps = constants.pubsub;
 class PubSub {
     constructor() {
         this.subs = new Map();

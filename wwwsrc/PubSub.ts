@@ -1,33 +1,36 @@
 import * as Res from './Responses.generated.js';
+import { constants } from './constants.js';
+
+const ps = constants.pubsub;
 
 export interface EventMap {
-    'view.mode.changed': { mode: 'grid' | 'loupe' | 'library', id?: string };
-    'photo.selected': { id: string, photo: Res.PhotoResponse };
-    'photo.updated': { id: string, photo: Res.PhotoResponse };
-    'photo.rotated': { id: string, rotation: number };
+    [ps.VIEW_MODE_CHANGED]: { mode: 'grid' | 'loupe' | 'library', id?: string };
+    [ps.PHOTO_SELECTED]: { id: string, photo: Res.PhotoResponse };
+    [ps.PHOTO_UPDATED]: { id: string, photo: Res.PhotoResponse };
+    [ps.PHOTO_ROTATED]: { id: string, rotation: number };
     
     // Status Events
-    'photo.picked.added': { id: string };
-    'photo.picked.removed': { id: string };
-    'photo.starred.added': { id: string, rating: number };
-    'photo.starred.removed': { id: string, previousRating: number };
-    'photo.starred.changed': { id: string, rating: number, previousRating: number };
+    [ps.PHOTO_PICKED_ADDED]: { id: string };
+    [ps.PHOTO_PICKED_REMOVED]: { id: string };
+    [ps.PHOTO_STARRED_ADDED]: { id: string, rating: number };
+    [ps.PHOTO_STARRED_REMOVED]: { id: string, previousRating: number };
+    [ps.PHOTO_STARRED_CHANGED]: { id: string, rating: number, previousRating: number };
 
-    'library.refresh': {};
-    'library.updated': {};
-    'photo.imported': { id: string, path: string, rootId?: string };
-    'folder.progress': { rootId: string, processed: number, total: number };
-    'folder.finished': { rootId: string };
-    'preview.generated': { fileId: string, rootId: string };
-    'preview.generating': { fileId: string };
-    'preview.deleted': { fileId: string };
-    'search.triggered': { tag: string, value: string };
-    'shortcuts.show': {};
+    [ps.LIBRARY_REFRESH]: {};
+    [ps.LIBRARY_UPDATED]: {};
+    [ps.PHOTO_IMPORTED]: { id: string, path: string, rootId?: string };
+    [ps.FOLDER_PROGRESS]: { rootId: string, processed: number, total: number, thumbnailed?: number };
+    [ps.FOLDER_FINISHED]: { rootId: string };
+    [ps.PREVIEW_GENERATED]: { fileId: string, rootId: string };
+    [ps.PREVIEW_GENERATING]: { fileId: string };
+    [ps.PREVIEW_DELETED]: { fileId: string };
+    [ps.SEARCH_TRIGGERED]: { tag: string, value: string };
+    [ps.SHORTCUTS_SHOW]: {};
 
     // UI Events
-    'ui.layout.changed': {}; 
-    'ui.notification': { message: string, type: 'info' | 'error' | 'success' };
-    'connection.changed': { connected: boolean, connecting: boolean };
+    [ps.UI_LAYOUT_CHANGED]: {}; 
+    [ps.UI_NOTIFICATION]: { message: string, type: 'info' | 'error' | 'success' };
+    [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
 }
 
 type Callback<T> = (data: T) => void;

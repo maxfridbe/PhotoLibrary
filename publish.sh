@@ -1,6 +1,6 @@
 #!/bin/bash
-echo "Cleaning wwwroot..."
-rm -rf wwwroot/*
+#echo "Cleaning wwwroot..."
+#rm -rf wwwroot/*
 
 # Build the project once to ensure artifacts are ready
 dotnet build -c Release

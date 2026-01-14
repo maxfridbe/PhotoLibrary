@@ -39,6 +39,7 @@ namespace PhotoLibrary
         public string? ParentId { get; set; }
         public string? Name { get; set; }
         public int ImageCount { get; set; }
+        public int ThumbnailedCount { get; set; }
         public string? Annotation { get; set; }
         public string? Color { get; set; }
     }
@@ -63,6 +64,7 @@ namespace PhotoLibrary
         public string Path { get; set; } = "";
         public string? ParentId { get; set; }
         public int ImageCount { get; set; }
+        public int ThumbnailedCount { get; set; }
         public string? Annotation { get; set; }
         public string? Color { get; set; }
     }
