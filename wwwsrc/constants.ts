@@ -12,6 +12,7 @@ export const constants = {
         LIBRARY_REFRESH: 'library.refresh' as const,
         LIBRARY_UPDATED: 'library.updated' as const,
         PHOTO_IMPORTED: 'photo.imported' as const,
+        FOLDER_CREATED: 'folder.created' as const,
         FOLDER_PROGRESS: 'folder.progress' as const,
         FOLDER_FINISHED: 'folder.finished' as const,
         PREVIEW_GENERATED: 'preview.generated' as const,
@@ -21,6 +22,7 @@ export const constants = {
         SHORTCUTS_SHOW: 'shortcuts.show' as const,
         UI_LAYOUT_CHANGED: 'ui.layout.changed' as const,
         UI_NOTIFICATION: 'ui.notification' as const,
+        UI_SEARCH_STATUS: 'ui.search.status' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
     }
 };

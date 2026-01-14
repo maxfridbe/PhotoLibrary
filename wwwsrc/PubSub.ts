@@ -19,6 +19,7 @@ export interface EventMap {
     [ps.LIBRARY_REFRESH]: {};
     [ps.LIBRARY_UPDATED]: {};
     [ps.PHOTO_IMPORTED]: { id: string, path: string, rootId?: string };
+    [ps.FOLDER_CREATED]: { id: string, name: string };
     [ps.FOLDER_PROGRESS]: { rootId: string, processed: number, total: number, thumbnailed?: number };
     [ps.FOLDER_FINISHED]: { rootId: string };
     [ps.PREVIEW_GENERATED]: { fileId: string, rootId: string };
@@ -30,6 +31,7 @@ export interface EventMap {
     // UI Events
     [ps.UI_LAYOUT_CHANGED]: {}; 
     [ps.UI_NOTIFICATION]: { message: string, type: 'info' | 'error' | 'success' };
+    [ps.UI_SEARCH_STATUS]: { active: boolean, message?: string };
     [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
 }
 

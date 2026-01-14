@@ -24,12 +24,14 @@ export class LibraryManager {
     private scanResults: ScanResultItem[] = [];
     private infoCache: Res.LibraryInfoResponse | null = null;
     private isIndexing = false;
+    private lastImportedPath: string | null = null;
 
     constructor() {
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
                 item.status = 'indexed';
+                this.lastImportedPath = item.path;
                 this.renderFoundFiles();
                 this.updateProgressBar();
             }
@@ -40,6 +42,10 @@ export class LibraryManager {
             this.loadLibraryInfo();
             this.renderImportControls();
             document.title = 'Photo Library';
+        });
+
+        hub.sub(ps.FOLDER_CREATED, (data) => {
+            this.loadLibraryInfo();
         });
     }
 
@@ -139,10 +145,15 @@ export class LibraryManager {
             el.style.display = 'flex';
             el.style.flexDirection = 'column';
             el.style.gap = '1em';
+            el.style.position = 'relative';
             el.innerHTML = `
                 <div style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
                     <h3 style="margin-top:0">Found Unindexed Images</h3>
                     <div id="found-files-content" style="flex: 1; overflow-y: auto; font-family: monospace; font-size: 0.85em; color: var(--text-muted); border: 1px solid var(--border-main); padding: 0.5em; border-radius: 4px; background: var(--bg-input);"></div>
+                </div>
+                <div id="lib-search-overlay" class="search-overlay">
+                    <div class="spinner"></div>
+                    <div class="msg">Searching filesystem...</div>
                 </div>
                 <div id="import-controls-container" style="flex-shrink: 0; padding-top: 1em; border-top: 1px solid var(--border-main);">
                     <!-- Content injected by renderImportControls -->
@@ -167,15 +178,21 @@ export class LibraryManager {
 
             container.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 0.5em;">
-                    <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9em;">
                         <span>Indexing Photos...</span>
-                        <span>${indexedCount} / ${total}</span>
+                        <div style="display: flex; align-items: center; gap: 1em;">
+                            <span>${indexedCount} / ${total}</span>
+                            <button id="cancel-import-btn" style="padding: 2px 10px; background: #8b0000; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8em; font-weight: bold;">CANCEL</button>
+                        </div>
                     </div>
                     <div style="width: 100%; height: 1.5em; background: var(--bg-input); border-radius: 4px; overflow: hidden; border: 1px solid var(--border-light);">
                         <div id="import-progress-bar" style="width: ${percent}%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
                     </div>
                 </div>
             `;
+            container.querySelector('#cancel-import-btn')?.addEventListener('click', () => {
+                Api.api_library_cancel_task({ id: 'import-batch' });
+            });
         } else {
             container.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 2em; flex-wrap: wrap;">
@@ -213,10 +230,6 @@ export class LibraryManager {
             const span = container.querySelector('span:last-child');
             if (span) span.textContent = `${indexedCount} / ${total}`;
         }
-
-        // Keep it scrolled to the top
-        const content = document.getElementById('found-files-content');
-        if (content) content.scrollTop = 0;
     }
 
     private async findNewFiles() {
@@ -229,6 +242,9 @@ export class LibraryManager {
         
         const content = document.getElementById('found-files-content');
         if (content) content.innerHTML = 'Searching for files not in database...';
+        
+        const overlay = document.getElementById('lib-search-overlay');
+        if (overlay) overlay.classList.add('active');
 
         try {
             // Encode limit into name since we use NameRequest record
@@ -239,6 +255,8 @@ export class LibraryManager {
             }
         } catch (e) {
             if (content) content.innerHTML = 'Error searching path.';
+        } finally {
+            if (overlay) overlay.classList.remove('active');
         }
     }
 
@@ -266,8 +284,8 @@ export class LibraryManager {
                     </tr>
                 </thead>
                 <tbody>
-                    ${sorted.map(f => `
-                        <tr style="border-bottom: 1px solid var(--border-dim)">
+                    ${sorted.map((f, i) => `
+                        <tr id="scan-row-${i}" style="border-bottom: 1px solid var(--border-dim)">
                             <td style="padding: 0.2em 0.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${f.path}">${f.path}</td>
                             <td style="padding: 0.2em 0.5em; text-align: right; color: ${f.status === 'indexed' ? 'var(--accent)' : 'var(--text-muted)'}">${f.status.toUpperCase()}</td>
                         </tr>
@@ -275,6 +293,14 @@ export class LibraryManager {
                 </tbody>
             </table>
         `;
+
+        if (this.lastImportedPath) {
+            const index = sorted.findIndex(f => f.path === this.lastImportedPath);
+            if (index !== -1) {
+                const el = document.getElementById(`scan-row-${index}`);
+                if (el) el.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+            }
+        }
     }
 
     public async loadLibraryInfo() {

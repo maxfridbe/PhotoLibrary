@@ -15,6 +15,8 @@ namespace PhotoLibrary
         private readonly ILogger<DatabaseManager> _logger;
         public string DbPath { get; }
 
+        public event Action<string, string>? OnFolderCreated;
+
         public DatabaseManager(string dbPath, ILogger<DatabaseManager> logger)
         {
             DbPath = dbPath;
@@ -137,6 +139,13 @@ namespace PhotoLibrary
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
 
+            NormalizeRoots();
+        }
+
+        public void NormalizeRoots()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
             NormalizeRootPaths(connection);
         }
 
@@ -660,12 +669,59 @@ namespace PhotoLibrary
         public string GetOrCreateBaseRoot(string absolutePath)
         {
             absolutePath = PathUtils.ResolvePath(absolutePath);
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            using var transaction = connection.BeginTransaction();
-            string id = EnsureRootPathExists(connection, transaction, null, absolutePath);
+            
+            using (var connection = new SqliteConnection(_connectionString))
+            {
+                connection.Open();
+                
+                // 1. Try to find the deepest existing root that contains this path
+                var allRoots = new List<(string id, string path)>();
+                using (var cmd = connection.CreateCommand())
+                {
+                    // We only need base roots or roots that might be parents. 
+                    // To be safe and simple, let's get all and reconstruct their paths.
+                    cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths}";
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        string id = reader.GetString(0);
+                        string? path = GetRootAbsolutePath(connection, id);
+                        if (path != null) allRoots.Add((id, path));
+                    }
+                }
+
+                // Sort by path length descending to find the "deepest" match first
+                var deepestMatch = allRoots
+                    .Where(r => absolutePath == r.path || absolutePath.StartsWith(r.path + Path.DirectorySeparatorChar) || absolutePath.StartsWith(r.path + "/"))
+                    .OrderByDescending(r => r.path.Length)
+                    .FirstOrDefault();
+
+                if (deepestMatch.id != null)
+                {
+                    if (deepestMatch.path == absolutePath) return deepestMatch.id;
+
+                    // It's inside an existing root! Build down.
+                    string relative = Path.GetRelativePath(deepestMatch.path, absolutePath);
+                    string[] parts = relative.Split(new[] { Path.DirectorySeparatorChar, '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    
+                    string currentId = deepestMatch.id;
+                    foreach (var part in parts)
+                    {
+                        currentId = GetOrCreateChildRoot(currentId, part);
+                    }
+                    return currentId;
+                }
+            }
+
+            // 2. No existing parent found, create as new base root
+            using var connection2 = new SqliteConnection(_connectionString);
+            connection2.Open();
+            using var transaction = connection2.BeginTransaction();
+            string newId = EnsureRootPathExists(connection2, transaction, null, absolutePath);
             transaction.Commit();
-            return id;
+            
+            OnFolderCreated?.Invoke(newId, absolutePath);
+            return newId;
         }
 
         public string GetOrCreateChildRoot(string parentId, string name)
@@ -675,6 +731,8 @@ namespace PhotoLibrary
             using var transaction = connection.BeginTransaction();
             string id = EnsureRootPathExists(connection, transaction, parentId, name);
             transaction.Commit();
+            
+            OnFolderCreated?.Invoke(id, name);
             return id;
         }
 
@@ -742,6 +800,7 @@ namespace PhotoLibrary
                 insertCmd.Parameters.AddWithValue("$Name", name);
                 insertCmd.ExecuteNonQuery();
             }
+
             return newId;
         }
 

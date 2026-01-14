@@ -22,13 +22,16 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
 -   **Library Maintenance Mode**:
-    *   **Find New Images**: Scans your directories and identifies files not yet in the database.
+    *   **Find New Images**: Scans your directories and identifies files not yet in the database with a visual search overlay.
     *   **Targeted Batch Import**: Efficiently index only the specific files found during search, rather than re-scanning entire trees.
+    *   **Task Cancellation**: Instantly cancel background indexing or thumbnail generation tasks via "CANCEL" buttons.
+    *   **Real-Time Discovery**: New folders and images appear in the library tree instantly as they are discovered by the indexer.
+    *   **Autoscroll Progress**: The "Found Files" list automatically tracks and scrolls to the latest imported item.
     *   **Folder-Level Actions**: Right-click any folder in the tree to trigger "Generate Thumbnails" (Recursive or single-folder).
     *   **Live Progress**: Real-time progress bars for background thumbnail generation directly in the folder tree.
     *   **Smart Indexing**: Automatically skips unmodified, already-indexed files based on timestamp checks.
     *   **Robust Hashing**: Uses xxHash64 for ultra-fast, consistent file identification and duplicate detection.
-    *   **Robust Normalization**: Automatically merges overlapping directory structures and deduplicates files recursively.
+    *   **Proactive Normalization**: Automatically calculates and builds deep folder hierarchies during import, ensuring correct parenting and stable IDs.
     *   **On-the-Fly Previews**: Live generation and caching of missing thumbnails and previews during browsing.
     *   **Database Stats**: Real-time tracking of image counts and database file sizes.
 -   **High-Performance Web Interface**:

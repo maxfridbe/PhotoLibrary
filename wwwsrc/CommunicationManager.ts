@@ -71,6 +71,8 @@ export class CommunicationManager {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'file.imported') {
                         hub.pub(ps.PHOTO_IMPORTED, { id: msg.id, path: msg.path, rootId: msg.rootId });
+                    } else if (msg.type === 'folder.created') {
+                        hub.pub(ps.FOLDER_CREATED, { id: msg.id, name: msg.name });
                     } else if (msg.type === 'scan.finished') {
                         hub.pub(ps.LIBRARY_UPDATED, {});
                     } else if (msg.type === 'folder.progress') {

@@ -62,6 +62,10 @@ namespace PhotoLibrary
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
             app.UseWebSockets();
 
+            dbManager.OnFolderCreated += (id, name) => {
+                _ = Broadcast(new { type = "folder.created", id, name });
+            };
+
             // --- API Endpoints ---
 
             app.MapGet("/api/camera/thumbnail/{model}", (string model, CameraManager cm) =>
@@ -232,6 +236,14 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<ImportBatchRequest>();
                 if (req == null || req.relativePaths == null) return Results.BadRequest();
 
+                string taskId = "import-batch";
+                var cts = new CancellationTokenSource();
+                if (!_activeTasks.TryAdd(taskId, cts)) 
+                {
+                    _activeTasks[taskId].Cancel();
+                    _activeTasks[taskId] = cts;
+                }
+
                 _ = Task.Run(async () =>
                 {
                     try
@@ -256,6 +268,7 @@ namespace PhotoLibrary
                         int count = 0;
                         foreach (var relPath in req.relativePaths)
                         {
+                            if (cts.Token.IsCancellationRequested) break;
                             try 
                             {
                                 string cleanRel = relPath.TrimStart('/');
@@ -289,6 +302,7 @@ namespace PhotoLibrary
                     finally 
                     {
                         ImageIndexer.SetProgress(false, 0, 0);
+                        _activeTasks.TryRemove(taskId, out _);
                     }
                 });
 

@@ -252,6 +252,10 @@ class App {
                 this.loadData();
             }, 1000);
         });
+        hub.sub(ps.FOLDER_CREATED, (data) => {
+            console.log(`[App] Folder created: ${data.name}`);
+            this.refreshDirectories();
+        });
         hub.sub(ps.PREVIEW_GENERATED, (data) => {
             this.gridViewManager.refreshStats(data.fileId, this.photos);
             if (data.rootId) {
@@ -886,7 +890,6 @@ class App {
             gridView.style.top = '0';
             gridView.style.left = '0';
             gridView.style.right = '0';
-            gridContainer.appendChild(sentinel);
             gridContainer.appendChild(gridView);
             self.workspaceEl.appendChild(gridContainer);
             gridContainer.onscroll = () => self.gridViewManager.update();
