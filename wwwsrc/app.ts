@@ -785,7 +785,15 @@ class App {
         this.renderLibrary();
         this.processUIStacks();
 
-        if (!keepSelection && this.photos.length > 0) {
+        if (keepSelection && this.selectedId) {
+            const photo = this.photoMap.get(this.selectedId);
+            if (photo) {
+                hub.pub(ps.PHOTO_SELECTED, { id: this.selectedId, photo });
+            } else {
+                // Selection no longer valid in new view, fallback to first
+                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
+            }
+        } else if (!keepSelection && this.photos.length > 0) {
             hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
         }
     }
@@ -1736,13 +1744,13 @@ class App {
     }
 
     // REQ-WFE-00016
-    setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null) {
+    setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null, keepSelection: boolean = false) {
         this.prioritySession++;
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
         this.selectedCollectionId = null;
-        this.refreshPhotos();
+        this.refreshPhotos(keepSelection);
         this.syncUrl();
     }
 
@@ -1804,6 +1812,13 @@ class App {
         };
 
         addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
+        
+        // REQ-WFE-00023
+        if (this.filterType === 'search' && p.rootPathId) {
+            addItem('Reveal in Folders', () => {
+                this.setFilter('all', 0, p.rootPathId!, true);
+            });
+        }
         
         if (this.userCollections.length > 0) {
             const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);

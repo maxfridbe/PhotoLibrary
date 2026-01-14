@@ -36,7 +36,7 @@ The backend is a .NET 8 application focused on providing high-concurrency and ef
 
 ### Smart Indexing & Previews
 - **Targeted Imports**: Backend supports batch importing specific relative paths to avoid full directory re-scans.
-- **Advanced Search**: A multi-criteria search engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`).
+- **Advanced Search**: A multi-criteria search engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`). Includes a "Reveal in Folders" context menu option to jump from search results to the source directory.
 - **On-the-Fly Generation**: If a requested preview is missing, it's generated live from the source (respecting RAW sidecars) and cached in the database.
 - **Cycle-Safe Paths**: Manual path reconstruction logic with recursive loop detection ensures stability even with complex directory structures.
 
