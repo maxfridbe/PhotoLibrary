@@ -220,6 +220,7 @@ namespace PhotoLibrary
 
         public enum ThumbnailResult { Error, Skipped, Generated, HashedAndGenerated }
 
+        // REQ-SVC-00007
         public ThumbnailResult EnsureThumbnails(string fileId)
         {
             string? fullPath = _db.GetFullFilePath(fileId);

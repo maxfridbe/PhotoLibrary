@@ -566,6 +566,7 @@ class App {
         }
     }
 
+    // REQ-WFE-00008
     private syncUrl() {
         if (this.isApplyingUrl) return;
         
