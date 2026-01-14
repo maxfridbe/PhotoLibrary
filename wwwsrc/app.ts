@@ -1395,6 +1395,7 @@ class App {
         }
     }
 
+    // REQ-WFE-00022
     renderLibrary() {
         if (!this.libraryEl) return;
         this.ensureSelectedFolderVisible();
@@ -1408,17 +1409,72 @@ class App {
         this.libraryEl.appendChild(createSection('Search'));
         const searchBox = document.createElement('div');
         searchBox.className = 'search-box';
+        searchBox.style.position = 'relative';
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.className = 'search-input';
         searchInput.placeholder = 'Search (path:xxx, tag:xxx, size>2mb)...';
         searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub(ps.SEARCH_TRIGGERED, { query: searchInput.value }); };
         
+        const qBuilder = document.createElement('div');
+        qBuilder.className = 'query-builder';
+        qBuilder.innerHTML = `
+            <div class="query-row">
+                <span>Path:</span>
+                <input type="text" id="qb-path" placeholder="segment...">
+                <span class="query-add-btn" id="qb-path-add">+</span>
+            </div>
+            <div class="query-row">
+                <span>Tag:</span>
+                <input type="text" id="qb-tag" placeholder="Name [= Value]">
+                <span class="query-add-btn" id="qb-tag-add">+</span>
+            </div>
+            <div class="query-row">
+                <span>Size:</span>
+                <select id="qb-size-op"><option>></option><option><</option></select>
+                <input type="text" id="qb-size-val" placeholder="2mb">
+                <span class="query-add-btn" id="qb-size-add">+</span>
+            </div>
+            <div class="query-help">Click + to add to search. Press Enter to search.</div>
+        `;
+
+        const addSegment = (seg: string) => {
+            const current = searchInput.value.trim();
+            searchInput.value = (current ? current + ' ' : '') + seg;
+            searchInput.focus();
+        };
+
+        qBuilder.querySelector('#qb-path-add')?.addEventListener('click', () => {
+            const val = (document.getElementById('qb-path') as HTMLInputElement).value;
+            if (val) addSegment(`path:${val}`);
+        });
+        qBuilder.querySelector('#qb-tag-add')?.addEventListener('click', () => {
+            const val = (document.getElementById('qb-tag') as HTMLInputElement).value;
+            if (val) addSegment(`tag:${val}`);
+        });
+        qBuilder.querySelector('#qb-size-add')?.addEventListener('click', () => {
+            const op = (document.getElementById('qb-size-op') as HTMLSelectElement).value;
+            const val = (document.getElementById('qb-size-val') as HTMLInputElement).value;
+            if (val) addSegment(`size ${op} ${val}`);
+        });
+
+        searchInput.addEventListener('click', (e) => {
+            e.stopPropagation();
+            qBuilder.classList.add('active');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!searchBox.contains(e.target as Node)) {
+                qBuilder.classList.remove('active');
+            }
+        });
+
         const searchSpinner = document.createElement('div');
         searchSpinner.className = 'search-loading';
         
         searchBox.appendChild(searchInput);
         searchBox.appendChild(searchSpinner);
+        searchBox.appendChild(qBuilder);
         this.libraryEl.appendChild(searchBox);
         if (this.filterType === 'search') this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true, 'search');
         this.libraryEl.appendChild(createSection('Collections'));
