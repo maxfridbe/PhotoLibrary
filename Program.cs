@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
 using System.Threading.Tasks;
+using ImageMagick;
 
 namespace PhotoLibrary
 {
@@ -27,6 +28,11 @@ namespace PhotoLibrary
 
         static async Task<int> Main(string[] args)
         {
+            // REQ-SVC-00008: Global ImageMagick resource limits
+            ResourceLimits.Memory = 1024UL * 1024 * 512; // 512MB
+            ResourceLimits.Area = 1024UL * 1024 * 1024;    // 1GB
+            OpenCL.IsEnabled = false;
+
             var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
 
             var libraryOption = new Option<string?>(

@@ -27,6 +27,11 @@ namespace PhotoLibrary
             _logger = logger;
         }
 
+        public void ClearCaches()
+        {
+            _hashCache.Clear();
+        }
+
         public void Initialize()
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -824,25 +829,29 @@ namespace PhotoLibrary
                 while (queue.Count > 0)
                 {
                     var current = queue.Dequeue();
-                    using var cmd = connection.CreateCommand();
-                    cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
-                    cmd.Parameters.AddWithValue("$ParentId", current);
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
+                    using (var cmd = connection.CreateCommand())
                     {
-                        var childId = reader.GetString(0);
-                        if (targetRootIds.Add(childId)) queue.Enqueue(childId);
+                        cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
+                        cmd.Parameters.AddWithValue("$ParentId", current);
+                        using var reader = cmd.ExecuteReader();
+                        while (reader.Read())
+                        {
+                            var childId = reader.GetString(0);
+                            if (targetRootIds.Add(childId)) queue.Enqueue(childId);
+                        }
                     }
                 }
             }
 
             foreach (var rId in targetRootIds)
             {
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootId";
-                cmd.Parameters.AddWithValue("$RootId", rId);
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read()) ids.Add(reader.GetString(0));
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootId";
+                    cmd.Parameters.AddWithValue("$RootId", rId);
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read()) ids.Add(reader.GetString(0));
+                }
             }
 
             _logger?.LogDebug("[DB] GetFileIdsUnderRoot found {Count} files", ids.Count);

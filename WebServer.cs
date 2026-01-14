@@ -13,6 +13,7 @@ using System.IO.Compression;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Diagnostics;
+using ImageMagick;
 
 namespace PhotoLibrary
 {
@@ -23,13 +24,14 @@ namespace PhotoLibrary
         private static readonly ConcurrentBag<(WebSocket socket, SemaphoreSlim lockobj, string clientId)> _activeSockets = new();
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
+        private static readonly Process _currentProcess = Process.GetCurrentProcess();
 
         private class QueuedImageRequest
         {
             public ImageRequest Request { get; }
-            public WebSocket Socket { get; }
-            public SemaphoreSlim Lock { get; }
-            public TaskCompletionSource<byte[]> Tcs { get; }
+            public WebSocket? Socket { get; }
+            public SemaphoreSlim? Lock { get; }
+            public TaskCompletionSource<byte[]>? Tcs { get; }
             public CancellationToken ct { get; }
             public long StartTime { get; }
             public double Priority { get; }
@@ -39,7 +41,7 @@ namespace PhotoLibrary
             public double GeneratingMs { get; set; }
             public byte[]? Payload { get; set; }
 
-            public QueuedImageRequest(ImageRequest request, WebSocket socket, SemaphoreSlim lockobj, TaskCompletionSource<byte[]> tcs, CancellationToken ct, long startTime, double priority)
+            public QueuedImageRequest(ImageRequest request, WebSocket? socket, SemaphoreSlim? lockobj, TaskCompletionSource<byte[]>? tcs, CancellationToken ct, long startTime, double priority)
             {
                 Request = request; Socket = socket; Lock = lockobj; Tcs = tcs; this.ct = ct; StartTime = startTime; Priority = priority;
             }
@@ -49,10 +51,27 @@ namespace PhotoLibrary
         private static readonly SemaphoreSlim _queueSemaphore = new(0);
         private static readonly object _queueLock = new();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
+        private static readonly ConcurrentDictionary<(WebSocket, int), TaskCompletionSource<byte[]>> _pendingTaskSources = new();
+        private static int _activeMagickTasks = 0;
 
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
+
+            _logger.LogInformation("ImageMagick Resource Limits: Memory={Mem}MB, Area={Area}MB", 
+                ResourceLimits.Memory / 1024 / 1024,
+                ResourceLimits.Area / 1024 / 1024);
+
+            // Periodically log memory usage
+            _ = Task.Run(async () => {
+                while (true) {
+                    await Task.Delay(10000);
+                    _currentProcess.Refresh();
+                    long workingSet = _currentProcess.WorkingSet64 / 1024 / 1024;
+                    long privateBytes = _currentProcess.PrivateMemorySize64 / 1024 / 1024;
+                    _logger?.LogInformation("[MONITOR] Memory: WorkingSet={WS}MB, Private={Private}MB, ActiveMagick={Active}", workingSet, privateBytes, _activeMagickTasks);
+                }
+            });
 
             // Start Background Workers for Image Processing
             int workerCount = Math.Max(1, Environment.ProcessorCount / 2);
@@ -258,8 +277,12 @@ namespace PhotoLibrary
                 var cts = new CancellationTokenSource();
                 if (!_activeTasks.TryAdd(taskId, cts)) 
                 {
-                    _activeTasks[taskId].Cancel();
-                    _activeTasks[taskId] = cts;
+                    if (_activeTasks.TryRemove(taskId, out var oldCts))
+                    {
+                        oldCts.Cancel();
+                        oldCts.Dispose();
+                    }
+                    _activeTasks.TryAdd(taskId, cts);
                 }
 
                 _ = Task.Run(async () =>
@@ -338,8 +361,12 @@ namespace PhotoLibrary
                 var cts = new CancellationTokenSource();
                 if (!_activeTasks.TryAdd(taskId, cts)) 
                 {
-                    _activeTasks[taskId].Cancel();
-                    _activeTasks[taskId] = cts;
+                    if (_activeTasks.TryRemove(taskId, out var oldCts))
+                    {
+                        oldCts.Cancel();
+                        oldCts.Dispose();
+                    }
+                    _activeTasks.TryAdd(taskId, cts);
                 }
 
                 _ = Task.Run(async () =>
@@ -350,40 +377,37 @@ namespace PhotoLibrary
                         int total = fileIds.Count;
                         int processed = 0;
                         int thumbnailed = 0;
-                        Console.WriteLine($"[TASK] Starting thumbnail generation for {total} files in root {req.rootId}");
-                        _logger?.LogInformation("Starting thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
+                        _logger?.LogInformation("Enqueuing background thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
 
                         // Initial progress report
                         _ = Broadcast(new { type = "folder.progress", rootId = req.rootId, processed = 0, total, thumbnailed = 0 });
-
-                        var indexer = new ImageIndexer(db, logFact.CreateLogger<ImageIndexer>(), pm, new[] { 300, 1024 });
 
                         foreach (var fId in fileIds)
                         {
                             if (cts.Token.IsCancellationRequested) break;
 
                             processed++;
-                            var result = indexer.EnsureThumbnails(fId);
                             
-                            if (result != ImageIndexer.ThumbnailResult.Error)
+                            // Check if work is actually needed before enqueuing to queue
+                            string? hash = db.GetFileHash(fId);
+                            if (hash != null && pm.HasPreview(hash, 300) && pm.HasPreview(hash, 1024))
                             {
                                 thumbnailed++;
-                                if (result != ImageIndexer.ThumbnailResult.Skipped)
+                            }
+                            else
+                            {
+                                // Enqueue into the SAME priority queue as UI, but with very low priority
+                                lock (_queueLock)
                                 {
-                                    // Only broadcast individual completion if we actually DID work (generated or hashed)
-                                    string? fileRootId = db.GetFileRootId(fId);
-                                    if (fileRootId != null) {
-                                        _ = Broadcast(new { type = "preview.generated", fileId = fId, rootId = fileRootId });
-                                    }
+                                    var imgReq = new ImageRequest { fileId = fId, size = 300, requestId = -1, priority = -1000 };
+                                    var qReq = new QueuedImageRequest(imgReq, null, null, null, cts.Token, Stopwatch.GetTimestamp(), -1000);
+                                    _requestQueue.Enqueue(qReq, 1000); // PriorityQueue is min-priority, so higher value = processed later
                                 }
+                                _queueSemaphore.Release();
                             }
 
-                            // Log every file to console so the user knows it's not hanging
-                            Console.WriteLine($"[TASK] Processing {processed}/{total}: {result}");
-
-                            if (processed % 10 == 0 || processed == total)
+                            if (processed % 50 == 0 || processed == total)
                             {
-                                // Send both processed (for task completion) and thumbnailed (for state)
                                 _ = Broadcast(new { 
                                     type = "folder.progress", 
                                     rootId = req.rootId, 
@@ -393,11 +417,11 @@ namespace PhotoLibrary
                                 });
                             }
                         }
-                        _logger?.LogInformation("Finished thumbnail generation for root {RootId}. Processed {Count}/{Total}. Actual thumbnailed: {Thumbnailed}", req.rootId, processed, total, thumbnailed);
-                        await Broadcast(new { type = "folder.finished", rootId = req.rootId });
-                        await Broadcast(new { type = "scan.finished" });
+                        
+                        _logger?.LogInformation("Finished enqueuing background tasks for root {RootId}.", req.rootId);
+                        // Note: actual completion of individual files is handled by the workers broadcasting preview.generated
                     }
-                    catch (Exception ex) { _logger?.LogError(ex, "[WS] Thumbnail gen error"); }
+                    catch (Exception ex) { _logger?.LogError(ex, "[WS] Background thumbnail enqueue error"); }
                     finally { _activeTasks.TryRemove(taskId, out _); }
                 });
 
@@ -491,7 +515,17 @@ namespace PhotoLibrary
                         var entry = archive.CreateEntry(uniqueName, CompressionLevel.NoCompression);
                         using (var entryStream = entry.Open())
                         {
-                            if (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) { using var image = new ImageMagick.MagickImage(fullPath); image.AutoOrient(); image.Format = ImageMagick.MagickFormat.Jpg; image.Quality = 85; image.Write(entryStream); }
+                            if (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) 
+                            { 
+                                _logger?.LogDebug("[EXPORT] Processing {Path}", fullPath);
+                                using var image = new MagickImage(fullPath); 
+                                image.AutoOrient(); 
+                                image.Format = MagickFormat.Jpg; 
+                                image.Quality = 85; 
+                                image.Write(entryStream); 
+                                _currentProcess.Refresh();
+                                if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
+                            }
                             else { using var fs = File.OpenRead(fullPath); await fs.CopyToAsync(entryStream); }
                         }
                         await context.Response.Body.FlushAsync();
@@ -552,12 +586,15 @@ namespace PhotoLibrary
 
                     if (item == null) continue;
                     
+                    if (item.Tcs != null && item.Tcs.Task.IsCompleted) continue; // Skip if already fulfilled by a promoted request
+
                     long dequeuedTime = Stopwatch.GetTimestamp();
                     item.QueueMs = Stopwatch.GetElapsedTime(item.StartTime, dequeuedTime).TotalMilliseconds;
 
-                    if (item.ct.IsCancellationRequested || item.Socket.State != WebSocketState.Open)
+                    if (item.ct.IsCancellationRequested || (item.Socket != null && item.Socket.State != WebSocketState.Open))
                     {
-                        item.Tcs.TrySetCanceled();
+                        if (item.Socket != null) _pendingTaskSources.TryRemove((item.Socket, item.Request.requestId), out _);
+                        item.Tcs?.TrySetCanceled();
                         continue;
                     }
 
@@ -579,15 +616,29 @@ namespace PhotoLibrary
                                     long genStart = Stopwatch.GetTimestamp();
                                     var fileLock = _fileLocks.GetOrAdd(req.fileId, _ => new SemaphoreSlim(1, 1));
                                     await fileLock.WaitAsync();
+                                    Interlocked.Increment(ref _activeMagickTasks);
                                     try
                                     {
-                                        using var image = new ImageMagick.MagickImage(fullPath);
+                                        _currentProcess.Refresh();
+                                        long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                        using var image = new MagickImage(fullPath);
                                         image.AutoOrient();
-                                        image.Format = ImageMagick.MagickFormat.Jpg;
+                                        image.Format = MagickFormat.Jpg;
                                         image.Quality = 90;
                                         data = image.ToByteArray();
+                                        _currentProcess.Refresh();
+                                        long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                        _logger?.LogDebug("[MAGICK] FullRes {Id}. Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active: {Active}", 
+                                            req.fileId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
                                     }
-                                    finally { fileLock.Release(); }
+                                    finally { 
+                                        Interlocked.Decrement(ref _activeMagickTasks); 
+                                        fileLock.Release(); 
+                                        _currentProcess.Refresh();
+                                        if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) {
+                                            GC.Collect(1, GCCollectionMode.Optimized, false);
+                                        }
+                                    }
                                     item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                                 }
                                 else {
@@ -616,61 +667,94 @@ namespace PhotoLibrary
                                             if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
                                         }
                                         
-                                        using var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                        if (hash == null) {
-                                            var hasher = new System.IO.Hashing.XxHash64();
-                                            hasher.Append(stream);
-                                            hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
-                                            stream.Position = 0;
-                                            db.UpdateFileHash(req.fileId, hash);
-                                        }
-
-                                        // Re-check previews DB
-                                        data = pm.GetPreviewData(hash, req.size);
-                                        if (data != null) {
-                                            item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
-                                            item.Payload = data;
-                                            item.Tcs.TrySetResult(data);
-                                            continue;
-                                        }
-
-                                        long genStart = Stopwatch.GetTimestamp();
-                                        var fileLock = _fileLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
-                                        await fileLock.WaitAsync();
-                                        try
+                                        using (var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
                                         {
-                                            using var image = new ImageMagick.MagickImage(stream);
-                                            _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
-                                            image.AutoOrient();
-
-                                            int[] targetSizes = { 300, 1024 };
-                                            foreach (var targetSize in targetSizes)
-                                            {
-                                                if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
-                                                {
-                                                    var bytes = File.ReadAllBytes(sourcePath);
-                                                    pm.SavePreview(hash, targetSize, bytes);
-                                                    if (targetSize == req.size) data = bytes;
-                                                    continue;
-                                                }
-
-                                                using var clone = image.Clone();
-                                                if (clone.Width > clone.Height) clone.Resize((uint)targetSize, 0);
-                                                else clone.Resize(0, (uint)targetSize);
-                                                
-                                                clone.Format = ImageMagick.MagickFormat.WebP;
-                                                clone.Quality = 80;
-                                                var generated = clone.ToByteArray();
-                                                
-                                                pm.SavePreview(hash, targetSize, generated);
-                                                if (targetSize == req.size) data = generated;
+                                            if (hash == null) {
+                                                var hasher = new System.IO.Hashing.XxHash64();
+                                                hasher.Append(stream);
+                                                hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                                                stream.Position = 0;
+                                                db.UpdateFileHash(req.fileId, hash);
                                             }
+
+                                            // Re-check previews DB
+                                            data = pm.GetPreviewData(hash, req.size);
+                                            if (data != null) {
+                                                item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                                item.Payload = data;
+                                                item.Tcs.TrySetResult(data);
+                                                continue;
+                                            }
+
+                                            long genStart = Stopwatch.GetTimestamp();
+                                            var fileLock = _fileLocks.GetOrAdd(hash!, _ => new SemaphoreSlim(1, 1));
+                                            await fileLock.WaitAsync();
+                                            
+                                            // RE-CHECK after acquiring lock: Maybe another thread just finished it
+                                            var existingData = pm.GetPreviewData(hash!, req.size);
+                                            if (existingData != null)
+                                            {
+                                                fileLock.Release();
+                                                if (item.Tcs != null) {
+                                                    item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                                    item.Payload = existingData;
+                                                    item.Tcs.TrySetResult(existingData);
+                                                }
+                                                continue;
+                                            }
+
+                                            Interlocked.Increment(ref _activeMagickTasks);
+                                            try
+                                            {
+                                                _currentProcess.Refresh();
+                                                long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                                using var image = new MagickImage(stream);
+                                                _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
+                                                image.AutoOrient();
+                                                
+                                                _currentProcess.Refresh();
+                                                long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                                _logger?.LogDebug("[MAGICK] Loaded {Id}. Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active Tasks: {Active}", 
+                                                    req.fileId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
+
+                                                int[] targetSizes = { 300, 1024 };
+                                                foreach (var targetSize in targetSizes)
+                                                {
+                                                    if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
+                                                    {
+                                                        var bytes = File.ReadAllBytes(sourcePath);
+                                                        pm.SavePreview(hash, targetSize, bytes);
+                                                        if (targetSize == req.size && item.Tcs != null) data = bytes;
+                                                        continue;
+                                                    }
+
+                                                    using (var clone = image.Clone())
+                                                    {
+                                                        if (clone.Width > clone.Height) clone.Resize((uint)targetSize, 0);
+                                                        else clone.Resize(0, (uint)targetSize);
+                                                        
+                                                        clone.Format = MagickFormat.WebP;
+                                                        clone.Quality = 80;
+                                                        var generated = clone.ToByteArray();
+                                                        
+                                                        pm.SavePreview(hash, targetSize, generated);
+                                                        if (targetSize == req.size && item.Tcs != null) data = generated;
+                                                    }
+                                                }
+                                            }
+                                            finally { 
+                                                Interlocked.Decrement(ref _activeMagickTasks); 
+                                                fileLock.Release(); 
+                                                _currentProcess.Refresh();
+                                                if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) {
+                                                    GC.Collect(1, GCCollectionMode.Optimized, false);
+                                                }
+                                            }
+                                            item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
+                                            
+                                            string? fileRootId = db.GetFileRootId(req.fileId);
+                                            _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId = fileRootId });
                                         }
-                                        finally { fileLock.Release(); }
-                                        item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
-                                        
-                                        string? fileRootId = db.GetFileRootId(req.fileId);
-                                        _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId = fileRootId });
                                     } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileId); }
                                 }
                             }
@@ -679,11 +763,11 @@ namespace PhotoLibrary
 
                         byte[] finalData = data ?? Array.Empty<byte>();
                         item.Payload = finalData;
-                        item.Tcs.TrySetResult(finalData);
+                        item.Tcs?.TrySetResult(finalData);
                     }
                     catch (Exception ex)
                     {
-                        item.Tcs.TrySetException(ex);
+                        item.Tcs?.TrySetException(ex);
                     }
                 }
             });
@@ -724,7 +808,8 @@ namespace PhotoLibrary
                                     }
                                     else
                                     {
-                                        var tcs = new TaskCompletionSource<byte[]>();
+                                        var tcs = _pendingTaskSources.GetOrAdd((ws, req.requestId), _ => new TaskCompletionSource<byte[]>());
+                                        
                                         lock (_queueLock)
                                         {
                                             double p = req.priority;
@@ -733,6 +818,7 @@ namespace PhotoLibrary
                                         }
                                         _queueSemaphore.Release();
                                         payload = await tcs.Task;
+                                        _pendingTaskSources.TryRemove((ws, req.requestId), out _);
                                     }
 
                                     if (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)

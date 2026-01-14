@@ -101,32 +101,44 @@ export class CommunicationManager {
     // REQ-ARCH-00010
     requestImage(fileId, size, priority = 0) {
         const cacheKey = `${fileId}-${size}`;
-        if (this.pendingRequests.has(cacheKey))
-            return this.pendingRequests.get(cacheKey);
+        // Boost priority for high-res/fullscreen requests
+        let p = priority;
+        if (size === 0)
+            p += 100000;
+        else if (size === 1024)
+            p += 10000;
+        const pending = this.pendingRequests.get(cacheKey);
+        if (pending) {
+            if (p > pending.priority) {
+                // PROMOTE: Priority increased, send another message with the SAME requestId
+                // The server will enqueue it again, and the higher priority one will process first.
+                pending.priority = p;
+                if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    const req = { type: 'image', requestId: pending.requestId, fileId, size, priority: p };
+                    this.ws.send(JSON.stringify(req));
+                }
+            }
+            return pending.promise;
+        }
         const start = Date.now();
+        const requestId = this.nextRequestId++;
         const promise = new Promise((resolve) => {
             if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                // If not connected, we can't fulfill now. 
-                // Return empty blob or wait? For now, just return.
+                // If not connected, return a default/empty blob?
+                // For now just finish immediately to avoid blocking.
+                resolve(new Blob([], { type: 'image/webp' }));
                 return;
             }
-            const requestId = this.nextRequestId++;
-            // Boost priority for high-res/fullscreen requests
-            let p = priority;
-            if (size === 0)
-                p += 100000;
-            else if (size === 1024)
-                p += 10000;
             const req = { type: 'image', requestId, fileId, size, priority: p };
             this.requestMap.set(requestId, (blob) => {
                 this.pendingRequests.delete(cacheKey);
                 const elapsed = Date.now() - start;
-                console.log(`requested ${fileId} took ${elapsed}ms for resp`);
+                // console.log(`requested ${fileId} took ${elapsed}ms for resp`);
                 resolve(blob);
             });
             this.ws.send(JSON.stringify(req));
         });
-        this.pendingRequests.set(cacheKey, promise);
+        this.pendingRequests.set(cacheKey, { promise, priority: p, requestId });
         return promise;
     }
     // --- High-Level Actions ---

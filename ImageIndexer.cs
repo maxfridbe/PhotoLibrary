@@ -22,6 +22,7 @@ namespace PhotoLibrary
         private readonly ILogger<ImageIndexer> _logger;
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
+        private static readonly Process _currentProcess = Process.GetCurrentProcess();
 
         public event Action<string, string>? OnFileProcessed;
 
@@ -134,6 +135,7 @@ namespace PhotoLibrary
             }
 
             string rootPathId;
+            // ... (rest of the logic to find rootPathId)
             if (dirPath == scanRootPath)
             {
                 rootPathId = scanRootId;
@@ -332,6 +334,8 @@ namespace PhotoLibrary
 
             try
             {
+                _currentProcess.Refresh();
+                _logger.LogDebug("[MAGICK] Indexer Loading {FileName}. Process Mem: {Memory}MB", fileName, _currentProcess.WorkingSet64 / 1024 / 1024);
                 using (var image = new MagickImage(sourceStream))
                 {
                     _logger.LogDebug("Loaded {FileName}. Size: {W}x{H}", fileName, image.Width, image.Height);
@@ -361,6 +365,10 @@ namespace PhotoLibrary
             finally
             {
                 if (ownStream) sourceStream.Dispose();
+                _currentProcess.Refresh();
+                if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) {
+                    GC.Collect(1, GCCollectionMode.Optimized, false);
+                }
             }
         }
 
