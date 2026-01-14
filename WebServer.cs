@@ -300,6 +300,8 @@ namespace PhotoLibrary
                 var req = await context.Request.ReadFromJsonAsync<GenerateThumbnailsRequest>();
                 if (req == null) return Results.BadRequest();
 
+                Console.WriteLine($"[API] Generate Thumbnails requested for root {req.rootId} (Recursive: {req.recursive})");
+
                 string taskId = $"thumbnails-{req.rootId}";
                 var cts = new CancellationTokenSource();
                 if (!_activeTasks.TryAdd(taskId, cts)) 
@@ -316,6 +318,7 @@ namespace PhotoLibrary
                         int total = fileIds.Count;
                         int processed = 0;
                         int thumbnailed = 0;
+                        Console.WriteLine($"[TASK] Starting thumbnail generation for {total} files in root {req.rootId}");
                         _logger?.LogInformation("Starting thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
 
                         // Initial progress report
@@ -328,28 +331,23 @@ namespace PhotoLibrary
                             if (cts.Token.IsCancellationRequested) break;
 
                             processed++;
-                            string? hash = db.GetFileHash(fId);
-                            bool hasThumb = false;
+                            var result = indexer.EnsureThumbnails(fId);
                             
-                            if (hash != null)
+                            if (result != ImageIndexer.ThumbnailResult.Error)
                             {
-                                // Check if previews exist
-                                if (pm.HasPreview(hash, 300) && pm.HasPreview(hash, 1024))
+                                thumbnailed++;
+                                if (result != ImageIndexer.ThumbnailResult.Skipped)
                                 {
-                                    hasThumb = true;
-                                }
-                                else
-                                {
-                                    string? fullPath = db.GetFullFilePath(fId);
-                                    if (fullPath != null && File.Exists(fullPath))
-                                    {
-                                        indexer.GeneratePreviews(new FileInfo(fullPath), fId);
-                                        hasThumb = true;
+                                    // Only broadcast individual completion if we actually DID work (generated or hashed)
+                                    string? fileRootId = db.GetFileRootId(fId);
+                                    if (fileRootId != null) {
+                                        _ = Broadcast(new { type = "preview.generated", fileId = fId, rootId = fileRootId });
                                     }
                                 }
                             }
 
-                            if (hasThumb) thumbnailed++;
+                            // Log every file to console so the user knows it's not hanging
+                            Console.WriteLine($"[TASK] Processing {processed}/{total}: {result}");
 
                             if (processed % 10 == 0 || processed == total)
                             {

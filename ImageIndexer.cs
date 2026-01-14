@@ -218,6 +218,71 @@ namespace PhotoLibrary
             return Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
         }
 
+        public enum ThumbnailResult { Error, Skipped, Generated, HashedAndGenerated }
+
+        public ThumbnailResult EnsureThumbnails(string fileId)
+        {
+            string? fullPath = _db.GetFullFilePath(fileId);
+            if (fullPath == null || !File.Exists(fullPath)) return ThumbnailResult.Error;
+
+            string? hash = _db.GetFileHash(fileId);
+            
+            if (hash != null)
+            {
+                bool missing = false;
+                foreach (var size in _longEdges)
+                {
+                    if (_previewManager != null && !_previewManager.HasPreview(hash, size))
+                    {
+                        missing = true;
+                        break;
+                    }
+                }
+                if (!missing) return ThumbnailResult.Skipped;
+            }
+
+            var file = new FileInfo(fullPath);
+            try
+            {
+                using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                bool wasHashed = false;
+
+                if (hash == null)
+                {
+                    _logger.LogInformation("Hashing {FileName}...", file.Name);
+                    hash = CalculateHash(stream);
+                    _db.UpdateFileHash(fileId, hash);
+                    stream.Position = 0;
+                    wasHashed = true;
+                }
+
+                // Double check previews now that we have the hash
+                bool missingAny = false;
+                foreach (var size in _longEdges)
+                {
+                    if (_previewManager != null && !_previewManager.HasPreview(hash, size))
+                    {
+                        missingAny = true;
+                        break;
+                    }
+                }
+
+                if (missingAny)
+                {
+                    _logger.LogInformation("Generating previews for {FileName}...", file.Name);
+                    GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+                    return wasHashed ? ThumbnailResult.HashedAndGenerated : ThumbnailResult.Generated;
+                }
+
+                return wasHashed ? ThumbnailResult.HashedAndGenerated : ThumbnailResult.Skipped;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to ensure thumbnails for {FileId} at {Path}", fileId, fullPath);
+                return ThumbnailResult.Error;
+            }
+        }
+
         public void GeneratePreviews(FileInfo file, string fileId)
         {
             using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);

@@ -43,6 +43,8 @@ A high-performance C# application designed to scan photo directories, index meta
 -   **Robust Backend & Architecture**:
     *   **Decoupled PubSub**: Frontend uses a type-safe, constant-driven event bus for seamless communication between components.
     *   **Container-Aware Fitting**: Rotated images automatically adapt their dimensions to fit their containers perfectly, preventing cropping in all view modes.
+    *   **URL State Persistence**: Deep-linking support for all view modes (Grid, Loupe, Library), filters, sorting, and selections.
+    *   **Improved Task Reporting**: Granular progress tracking for background operations with real-time console and UI feedback.
     *   **Stable Cycle-Safe Hierarchy**: Robust path reconstruction with automatic loop detection and hierarchy normalization.
     *   **Automatic Configuration**: Zero-config startup with `~/.config/PhotoLibrary/config.json`.
     *   **Binary WebSocket Streaming**: Optimized binary protocol for high-speed image delivery.

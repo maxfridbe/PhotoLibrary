@@ -750,6 +750,8 @@ namespace PhotoLibrary
             var ids = new List<string>();
             var targetRootIds = new HashSet<string> { rootId };
 
+            _logger?.LogDebug("[DB] GetFileIdsUnderRoot: rootId={RootId}, recursive={Recursive}", rootId, recursive);
+
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
@@ -781,6 +783,7 @@ namespace PhotoLibrary
                 while (reader.Read()) ids.Add(reader.GetString(0));
             }
 
+            _logger?.LogDebug("[DB] GetFileIdsUnderRoot found {Count} files", ids.Count);
             return ids;
         }
 

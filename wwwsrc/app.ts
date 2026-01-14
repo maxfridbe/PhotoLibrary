@@ -145,8 +145,10 @@ class App {
         });
 
         hub.sub(ps.FOLDER_FINISHED, (data) => {
-            // Keep the data but mark as not-batching if we want, but for now just update UI
+            this.folderProgress.delete(data.rootId);
             this.updateFolderProgressUI(data.rootId);
+            this.showNotification('Thumbnail generation finished', 'success');
+            this.refreshDirectories(); // Refresh stats from DB
         });
 
         this.themeManager.loadSettings().then(() => {
@@ -303,6 +305,7 @@ class App {
         hub.sub(ps.UI_NOTIFICATION, (data) => this.showNotification(data.message, data.type));
 
         hub.sub(ps.LIBRARY_UPDATED, () => {
+            this.isIndexing = false;
             this.loadData();
             this.showNotification('Library updated', 'success');
         });
@@ -559,8 +562,12 @@ class App {
     }
 
     private syncUrl() {
-        if (this.isIndexing || this.isLibraryMode || this.isApplyingUrl) return;
-        const mode = this.isLoupeMode ? 'loupe' : 'grid';
+        if (this.isApplyingUrl) return;
+        
+        let mode = 'grid';
+        if (this.isLoupeMode) mode = 'loupe';
+        else if (this.isLibraryMode) mode = 'library';
+
         let filterPart = 'all';
         if (this.selectedRootId) filterPart = `folder/${this.selectedRootId}`;
         else if (this.selectedCollectionId) filterPart = `collection/${this.selectedCollectionId}`;
@@ -568,7 +575,7 @@ class App {
         else if (this.filterType === 'rating') filterPart = `rating/${this.filterRating}`;
         else if (this.filterType === 'search') filterPart = `search/${encodeURIComponent(this.searchTitle)}`;
 
-        const photoPart = this.selectedId ? `/${this.selectedId}` : '';
+        const photoPart = (this.selectedId && !this.isLibraryMode) ? `/${this.selectedId}` : '';
         const params = new URLSearchParams();
         params.set('sort', this.sortBy);
         params.set('size', this.gridScale.toString());
@@ -594,6 +601,7 @@ class App {
             const type = parts[1];
             
             this.isLoupeMode = (mode === 'loupe');
+            this.isLibraryMode = (mode === 'library');
 
             let sortChanged = false;
             let stackChanged = false;
@@ -687,6 +695,7 @@ class App {
 
             this.updateHeaderUI();
             this.updateViewModeUI();
+            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
         } finally {
             this.isApplyingUrl = false;
         }
@@ -758,7 +767,10 @@ class App {
         // Initialize folder progress counts from current state
         this.roots.forEach(r => {
             if (!this.folderProgress.has(r.id)) {
-                this.folderProgress.set(r.id, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
+                // Only show initial bar if significant work is missing (> 5%)
+                if (r.thumbnailedCount < r.imageCount * 0.95) {
+                    this.folderProgress.set(r.id, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
+                }
             }
         });
 
@@ -1684,17 +1696,36 @@ class App {
     setupContextMenu() { document.addEventListener('click', () => { const menu = document.getElementById('context-menu'); if (menu) menu.style.display = 'none'; }); }
 
     showFolderContextMenu(e: MouseEvent, rootId: string) {
+        console.log(`[App] showFolderContextMenu for ${rootId}`);
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';
         const addItem = (text: string, cb: () => void) => {
-            const el = document.createElement('div'); el.className = 'context-menu-item'; el.textContent = text; el.onclick = cb; menu.appendChild(el);
+            const el = document.createElement('div'); 
+            el.className = 'context-menu-item'; 
+            el.textContent = text; 
+            el.onclick = (e) => { 
+                e.stopPropagation(); 
+                cb(); 
+                menu.style.display = 'none'; 
+            }; 
+            menu.appendChild(el);
         };
 
         addItem('Generate Thumbnails (This Folder)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: false });
+            Api.api_library_generate_thumbnails({ rootId, recursive: false })
+                .catch(err => {
+                    console.error('Failed to start thumbnail generation', err);
+                    this.showNotification('Failed to start thumbnail generation', 'error');
+                });
+            this.showNotification('Thumbnail generation started', 'info');
         });
         addItem('Generate Thumbnails (Recursive)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: true });
+            Api.api_library_generate_thumbnails({ rootId, recursive: true })
+                .catch(err => {
+                    console.error('Failed to start recursive thumbnail generation', err);
+                    this.showNotification('Failed to start recursive thumbnail generation', 'error');
+                });
+            this.showNotification('Recursive thumbnail generation started', 'info');
         });
 
         menu.style.display = 'block';
@@ -1911,6 +1942,7 @@ class App {
         this.updateViewModeUI();
         if (this.selectedId) this.gridViewManager.scrollToPhoto(this.selectedId);
         this.gridViewManager.update(true);
+        this.syncUrl();
     }
 
     enterLibraryMode() {
@@ -1924,6 +1956,7 @@ class App {
             });
         }
         this.libraryManager.loadLibraryInfo();
+        this.syncUrl();
     }
 
     private updateViewModeUI() {
