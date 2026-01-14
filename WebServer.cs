@@ -68,6 +68,7 @@ namespace PhotoLibrary
             };
 
             // --- API Endpoints ---
+            // REQ-ARCH-00007
 
             app.MapGet("/api/camera/thumbnail/{model}", (string model, CameraManager cm) =>
             {

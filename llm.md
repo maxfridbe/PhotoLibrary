@@ -62,5 +62,5 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 - **Requirement Traceability**: Every major function in C# and TypeScript must be tagged with the requirement ID it fulfills from `requirements.md` using a comment directly above the function containing ONLY the ID (e.g., `// REQ-SVC-00001` or `// REQ-ARCH-00001`).
 - **Standardized DTOs**: All request/response models must be defined in `Requests.cs` or `Responses.cs` to ensure they are picked up by the Roslyn generator.
 - **Surgical DOM**: Avoid `innerHTML` for dynamic content. Use `document.createElement` and `textContent` to maintain stability and prevent XSS or malformed literal issues.
-- **Stateless Server**: The server should remain as stateless as possible, pushing grouping and display logic to the client to maximize scalability.
+- **Stateless Server**: The server should remain as stateless as possible, pushing grouping and display logic to the client to maximize scalability. All data-requesting endpoints shall use the POST method and JSON payloads, strictly avoiding query string parameters for request data.
 - **UI-Only Stacking**: "Stacking" (grouping JPG+RAW) is strictly a client-side visualization concern. The server should never receive or process "stacked" flags or logic; it simply returns flat lists of files.

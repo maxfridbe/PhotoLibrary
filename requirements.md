@@ -7,6 +7,7 @@
 - REQ-ARCH-00004: The backend shall be built on .NET 8 to leverage modern performance features and high concurrency support.
 - REQ-ARCH-00005: The system shall use SQLite for lightweight, file-based relational data storage with WAL mode enabled for concurrency.
 - REQ-ARCH-00006: The system shall implement an automated type-generation pipeline to keep frontend interfaces in sync with backend models.
+- REQ-ARCH-00007: All HTTP API endpoints shall use the POST method and JSON payloads for request data, avoiding query string parameters.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.
