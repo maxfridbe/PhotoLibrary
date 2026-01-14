@@ -21,6 +21,7 @@
 - REQ-SVC-00009: [Functionality] Reliable task management with integrated cancellation support for background operations.
 - REQ-SVC-00010: [Functionality] Real-time state synchronization across all clients via persistent WebSocket broadcasting.
 - REQ-SVC-00011: [Security] Secure path resolution logic to prevent unauthorized filesystem access or directory traversal.
+- REQ-SVC-00012: [Functionality] Advanced search engine supporting path segments, metadata tag existence/values, and numeric file size comparisons (>, <).
 
 ## Web Front End (WFE) Requirements
 - REQ-WFE-00001: User should be able to browse massive libraries smoothly via a 60fps virtualized rendering engine.
@@ -43,3 +44,4 @@
 - REQ-WFE-00018: User should be able to download selected photos as a ZIP archive.
 - REQ-WFE-00019: User should be able to see a filmstrip of the current filter while in Loupe mode.
 - REQ-WFE-00020: User should be able to zoom and pan high-resolution images in Loupe mode.
+- REQ-WFE-00021: User should be able to perform multi-criteria searches including folder/name paths, metadata tags, and file size comparisons.

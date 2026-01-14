@@ -1282,16 +1282,87 @@ namespace PhotoLibrary
             }
         }
 
-        public IEnumerable<string> SearchMetadata(string tag, string value)
+        // REQ-SVC-00012
+        public IEnumerable<string> Search(SearchRequest req)
         {
             var ids = new List<string>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
+
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} = $Tag AND {Column.Metadata.Value} = $Value";
-                command.Parameters.AddWithValue("$Tag", tag);
-                command.Parameters.AddWithValue("$Value", value);
+                if (!string.IsNullOrEmpty(req.query))
+                {
+                    string q = req.query.Trim();
+                    
+                    // Regex for size comparison: size (>|<) (\d+)(kb|mb|gb)?
+                    var sizeMatch = System.Text.RegularExpressions.Regex.Match(q, @"^size\s*([><])\s*(\d+(?:\.\d+)?)\s*(kb|mb|gb|b)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (sizeMatch.Success)
+                    {
+                        string op = sizeMatch.Groups[1].Value;
+                        double val = double.Parse(sizeMatch.Groups[2].Value);
+                        string unit = sizeMatch.Groups[3].Value.ToLower();
+                        long bytes = (long)val;
+                        if (unit == "kb") bytes = (long)(val * 1024);
+                        else if (unit == "mb") bytes = (long)(val * 1024 * 1024);
+                        else if (unit == "gb") bytes = (long)(val * 1024 * 1024 * 1024);
+
+                        command.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Size} {(op == ">" ? ">" : "<")} $Size";
+                        command.Parameters.AddWithValue("$Size", bytes);
+                    }
+                    // Regex for tag: tag:NAME [= VALUE]
+                    else if (q.StartsWith("tag:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string sub = q.Substring(4).Trim();
+                        if (sub.Contains("="))
+                        {
+                            string[] parts = sub.Split('=', 2);
+                            command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} LIKE $Tag AND {Column.Metadata.Value} LIKE $Value";
+                            command.Parameters.AddWithValue("$Tag", "%" + parts[0].Trim() + "%");
+                            command.Parameters.AddWithValue("$Value", "%" + parts[1].Trim() + "%");
+                        }
+                        else
+                        {
+                            command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} LIKE $Tag";
+                            command.Parameters.AddWithValue("$Tag", "%" + sub + "%");
+                        }
+                    }
+                    // Path search (filename or folder segments)
+                    else if (q.StartsWith("path:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string sub = q.Substring(5).Trim();
+                        command.CommandText = $@"
+                            SELECT f.{Column.FileEntry.Id} 
+                            FROM {TableName.FileEntry} f
+                            JOIN {TableName.RootPaths} r ON f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}
+                            WHERE f.{Column.FileEntry.FileName} LIKE $Query OR r.{Column.RootPaths.Name} LIKE $Query";
+                        command.Parameters.AddWithValue("$Query", "%" + sub + "%");
+                    }
+                    // Global fallback search
+                    else
+                    {
+                        command.CommandText = $@"
+                            SELECT DISTINCT f.{Column.FileEntry.Id} 
+                            FROM {TableName.FileEntry} f
+                            JOIN {TableName.RootPaths} r ON f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}
+                            LEFT JOIN {TableName.Metadata} m ON f.{Column.FileEntry.Id} = m.{Column.Metadata.FileId}
+                            WHERE f.{Column.FileEntry.FileName} LIKE $Query 
+                               OR r.{Column.RootPaths.Name} LIKE $Query
+                               OR m.{Column.Metadata.Value} LIKE $Query";
+                        command.Parameters.AddWithValue("$Query", "%" + q + "%");
+                    }
+                }
+                else if (!string.IsNullOrEmpty(req.tag))
+                {
+                    command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} = $Tag AND {Column.Metadata.Value} = $Value";
+                    command.Parameters.AddWithValue("$Tag", req.tag);
+                    command.Parameters.AddWithValue("$Value", req.value ?? "");
+                }
+                else
+                {
+                    return Enumerable.Empty<string>();
+                }
+
                 using var reader = command.ExecuteReader();
                 while (reader.Read()) ids.Add(reader.GetString(0));
             }

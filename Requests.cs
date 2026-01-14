@@ -6,7 +6,7 @@ namespace PhotoLibrary
     public record NameRequest(string name);
     public record PickRequest(string id, bool isPicked);
     public record RateRequest(string id, int rating);
-    public record SearchRequest(string tag, string value);
+    public record SearchRequest(string? tag, string? value, string? query);
     public record CollectionAddRequest(string collectionId, string[] fileIds);
     public record ZipRequest(string[] fileIds, string type, string? name);
     public record SettingRequest(string key, string value);

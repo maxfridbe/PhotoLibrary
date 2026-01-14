@@ -129,7 +129,7 @@ namespace PhotoLibrary
             {
                 var req = await context.Request.ReadFromJsonAsync<SearchRequest>();
                 if (req == null) return Results.BadRequest();
-                return Results.Ok(db.SearchMetadata(req.tag, req.value));
+                return Results.Ok(db.Search(req));
             });
 
             app.MapPost("/api/collections/list", (DatabaseManager db) =>

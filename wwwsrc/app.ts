@@ -282,7 +282,7 @@ class App {
             }
         });
 
-        hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag, data.value));
+        hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag || null, data.value || null, data.query));
 
         hub.sub(ps.SHORTCUTS_SHOW, () => document.getElementById('shortcuts-modal')?.classList.add('active'));
 
@@ -1411,8 +1411,8 @@ class App {
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.className = 'search-input';
-        searchInput.placeholder = 'Search by filename...';
-        searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub(ps.SEARCH_TRIGGERED, { tag: 'FileName', value: searchInput.value }); };
+        searchInput.placeholder = 'Search (path:xxx, tag:xxx, size>2mb)...';
+        searchInput.onkeydown = (e) => { if (e.key === 'Enter') hub.pub(ps.SEARCH_TRIGGERED, { query: searchInput.value }); };
         
         const searchSpinner = document.createElement('div');
         searchSpinner.className = 'search-loading';
@@ -1881,13 +1881,14 @@ class App {
     async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
 
     // REQ-WFE-00015
-    async searchPhotos(tag: string, value: string) {
+    // REQ-WFE-00021
+    async searchPhotos(tag: string | null, value: string | null, query?: string) {
         const spinner = document.querySelector('.search-loading');
         if (spinner) spinner.classList.add('active');
         
         try {
-            this.searchResultIds = await Api.api_search({ tag, value });
-            this.searchTitle = `${tag}: ${value}`;
+            this.searchResultIds = await Api.api_search({ tag, value, query });
+            this.searchTitle = query ? `Query: ${query}` : `${tag}: ${value}`;
             this.setFilter('search');
         } finally {
             if (spinner) spinner.classList.remove('active');

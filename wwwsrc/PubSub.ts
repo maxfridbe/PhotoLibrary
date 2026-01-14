@@ -25,7 +25,7 @@ export interface EventMap {
     [ps.PREVIEW_GENERATED]: { fileId: string, rootId: string };
     [ps.PREVIEW_GENERATING]: { fileId: string };
     [ps.PREVIEW_DELETED]: { fileId: string };
-    [ps.SEARCH_TRIGGERED]: { tag: string, value: string };
+    [ps.SEARCH_TRIGGERED]: { tag?: string, value?: string, query?: string };
     [ps.SHORTCUTS_SHOW]: {};
 
     // UI Events
@@ -37,6 +37,7 @@ export interface EventMap {
 
 type Callback<T> = (data: T) => void;
 
+// REQ-WFE-00011
 class PubSub {
     private subs: Map<string, Callback<any>[]> = new Map();
 
