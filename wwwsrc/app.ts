@@ -35,6 +35,7 @@ declare global {
     }
 }
 
+// REQ-ARCH-00003
 class App {
     public layout: any;
     private themeManager: ThemeManager;
@@ -1678,6 +1679,7 @@ class App {
         return el;
     }
 
+    // REQ-WFE-00016
     setFilter(type: 'all' | 'picked' | 'rating' | 'search', rating: number = 0, rootId: string | null = null) {
         this.prioritySession++;
         this.filterType = type;
@@ -1801,6 +1803,7 @@ class App {
         menu.style.display = 'block'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     }
 
+    // REQ-WFE-00018
     private async downloadZip(type: 'previews' | 'originals', collectionId?: string) {
         hub.pub(ps.UI_NOTIFICATION, { message: 'Preparing download...', type: 'info' });
         
@@ -1846,6 +1849,7 @@ class App {
 
     async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub(ps.UI_NOTIFICATION, { message: 'Picked photos cleared', type: 'info' }); }
 
+    // REQ-WFE-00017
     async storePickedToCollection(id: string | null, specificIds?: string[]) {
         const fileIds = specificIds || await Api.api_picked_ids({});
         if (fileIds.length === 0) return;
@@ -1876,6 +1880,7 @@ class App {
 
     async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
 
+    // REQ-WFE-00015
     async searchPhotos(tag: string, value: string) {
         const spinner = document.querySelector('.search-loading');
         if (spinner) spinner.classList.add('active');
@@ -1912,6 +1917,7 @@ class App {
         }
     }
 
+    // REQ-WFE-00019
     renderFilmstrip() {
         if (!this.filmstrip) return;
         this.filmstrip.innerHTML = '';
@@ -1932,6 +1938,7 @@ class App {
         else if (this.isLoupeMode) this.loadMainPreview(id);
     }
 
+    // REQ-WFE-00012
     enterLoupeMode(id: string) {
         this.prioritySession++;
         this.isLoupeMode = true;
@@ -1941,6 +1948,7 @@ class App {
         this.loadMainPreview(id);
     }
 
+    // REQ-WFE-00012
     enterGridMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = false;
@@ -1950,6 +1958,7 @@ class App {
         this.syncUrl();
     }
 
+    // REQ-WFE-00012
     enterLibraryMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
@@ -2225,6 +2234,7 @@ class App {
         this.updateFullscreenImage(this.selectedId);
     }
 
+    // REQ-WFE-00013
     async loadMetadata(id: string) {
         if (!this.metadataEl || !id) return;
         const photo = this.photoMap.get(id);
@@ -2382,6 +2392,7 @@ class App {
         }
     }
 
+    // REQ-WFE-00014
     private toggleLibraryPanel() {
         if (!this.layout) return;
         const libraryItem = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'library')[0];
@@ -2406,6 +2417,7 @@ class App {
         }
     }
 
+    // REQ-WFE-00014
     private toggleMetadataPanel() {
         if (!this.layout) return;
         const metadataItems = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'metadata');

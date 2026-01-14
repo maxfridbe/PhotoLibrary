@@ -9,6 +9,7 @@ using static PhotoLibrary.TableConstants;
 
 namespace PhotoLibrary
 {
+    // REQ-ARCH-00005
     public class DatabaseManager
     {
         private readonly string _connectionString;

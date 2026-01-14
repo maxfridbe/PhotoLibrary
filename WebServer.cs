@@ -15,6 +15,7 @@ using System.Linq;
 
 namespace PhotoLibrary
 {
+    // REQ-ARCH-00004
     public static class WebServer
     {
         private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();

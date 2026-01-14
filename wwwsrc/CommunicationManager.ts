@@ -23,6 +23,7 @@ interface QueuedImage {
     index: number;
 }
 
+// REQ-ARCH-00001
 export class CommunicationManager {
     private ws: WebSocket | null = null;
     private requestMap: Map<number, (blob: Blob) => void> = new Map();
@@ -42,6 +43,7 @@ export class CommunicationManager {
         this.connectWs();
     }
 
+    // REQ-SVC-00003
     private connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
@@ -119,6 +121,7 @@ export class CommunicationManager {
         }
     }
 
+    // REQ-SVC-00003
     requestImage(fileId: string, size: number, priority: number = 0): Promise<Blob> {
         return new Promise<Blob>((resolve) => {
             const requestId = this.nextRequestId++;
@@ -197,6 +200,7 @@ export class CommunicationManager {
 
     // --- High-Level Actions ---
 
+    // REQ-WFE-00006
     async togglePick(photo: Res.PhotoResponse) {
         const original = photo.isPicked;
         const newStatus = !original;
@@ -218,6 +222,7 @@ export class CommunicationManager {
         }
     }
 
+    // REQ-WFE-00006
     async setRating(photo: Res.PhotoResponse, rating: number) {
         const prev = photo.rating;
         if (prev === rating) return;

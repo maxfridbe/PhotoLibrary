@@ -59,7 +59,7 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 - **Build Orchestration**: `.csproj` manages the entire pipeline: `TypeGen` -> `tsc` -> Sync -> Compile.
 
 ## 6. Development Standards
-- **Requirement Traceability**: Every major function in C# and TypeScript must be tagged with the requirement ID it fulfills from `requirements.md` using a comment directly above the function containing ONLY the ID (e.g., `// REQ-SVC-00001`).
+- **Requirement Traceability**: Every major function in C# and TypeScript must be tagged with the requirement ID it fulfills from `requirements.md` using a comment directly above the function containing ONLY the ID (e.g., `// REQ-SVC-00001` or `// REQ-ARCH-00001`).
 - **Standardized DTOs**: All request/response models must be defined in `Requests.cs` or `Responses.cs` to ensure they are picked up by the Roslyn generator.
 - **Surgical DOM**: Avoid `innerHTML` for dynamic content. Use `document.createElement` and `textContent` to maintain stability and prevent XSS or malformed literal issues.
 - **Stateless Server**: The server should remain as stateless as possible, pushing grouping and display logic to the client to maximize scalability.
