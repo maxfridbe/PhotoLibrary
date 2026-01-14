@@ -5,6 +5,7 @@ interface ExifTag {
 }
 
 /**
+ * REQ-WFE-00005
  * Injects and visualizes lens data into a specific container.
  * @param metadata - The array of EXIF data tags.
  * @param containerId - The ID of the div to inject into.

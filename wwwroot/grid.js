@@ -98,6 +98,7 @@ export class GridView {
         this.cardCache.clear();
         this.update(true);
     }
+    // REQ-WFE-00001
     update(force = false) {
         if (!this.gridViewEl)
             return;
@@ -145,6 +146,7 @@ export class GridView {
         this.gridViewEl.innerHTML = '';
         this.gridViewEl.appendChild(fragment);
     }
+    // REQ-WFE-00002
     createCard(p, mode = 'grid') {
         const card = document.createElement('div');
         card.className = 'card loading'; // Start with loading

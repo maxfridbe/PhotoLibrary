@@ -7,6 +7,7 @@ import { GridView } from './grid.js';
 import { constants } from './constants.js';
 const ps = constants.pubsub;
 import { visualizeLensData } from './aperatureVis.js';
+// REQ-ARCH-00003
 class App {
     constructor() {
         this.allPhotosFlat = [];
@@ -218,7 +219,7 @@ class App {
                     this.fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
             }
         });
-        hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag, data.value));
+        hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag || null, data.value || null, data.query));
         hub.sub(ps.SHORTCUTS_SHOW, () => document.getElementById('shortcuts-modal')?.classList.add('active'));
         hub.sub(ps.UI_LAYOUT_CHANGED, () => this.gridViewManager.update());
         hub.sub(ps.CONNECTION_CHANGED, (data) => {
@@ -481,6 +482,7 @@ class App {
                 countEl.textContent = this.stats.ratingCounts[i - 1].toString();
         }
     }
+    // REQ-WFE-00008
     syncUrl() {
         if (this.isApplyingUrl)
             return;
@@ -707,7 +709,18 @@ class App {
         this.gridViewManager.setPhotos(this.photos);
         this.renderLibrary();
         this.processUIStacks();
-        if (!keepSelection && this.photos.length > 0) {
+        if (keepSelection && this.selectedId) {
+            const photo = this.photoMap.get(this.selectedId);
+            if (photo) {
+                hub.pub(ps.PHOTO_SELECTED, { id: this.selectedId, photo });
+            }
+            else {
+                // Selection no longer valid in new view, fallback to first
+                if (this.photos.length > 0)
+                    hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
+            }
+        }
+        else if (!keepSelection && this.photos.length > 0) {
             hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
         }
     }
@@ -1287,6 +1300,7 @@ class App {
             });
         }
     }
+    // REQ-WFE-00022
     renderLibrary() {
         if (!this.libraryEl)
             return;
@@ -1301,16 +1315,69 @@ class App {
         this.libraryEl.appendChild(createSection('Search'));
         const searchBox = document.createElement('div');
         searchBox.className = 'search-box';
+        searchBox.style.position = 'relative';
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.className = 'search-input';
-        searchInput.placeholder = 'Search by filename...';
+        searchInput.placeholder = 'Search (path:xxx, tag:xxx, size>2mb)...';
         searchInput.onkeydown = (e) => { if (e.key === 'Enter')
-            hub.pub(ps.SEARCH_TRIGGERED, { tag: 'FileName', value: searchInput.value }); };
+            hub.pub(ps.SEARCH_TRIGGERED, { query: searchInput.value }); };
+        const qBuilder = document.createElement('div');
+        qBuilder.className = 'query-builder';
+        qBuilder.innerHTML = `
+            <div class="query-row">
+                <span>Path:</span>
+                <input type="text" id="qb-path" placeholder="segment...">
+                <span class="query-add-btn" id="qb-path-add">+</span>
+            </div>
+            <div class="query-row">
+                <span>Tag:</span>
+                <input type="text" id="qb-tag" placeholder="Name [= Value]">
+                <span class="query-add-btn" id="qb-tag-add">+</span>
+            </div>
+            <div class="query-row">
+                <span>Size:</span>
+                <select id="qb-size-op"><option>></option><option><</option></select>
+                <input type="text" id="qb-size-val" placeholder="2mb">
+                <span class="query-add-btn" id="qb-size-add">+</span>
+            </div>
+            <div class="query-help">Click + to add to search. Press Enter to search.</div>
+        `;
+        const addSegment = (seg) => {
+            const current = searchInput.value.trim();
+            searchInput.value = (current ? current + ' ' : '') + seg;
+            searchInput.focus();
+        };
+        qBuilder.querySelector('#qb-path-add')?.addEventListener('click', () => {
+            const val = document.getElementById('qb-path').value;
+            if (val)
+                addSegment(`path:${val}`);
+        });
+        qBuilder.querySelector('#qb-tag-add')?.addEventListener('click', () => {
+            const val = document.getElementById('qb-tag').value;
+            if (val)
+                addSegment(`tag:${val}`);
+        });
+        qBuilder.querySelector('#qb-size-add')?.addEventListener('click', () => {
+            const op = document.getElementById('qb-size-op').value;
+            const val = document.getElementById('qb-size-val').value;
+            if (val)
+                addSegment(`size ${op} ${val}`);
+        });
+        searchInput.addEventListener('click', (e) => {
+            e.stopPropagation();
+            qBuilder.classList.add('active');
+        });
+        document.addEventListener('click', (e) => {
+            if (!searchBox.contains(e.target)) {
+                qBuilder.classList.remove('active');
+            }
+        });
         const searchSpinner = document.createElement('div');
         searchSpinner.className = 'search-loading';
         searchBox.appendChild(searchInput);
         searchBox.appendChild(searchSpinner);
+        searchBox.appendChild(qBuilder);
         this.libraryEl.appendChild(searchBox);
         if (this.filterType === 'search')
             this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true, 'search');
@@ -1540,13 +1607,14 @@ class App {
         container.appendChild(el);
         return el;
     }
-    setFilter(type, rating = 0, rootId = null) {
+    // REQ-WFE-00016
+    setFilter(type, rating = 0, rootId = null, keepSelection = false) {
         this.prioritySession++;
         this.filterType = type;
         this.filterRating = rating;
         this.selectedRootId = rootId;
         this.selectedCollectionId = null;
-        this.refreshPhotos();
+        this.refreshPhotos(keepSelection);
         this.syncUrl();
     }
     async setCollectionFilter(c) {
@@ -1606,6 +1674,12 @@ class App {
             menu.appendChild(el);
         };
         addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
+        // REQ-WFE-00023
+        if (this.filterType === 'search' && p.rootPathId) {
+            addItem('Reveal in Folders', () => {
+                this.setFilter('all', 0, p.rootPathId, true);
+            });
+        }
         if (this.userCollections.length > 0) {
             const d = document.createElement('div');
             d.className = 'context-menu-divider';
@@ -1674,6 +1748,7 @@ class App {
         menu.style.left = e.clientX + 'px';
         menu.style.top = e.clientY + 'px';
     }
+    // REQ-WFE-00018
     async downloadZip(type, collectionId) {
         hub.pub(ps.UI_NOTIFICATION, { message: 'Preparing download...', type: 'info' });
         let fileIds = [];
@@ -1715,6 +1790,7 @@ class App {
         }
     }
     async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub(ps.UI_NOTIFICATION, { message: 'Picked photos cleared', type: 'info' }); }
+    // REQ-WFE-00017
     async storePickedToCollection(id, specificIds) {
         const fileIds = specificIds || await Api.api_picked_ids({});
         if (fileIds.length === 0)
@@ -1748,13 +1824,15 @@ class App {
             await this.refreshCollections();
     }
     async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
-    async searchPhotos(tag, value) {
+    // REQ-WFE-00015
+    // REQ-WFE-00021
+    async searchPhotos(tag, value, query) {
         const spinner = document.querySelector('.search-loading');
         if (spinner)
             spinner.classList.add('active');
         try {
-            this.searchResultIds = await Api.api_search({ tag, value });
-            this.searchTitle = `${tag}: ${value}`;
+            this.searchResultIds = await Api.api_search({ tag, value, query });
+            this.searchTitle = query ? `Query: ${query}` : `${tag}: ${value}`;
             this.setFilter('search');
         }
         finally {
@@ -1794,6 +1872,7 @@ class App {
                 headerCountEl.textContent = `${this.totalPhotos} items`;
         }
     }
+    // REQ-WFE-00019
     renderFilmstrip() {
         if (!this.filmstrip)
             return;
@@ -1817,6 +1896,7 @@ class App {
         else if (this.isLoupeMode)
             this.loadMainPreview(id);
     }
+    // REQ-WFE-00012
     enterLoupeMode(id) {
         this.prioritySession++;
         this.isLoupeMode = true;
@@ -1825,6 +1905,7 @@ class App {
         this.selectPhoto(id);
         this.loadMainPreview(id);
     }
+    // REQ-WFE-00012
     enterGridMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = false;
@@ -1834,6 +1915,7 @@ class App {
         this.gridViewManager.update(true);
         this.syncUrl();
     }
+    // REQ-WFE-00012
     enterLibraryMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
@@ -2089,6 +2171,7 @@ class App {
         overlay.onclick = () => this.toggleFullscreen();
         this.updateFullscreenImage(this.selectedId);
     }
+    // REQ-WFE-00013
     async loadMetadata(id) {
         if (!this.metadataEl || !id)
             return;
@@ -2257,6 +2340,7 @@ class App {
                 this.metadataEl.textContent = 'Error loading metadata';
         }
     }
+    // REQ-WFE-00014
     toggleLibraryPanel() {
         if (!this.layout)
             return;
@@ -2283,6 +2367,7 @@ class App {
                 expandBtn.style.display = 'none';
         }
     }
+    // REQ-WFE-00014
     toggleMetadataPanel() {
         if (!this.layout)
             return;

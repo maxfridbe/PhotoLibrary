@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-14T09:25:30.0078932-06:00
+// Generated from Requests.cs via Roslyn at 2026-01-14T10:34:26.6098040-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -21,8 +21,9 @@ export interface RateRequest {
 }
 
 export interface SearchRequest {
-    tag: string;
-    value: string;
+    tag?: string;
+    value?: string;
+    query?: string;
 }
 
 export interface CollectionAddRequest {

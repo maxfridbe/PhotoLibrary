@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+// REQ-SVC-00006
 function generate(inputFile: string, outputFile: string) {
     const content = fs.readFileSync(inputFile, 'utf8');
     let tsContent = `// Generated from ${inputFile}\n\n`;

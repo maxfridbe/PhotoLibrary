@@ -232,6 +232,7 @@ export class LibraryManager {
         }
     }
 
+    // REQ-WFE-00015
     private async findNewFiles() {
         const pathInput = document.getElementById('scan-path-input') as HTMLInputElement;
         const limitSelect = document.getElementById('scan-limit-select') as HTMLSelectElement;
@@ -441,6 +442,7 @@ export class LibraryManager {
         roots.forEach(r => renderNode(r, foldersContent));
     }
 
+    // REQ-SVC-00009
     public async triggerScan(showNotification: (msg: string, type: 'info' | 'error' | 'success') => void) {
         const pathInput = document.getElementById('scan-path-input') as HTMLInputElement;
         if (!pathInput) return;

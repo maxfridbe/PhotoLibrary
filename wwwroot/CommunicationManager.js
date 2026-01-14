@@ -12,9 +12,11 @@ export async function post(url, data) {
         return null;
     return await res.json();
 }
+// REQ-ARCH-00001
 export class CommunicationManager {
     constructor() {
         this.ws = null;
+        this.clientId = Math.random().toString(36).substring(2, 15);
         this.requestMap = new Map();
         this.nextRequestId = 1;
         this.isConnected = false;
@@ -29,9 +31,10 @@ export class CommunicationManager {
         this.maxReconnectDelay = 256000;
         this.connectWs();
     }
+    // REQ-SVC-00003
     connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+        this.ws = new WebSocket(`${proto}://${window.location.host}/ws?clientId=${this.clientId}`);
         this.ws.binaryType = 'arraybuffer';
         this.ws.onopen = () => {
             this.isConnected = true;
@@ -111,6 +114,7 @@ export class CommunicationManager {
             console.warn(`[WS] Received response for unknown/stale requestId: ${reqId}`);
         }
     }
+    // REQ-SVC-00003
     requestImage(fileId, size, priority = 0) {
         return new Promise((resolve) => {
             const requestId = this.nextRequestId++;
@@ -183,6 +187,7 @@ export class CommunicationManager {
         }
     }
     // --- High-Level Actions ---
+    // REQ-WFE-00006
     async togglePick(photo) {
         const original = photo.isPicked;
         const newStatus = !original;
@@ -204,6 +209,7 @@ export class CommunicationManager {
             hub.pub(ps.UI_NOTIFICATION, { message: 'Failed to update pick status', type: 'error' });
         }
     }
+    // REQ-WFE-00006
     async setRating(photo, rating) {
         const prev = photo.rating;
         if (prev === rating)

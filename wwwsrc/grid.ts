@@ -111,6 +111,7 @@ export class GridView {
         this.update(true);
     }
 
+    // REQ-WFE-00001
     public update(force: boolean = false) {
         if (!this.gridViewEl) return;
         const gridContainer = this.gridViewEl.parentElement as HTMLElement;
@@ -161,6 +162,7 @@ export class GridView {
         this.gridViewEl.appendChild(fragment);
     }
 
+    // REQ-WFE-00002
     public createCard(p: Photo, mode: 'grid' | 'filmstrip' = 'grid'): HTMLElement {
         const card = document.createElement('div');
         card.className = 'card loading'; // Start with loading

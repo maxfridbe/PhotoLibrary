@@ -204,6 +204,7 @@ export class LibraryManager {
                 span.textContent = `${indexedCount} / ${total}`;
         }
     }
+    // REQ-WFE-00015
     async findNewFiles() {
         const pathInput = document.getElementById('scan-path-input');
         const limitSelect = document.getElementById('scan-limit-select');
@@ -405,6 +406,7 @@ export class LibraryManager {
         };
         roots.forEach(r => renderNode(r, foldersContent));
     }
+    // REQ-SVC-00009
     async triggerScan(showNotification) {
         const pathInput = document.getElementById('scan-path-input');
         if (!pathInput)

@@ -26,6 +26,7 @@ interface QueuedImage {
 // REQ-ARCH-00001
 export class CommunicationManager {
     private ws: WebSocket | null = null;
+    private clientId = Math.random().toString(36).substring(2, 15);
     private requestMap: Map<number, (blob: Blob) => void> = new Map();
     private nextRequestId = 1;
     public isConnected = false;
@@ -44,9 +45,10 @@ export class CommunicationManager {
     }
 
     // REQ-SVC-00003
+    // REQ-ARCH-00010
     private connectWs() {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        this.ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+        this.ws = new WebSocket(`${proto}://${window.location.host}/ws?clientId=${this.clientId}`);
         this.ws.binaryType = 'arraybuffer';
         
         this.ws.onopen = () => {

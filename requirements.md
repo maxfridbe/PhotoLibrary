@@ -8,6 +8,9 @@
 - REQ-ARCH-00005: The system shall use SQLite for lightweight, file-based relational data storage with WAL mode enabled for concurrency.
 - REQ-ARCH-00006: The system shall implement an automated type-generation pipeline to keep frontend interfaces in sync with backend models.
 - REQ-ARCH-00007: All HTTP API endpoints shall use the POST method and JSON payloads for request data, avoiding query string parameters.
+- REQ-ARCH-00008: The server shall remain stateless, offloading grouping, stacking, and display logic to the client to ensure high scalability.
+- REQ-ARCH-00009: Stacking (e.g., JPG+RAW grouping) shall be handled exclusively by the client to maintain backend simplicity and performance.
+- REQ-ARCH-00010: The system shall support multiple concurrent frontend instances by tracking client identifiers to route private responses while broadcasting global library events.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.
@@ -22,6 +25,7 @@
 - REQ-SVC-00010: [Functionality] Real-time state synchronization across all clients via persistent WebSocket broadcasting.
 - REQ-SVC-00011: [Security] Secure path resolution logic to prevent unauthorized filesystem access or directory traversal.
 - REQ-SVC-00012: [Functionality] Advanced search engine supporting path segments, metadata tag existence/values, and numeric file size comparisons (>, <).
+- REQ-SVC-00013: [Functionality] Persistent storage for application settings, themes, and user preferences via a Settings table and local configuration files.
 
 ## Web Front End (WFE) Requirements
 - REQ-WFE-00001: User should be able to browse massive libraries smoothly via a 60fps virtualized rendering engine.

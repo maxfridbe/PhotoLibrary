@@ -212,6 +212,28 @@
         .fullscreen-btn { width: 3.5em; height: 2.5em; background: rgba(0,0,0,0.5); color: var(--text-bright); border: 1px solid var(--border-focus); border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 0.75em; font-weight: bold; text-decoration: none; }
         .fullscreen-btn:hover { background: rgba(255,255,255,0.2); }
 
+        /* Search Query Builder */
+        .query-builder {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: var(--bg-header); border: 1px solid var(--border-light);
+            border-radius: 0 0 4px 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000; padding: 0.75em; display: none; flex-direction: column; gap: 0.75em;
+            font-size: 0.85em;
+        }
+        .query-builder.active { display: flex; }
+        .query-row { display: flex; align-items: center; gap: 0.5em; }
+        .query-row select, .query-row input { 
+            background: var(--bg-input); color: var(--text-input); 
+            border: 1px solid var(--border-light); border-radius: 3px; padding: 2px 5px;
+            font-size: 0.9em;
+        }
+        .query-row input { flex: 1; min-width: 0; }
+        .query-add-btn { 
+            cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1.2em; 
+            line-height: 1; padding: 0 4px;
+        }
+        .query-help { color: var(--text-muted); font-size: 0.8em; font-style: italic; margin-top: 0.25em; }
+
         /* Context Menu */
         .context-menu { position: fixed; background: var(--bg-header); border: 1px solid var(--border-light); border-radius: 4px; box-shadow: 0 0.35em 1em rgba(0,0,0,0.5); z-index: 30000; padding: 0.35em 0; min-width: 11.25em; display: none; }
         .context-menu-item { padding: 0.5em 1em; font-size: 0.9em; color: var(--text-input); cursor: pointer; transition: background 0.2s; }

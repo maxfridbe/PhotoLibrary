@@ -26,6 +26,7 @@ export class ThemeManager {
             console.error("Failed to load settings", e);
         }
     }
+    // REQ-WFE-00003
     async setTheme(themeName) {
         if (!themes[themeName])
             return;

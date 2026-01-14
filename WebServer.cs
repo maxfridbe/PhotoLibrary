@@ -19,7 +19,7 @@ namespace PhotoLibrary
     public static class WebServer
     {
         private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
-        private static readonly ConcurrentBag<(WebSocket socket, SemaphoreSlim lockobj)> _activeSockets = new();
+        private static readonly ConcurrentBag<(WebSocket socket, SemaphoreSlim lockobj, string clientId)> _activeSockets = new();
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
         private static ILogger? _logger;
 
@@ -501,14 +501,16 @@ namespace PhotoLibrary
 
             app.MapGet("/ws", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
             {
+                // REQ-ARCH-00010
                 if (context.WebSockets.IsWebSocketRequest)
                 {
+                    string clientId = context.Request.Query["clientId"].ToString() ?? "unknown";
                     var ws = await context.WebSockets.AcceptWebSocketAsync();
                     var lockobj = new SemaphoreSlim(1, 1);
-                    var entry = (ws, lockobj);
+                    var entry = (ws, lockobj, clientId);
                     _activeSockets.Add(entry);
                     try {
-                        await HandleWebSocket(entry, db, pm, lifetime.ApplicationStopping);
+                        await HandleWebSocket((ws, lockobj), db, pm, lifetime.ApplicationStopping);
                     } finally {
                         // socket closed
                     }
@@ -728,16 +730,19 @@ namespace PhotoLibrary
             }
         }
 
-        private static async Task Broadcast(object message)
+        // REQ-ARCH-00010
+        private static async Task Broadcast(object message, string? targetClientId = null)
         {
             var json = JsonSerializer.Serialize(message);
             var buffer = Encoding.UTF8.GetBytes(json);
             
             var tasks = new List<Task>();
-            foreach (var (socket, lockobj) in _activeSockets)
+            foreach (var (socket, lockobj, clientId) in _activeSockets)
             {
                 if (socket.State == WebSocketState.Open)
                 {
+                    if (targetClientId != null && clientId != targetClientId) continue;
+
                     tasks.Add(Task.Run(async () => {
                         await lockobj.WaitAsync();
                         try {

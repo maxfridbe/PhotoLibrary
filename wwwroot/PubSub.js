@@ -1,5 +1,6 @@
 import { constants } from './constants.js';
 const ps = constants.pubsub;
+// REQ-WFE-00011
 class PubSub {
     constructor() {
         this.subs = new Map();
