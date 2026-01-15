@@ -24,5 +24,19 @@ export const constants = {
         UI_NOTIFICATION: 'ui.notification' as const,
         UI_SEARCH_STATUS: 'ui.search.status' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
+    },
+    socket: {
+        IMAGE: 'image' as const,
+        FILE_IMPORTED: 'file.imported' as const,
+        FOLDER_CREATED: 'folder.created' as const,
+        SCAN_FINISHED: 'scan.finished' as const,
+        FOLDER_PROGRESS: 'folder.progress' as const,
+        FOLDER_FINISHED: 'folder.finished' as const,
+        PREVIEW_GENERATED: 'preview.generated' as const,
+        PREVIEW_GENERATING: 'preview.generating' as const,
+        PREVIEW_DELETED: 'preview.deleted' as const,
+        PHOTO_PICKED_ADDED: 'photo.picked.added' as const,
+        PHOTO_PICKED_REMOVED: 'photo.picked.removed' as const,
+        PHOTO_STARRED_ADDED: 'photo.starred.added' as const,
     }
 };

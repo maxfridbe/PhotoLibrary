@@ -9,6 +9,7 @@ export class LibraryManager {
         this.infoCache = null;
         this.isIndexing = false;
         this.lastImportedPath = null;
+        this.storedTriggerScanCallback = null;
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
@@ -29,6 +30,7 @@ export class LibraryManager {
         });
     }
     initLayout(containerId, triggerScanCallback) {
+        this.storedTriggerScanCallback = triggerScanCallback;
         const config = {
             settings: { showPopoutIcon: false },
             content: [{
@@ -141,6 +143,8 @@ export class LibraryManager {
             this.libraryLayout.updateSize(); }, 100);
     }
     renderImportControls(callback) {
+        if (callback)
+            this.storedTriggerScanCallback = callback;
         const container = document.getElementById('import-controls-container');
         if (!container)
             return;
@@ -150,7 +154,7 @@ export class LibraryManager {
             const percent = total > 0 ? (indexedCount / total) * 100 : 0;
             container.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 0.5em;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9em;">
+                    <div style="display: justify-content: space-between; align-items: center; font-size: 0.9em;">
                         <span>Indexing Photos...</span>
                         <div style="display: flex; align-items: center; gap: 1em;">
                             <span>${indexedCount} / ${total}</span>
@@ -182,8 +186,9 @@ export class LibraryManager {
                     </button>
                 </div>
             `;
-            if (callback) {
-                container.querySelector('#start-scan-btn').addEventListener('click', callback);
+            const btn = container.querySelector('#start-scan-btn');
+            if (btn && this.storedTriggerScanCallback) {
+                btn.addEventListener('click', this.storedTriggerScanCallback);
             }
         }
     }
@@ -284,8 +289,9 @@ export class LibraryManager {
             if (!info)
                 return;
             this.infoCache = info;
-            if (info.isIndexing) {
-                this.isIndexing = true;
+            const wasIndexing = this.isIndexing;
+            this.isIndexing = info.isIndexing;
+            if (this.isIndexing) {
                 // Hydrate the scanResults with a dummy list of the correct length if we don't have them
                 // This is a visual approximation since we don't persist the file list on server for now
                 if (this.scanResults.length === 0) {
@@ -295,6 +301,9 @@ export class LibraryManager {
                 }
                 this.renderImportControls();
                 this.updateProgressBar();
+            }
+            else if (wasIndexing) {
+                this.renderImportControls();
             }
             this.renderStats(info);
             this.renderFolders(info);

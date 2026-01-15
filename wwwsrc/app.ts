@@ -119,6 +119,8 @@ class App {
 
     private importedBatchCount = 0;
     private importedBatchTimer: any = null;
+    private importedQueue: { id: string, path: string, rootId?: string }[] = [];
+    private importProcessTimer: any = null;
     private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
 
     constructor() {
@@ -312,6 +314,8 @@ class App {
         });
 
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
+            this.handlePhotoImported(data);
+
             this.importedBatchCount++;
             if (this.importedBatchTimer) clearTimeout(this.importedBatchTimer);
             this.importedBatchTimer = setTimeout(() => {
@@ -409,6 +413,63 @@ class App {
         }
         
         if (this.selectedId === photo.id) this.loadMetadata(photo.id);
+    }
+
+    private async handlePhotoImported(data: { id: string, path: string, rootId?: string }) {
+        // Immediate UI updates for counts
+        this.stats.totalCount++;
+        if (data.rootId) {
+            const root = this.roots.find(r => r.id === data.rootId);
+            if (root) {
+                root.imageCount++;
+                const el = document.getElementById(`folder-item-${data.rootId}`);
+                if (el) {
+                    const countEl = el.querySelector('.count');
+                    if (countEl) countEl.textContent = root.imageCount.toString();
+                }
+            }
+        }
+        this.updateSidebarCountsOnly();
+
+        // Queue for grid update
+        this.importedQueue.push(data);
+        if (this.importProcessTimer) clearTimeout(this.importProcessTimer);
+        this.importProcessTimer = setTimeout(() => this.processImportQueue(), 100);
+    }
+
+    private async processImportQueue() {
+        const queue = [...this.importedQueue];
+        this.importedQueue = [];
+        
+        const idsToFetch: string[] = [];
+        for (const data of queue) {
+            let matches = false;
+            if (this.filterType === 'all') {
+                if (!this.selectedRootId || this.selectedRootId === data.rootId) {
+                    matches = true;
+                }
+            }
+            if (matches && !this.photoMap.has(data.id)) {
+                idsToFetch.push(data.id);
+            }
+        }
+
+        if (idsToFetch.length > 0) {
+            const res = await Api.api_photos({ specificIds: idsToFetch });
+            if (res.photos) {
+                let changed = false;
+                for (const photo of res.photos) {
+                    if (!this.photoMap.has(photo.id)) {
+                        this.photoMap.set(photo.id, photo);
+                        this.allPhotosFlat.push(photo);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    this.processUIStacks();
+                }
+            }
+        }
     }
 
     private processUIStacks() {
@@ -702,7 +763,9 @@ class App {
 
             this.updateHeaderUI();
             this.updateViewModeUI();
-            if (this.isLibraryMode) this.libraryManager.loadLibraryInfo();
+            if (this.isLibraryMode) {
+                this.enterLibraryMode();
+            }
         } finally {
             this.isApplyingUrl = false;
         }

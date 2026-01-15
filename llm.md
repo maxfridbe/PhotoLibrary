@@ -1,3 +1,5 @@
+To build the project, run `dotnet build`. This will also build the TypeScript files.
+
 # Design Methodology: PhotoLibrary
 
 This document outlines the architectural principles, performance strategies, and development patterns used in the PhotoLibrary project.

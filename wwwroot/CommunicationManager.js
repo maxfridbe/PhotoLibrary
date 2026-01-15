@@ -2,6 +2,7 @@ import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
 import { constants } from './constants.js';
 const ps = constants.pubsub;
+const sk = constants.socket;
 export async function post(url, data) {
     const res = await fetch(url, {
         method: 'POST',
@@ -50,28 +51,28 @@ export class CommunicationManager {
             if (typeof e.data === 'string') {
                 try {
                     const msg = JSON.parse(e.data);
-                    if (msg.type === 'file.imported') {
+                    if (msg.type === sk.FILE_IMPORTED) {
                         hub.pub(ps.PHOTO_IMPORTED, { id: msg.id, path: msg.path, rootId: msg.rootId });
                     }
-                    else if (msg.type === 'folder.created') {
+                    else if (msg.type === sk.FOLDER_CREATED) {
                         hub.pub(ps.FOLDER_CREATED, { id: msg.id, name: msg.name });
                     }
-                    else if (msg.type === 'scan.finished') {
+                    else if (msg.type === sk.SCAN_FINISHED) {
                         hub.pub(ps.LIBRARY_UPDATED, {});
                     }
-                    else if (msg.type === 'folder.progress') {
+                    else if (msg.type === sk.FOLDER_PROGRESS) {
                         hub.pub(ps.FOLDER_PROGRESS, { rootId: msg.rootId, processed: msg.processed, total: msg.total, thumbnailed: msg.thumbnailed });
                     }
-                    else if (msg.type === 'folder.finished') {
+                    else if (msg.type === sk.FOLDER_FINISHED) {
                         hub.pub(ps.FOLDER_FINISHED, { rootId: msg.rootId });
                     }
-                    else if (msg.type === 'preview.generated') {
+                    else if (msg.type === sk.PREVIEW_GENERATED) {
                         hub.pub(ps.PREVIEW_GENERATED, { fileId: msg.fileId, rootId: msg.rootId });
                     }
-                    else if (msg.type === 'preview.generating') {
+                    else if (msg.type === sk.PREVIEW_GENERATING) {
                         hub.pub(ps.PREVIEW_GENERATING, { fileId: msg.fileId });
                     }
-                    else if (msg.type === 'preview.deleted') {
+                    else if (msg.type === sk.PREVIEW_DELETED) {
                         hub.pub(ps.PREVIEW_DELETED, { fileId: msg.fileId });
                     }
                 }
@@ -114,7 +115,7 @@ export class CommunicationManager {
                 // The server will enqueue it again, and the higher priority one will process first.
                 pending.priority = p;
                 if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    const req = { type: 'image', requestId: pending.requestId, fileId, size, priority: p };
+                    const req = { type: sk.IMAGE, requestId: pending.requestId, fileId, size, priority: p };
                     this.ws.send(JSON.stringify(req));
                 }
             }
@@ -129,7 +130,7 @@ export class CommunicationManager {
                 resolve(new Blob([], { type: 'image/webp' }));
                 return;
             }
-            const req = { type: 'image', requestId, fileId, size, priority: p };
+            const req = { type: sk.IMAGE, requestId, fileId, size, priority: p };
             this.requestMap.set(requestId, (blob) => {
                 this.pendingRequests.delete(cacheKey);
                 const elapsed = Date.now() - start;

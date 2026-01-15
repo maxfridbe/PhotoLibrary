@@ -369,7 +369,7 @@ namespace PhotoLibrary
                     _activeTasks.TryAdd(taskId, cts);
                 }
 
-                _ = Task.Run(async () =>
+                _ = Task.Run(() =>
                 {
                     try
                     {
@@ -682,7 +682,7 @@ namespace PhotoLibrary
                                             if (data != null) {
                                                 item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                                                 item.Payload = data;
-                                                item.Tcs.TrySetResult(data);
+                                                item.Tcs?.TrySetResult(data);
                                                 continue;
                                             }
 
