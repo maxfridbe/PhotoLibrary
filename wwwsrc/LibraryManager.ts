@@ -5,6 +5,7 @@ import { post } from './CommunicationManager.js';
 import { constants } from './constants.js';
 import { h, VNode, patch } from './snabbdom-setup.js';
 import { LibraryScreen } from './components/library/LibraryScreen.js';
+import { FSNode } from './components/import/FileSystemBrowser.js';
 
 const ps = constants.pubsub;
 
@@ -23,6 +24,9 @@ export class LibraryManager {
     private containerId: string | null = null;
     private currentScanPath: string = '';
     private renderPending = false;
+    
+    private fsRoots: FSNode[] = [];
+    private fsInitialized = false;
 
     constructor() {
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
@@ -71,6 +75,8 @@ export class LibraryManager {
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
+            fsRoots: this.fsRoots,
+            onFsToggle: (node: FSNode) => this.toggleFsNode(node),
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
             onCancelImport: () => {
@@ -109,8 +115,55 @@ export class LibraryManager {
                 }));
             }
 
+            this.initFileSystem();
             this.render();
         } catch (e) { console.error("Failed to load library info", e); }
+    }
+
+    private async initFileSystem() {
+        if (this.fsInitialized) return;
+        this.fsInitialized = true;
+        try {
+            const res = await post('/api/fs/list', { name: "" });
+            if (Array.isArray(res)) {
+                this.fsRoots = res.map((d: any) => ({
+                    path: d.path,
+                    name: d.name,
+                    isExpanded: false,
+                    children: undefined // undefined means "has children but not loaded", null/empty means "leaf"
+                }));
+                this.render();
+            }
+        } catch (e) { console.error("Failed to init FS", e); }
+    }
+
+    private async toggleFsNode(node: FSNode) {
+        node.isExpanded = !node.isExpanded;
+        if (node.isExpanded && !node.children) {
+            node.isLoading = true;
+            this.render();
+            try {
+                const res = await post('/api/fs/list', { name: node.path });
+                if (Array.isArray(res)) {
+                    node.children = res.map((d: any) => ({
+                        path: d.path,
+                        name: d.name,
+                        isExpanded: false,
+                        children: undefined
+                    }));
+                } else {
+                    node.children = [];
+                }
+            } catch (e) {
+                console.error("Failed to list dir", e);
+                node.children = []; // Error state
+            } finally {
+                node.isLoading = false;
+                this.render();
+            }
+        } else {
+            this.render();
+        }
     }
 
     private async findNewFiles(path: string, limit: number) {

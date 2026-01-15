@@ -1,5 +1,6 @@
 import { h, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
+import { FileSystemBrowser, FSNode } from '../import/FileSystemBrowser.js';
 
 export interface LibraryScreenProps {
     containerId: string;
@@ -9,6 +10,8 @@ export interface LibraryScreenProps {
     isScanning: boolean;
     isCancelling: boolean;
     currentScanPath: string;
+    fsRoots: FSNode[];
+    onFsToggle: (node: FSNode) => void;
     onFindNew: (path: string, limit: number) => void;
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
     onCancelImport: () => void;
@@ -17,7 +20,7 @@ export interface LibraryScreenProps {
 
 export function LibraryScreen(props: LibraryScreenProps): VNode {
     try {
-        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
+        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
 
         return h('div.library-screen-container', {
             attrs: { id: containerId },
@@ -76,6 +79,14 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                         ])
                     ]),
                     
+                    h('h4', { style: { margin: '1.5em 0 0.5em 0' } }, 'Local Directory Browser'),
+                    FileSystemBrowser({
+                        roots: fsRoots,
+                        onToggle: onFsToggle,
+                        onSelect: onPathChange,
+                        selectedPath: currentScanPath
+                    }),
+
                     h('h4', { style: { margin: '1.5em 0 0.5em 0' } }, 'Quick Select: Registered Folders'),
                     h('div.folder-list-container', {
                         style: { 

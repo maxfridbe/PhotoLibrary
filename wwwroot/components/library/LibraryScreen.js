@@ -1,7 +1,8 @@
 import { h } from '../../snabbdom-setup.js';
+import { FileSystemBrowser } from '../import/FileSystemBrowser.js';
 export function LibraryScreen(props) {
     try {
-        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
+        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
         return h('div.library-screen-container', {
             attrs: { id: containerId },
             style: { display: 'flex', height: '100%', width: '100%', gap: '1.5em', padding: '1.5em', boxSizing: 'border-box', background: 'var(--bg-main)', overflow: 'hidden' }
@@ -57,6 +58,13 @@ export function LibraryScreen(props) {
                             ])
                         ])
                     ]),
+                    h('h4', { style: { margin: '1.5em 0 0.5em 0' } }, 'Local Directory Browser'),
+                    FileSystemBrowser({
+                        roots: fsRoots,
+                        onToggle: onFsToggle,
+                        onSelect: onPathChange,
+                        selectedPath: currentScanPath
+                    }),
                     h('h4', { style: { margin: '1.5em 0 0.5em 0' } }, 'Quick Select: Registered Folders'),
                     h('div.folder-list-container', {
                         style: {

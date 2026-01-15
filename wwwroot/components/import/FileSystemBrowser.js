@@ -1,0 +1,41 @@
+import { h } from '../../snabbdom-setup.js';
+export function FileSystemBrowser(props) {
+    const renderNode = (node, depth) => {
+        const indent = (depth * 1.2) + 'em';
+        const isSelected = props.selectedPath === node.path;
+        return h('div', [
+            h('div.fs-row', {
+                style: {
+                    padding: `0.2em 0.5em 0.2em ${indent}`,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: isSelected ? 'var(--accent)' : 'transparent',
+                    color: isSelected ? 'var(--text-bright)' : 'var(--text-main)'
+                },
+                on: {
+                    click: (e) => { e.stopPropagation(); props.onSelect(node.path); }
+                }
+            }, [
+                h('span', {
+                    style: { width: '1.2em', textAlign: 'center', cursor: 'pointer', userSelect: 'none', marginRight: '0.2em' },
+                    on: { click: (e) => { e.stopPropagation(); props.onToggle(node); } }
+                }, node.isLoading ? '\u231B' : (node.children ? (node.isExpanded ? '\u25BE' : '\u25B8') : '\u2022')),
+                h('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, node.name)
+            ]),
+            (node.isExpanded && node.children) ? h('div', node.children.map(c => renderNode(c, depth + 1))) : null
+        ]);
+    };
+    return h('div.fs-browser', {
+        style: {
+            overflowY: 'auto',
+            height: '300px',
+            border: '1px solid var(--border-main)',
+            background: 'var(--bg-panel-alt)',
+            borderRadius: '4px',
+            padding: '0.5em',
+            fontFamily: 'Segoe UI, sans-serif',
+            fontSize: '0.9em'
+        }
+    }, props.roots.map(r => renderNode(r, 0)));
+}

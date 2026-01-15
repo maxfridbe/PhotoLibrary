@@ -221,6 +221,41 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
+            app.MapPost("/api/fs/list", async (HttpContext context) =>
+            {
+                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
+                string path = req?.name ?? "";
+                
+                try 
+                {
+                    IEnumerable<string> dirs;
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                            dirs = DriveInfo.GetDrives().Select(d => d.Name);
+                        else
+                            dirs = new[] { "/" };
+                    }
+                    else
+                    {
+                        string abs = PathUtils.ResolvePath(path);
+                        if (!Directory.Exists(abs)) return Results.NotFound();
+                        dirs = Directory.GetDirectories(abs);
+                    }
+                    
+                    var result = dirs.OrderBy(d => d).Select(d => new DirectoryResponse { 
+                        Path = d, 
+                        Name = string.IsNullOrEmpty(Path.GetFileName(d)) ? d : Path.GetFileName(d)
+                    });
+                    return Results.Ok(result);
+                }
+                catch (Exception ex)
+                {
+                    // Access denied or other errors
+                    return Results.Ok(Array.Empty<DirectoryResponse>());
+                }
+            });
+
             app.MapPost("/api/library/find-new-files", async (HttpContext context, DatabaseManager db) =>
             {
                 var req = await context.Request.ReadFromJsonAsync<NameRequest>();

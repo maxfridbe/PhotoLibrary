@@ -16,6 +16,8 @@ export class LibraryManager {
         this.containerId = null;
         this.currentScanPath = '';
         this.renderPending = false;
+        this.fsRoots = [];
+        this.fsInitialized = false;
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
@@ -59,6 +61,8 @@ export class LibraryManager {
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
+            fsRoots: this.fsRoots,
+            onFsToggle: (node) => this.toggleFsNode(node),
             onFindNew: (path, limit) => this.findNewFiles(path, limit),
             onIndexFiles: (path, low, med) => this.triggerScan(path, low, med),
             onCancelImport: () => {
@@ -93,10 +97,63 @@ export class LibraryManager {
                     status: i < info.indexedCount ? 'indexed' : 'pending'
                 }));
             }
+            this.initFileSystem();
             this.render();
         }
         catch (e) {
             console.error("Failed to load library info", e);
+        }
+    }
+    async initFileSystem() {
+        if (this.fsInitialized)
+            return;
+        this.fsInitialized = true;
+        try {
+            const res = await post('/api/fs/list', { name: "" });
+            if (Array.isArray(res)) {
+                this.fsRoots = res.map((d) => ({
+                    path: d.path,
+                    name: d.name,
+                    isExpanded: false,
+                    children: undefined // undefined means "has children but not loaded", null/empty means "leaf"
+                }));
+                this.render();
+            }
+        }
+        catch (e) {
+            console.error("Failed to init FS", e);
+        }
+    }
+    async toggleFsNode(node) {
+        node.isExpanded = !node.isExpanded;
+        if (node.isExpanded && !node.children) {
+            node.isLoading = true;
+            this.render();
+            try {
+                const res = await post('/api/fs/list', { name: node.path });
+                if (Array.isArray(res)) {
+                    node.children = res.map((d) => ({
+                        path: d.path,
+                        name: d.name,
+                        isExpanded: false,
+                        children: undefined
+                    }));
+                }
+                else {
+                    node.children = [];
+                }
+            }
+            catch (e) {
+                console.error("Failed to list dir", e);
+                node.children = []; // Error state
+            }
+            finally {
+                node.isLoading = false;
+                this.render();
+            }
+        }
+        else {
+            this.render();
         }
     }
     async findNewFiles(path, limit) {

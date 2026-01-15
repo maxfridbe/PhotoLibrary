@@ -50,6 +50,9 @@ export async function api_picked_ids(data) {
 export async function api_stats(data) {
     return await post('/api/stats', data);
 }
+export async function api_fs_list(data) {
+    return await post('/api/fs/list', data);
+}
 export async function api_library_find_new_files(data) {
     return await post('/api/library/find-new-files', data);
 }

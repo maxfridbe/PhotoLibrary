@@ -83,4 +83,10 @@ namespace PhotoLibrary
         public int TotalThumbnailedImages { get; set; }
         public List<LibraryFolderResponse> Folders { get; set; } = new();
     }
+
+    public class DirectoryResponse
+    {
+        public string Path { get; set; } = "";
+        public string Name { get; set; } = "";
+    }
 }
