@@ -250,6 +250,25 @@
         .lm_splitter { background: var(--bg-black) !important; opacity: 0.5; }
         .lm_splitter:hover { opacity: 1; background: var(--accent) !important; }
         .lm_root { background: var(--bg-black) !important; }
+
+        @keyframes barber-pole {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 40px; }
+        }
+        .barber-pole {
+            background-image: linear-gradient(
+                45deg, 
+                rgba(255, 255, 255, 0.15) 25%, 
+                transparent 25%, 
+                transparent 50%, 
+                rgba(255, 255, 255, 0.15) 50%, 
+                rgba(255, 255, 255, 0.15) 75%, 
+                transparent 75%, 
+                transparent
+            ) !important;
+            background-size: 40px 40px !important;
+            animation: barber-pole 1s linear infinite !important;
+        }
     </style>
 </head>
 <body>

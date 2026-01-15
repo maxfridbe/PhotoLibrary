@@ -162,7 +162,7 @@ function renderImportControls(isIndexing, results, currentPath, onIndex, onCance
                 ])
             ]),
             h('div', { style: { width: '100%', height: '1.5em', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-light)' } }, [
-                h('div', { style: { width: `${percent}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s ease' } })
+                h('div.barber-pole', { style: { width: `${percent}%`, height: '100%', backgroundColor: 'var(--accent)', transition: 'width 0.3s ease' } })
             ])
         ]);
     }
