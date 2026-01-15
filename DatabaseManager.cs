@@ -203,7 +203,7 @@ namespace PhotoLibrary
                             string currentParentId = parent.id;
                             for (int p = 0; p < parts.Length - 1; p++)
                             {
-                                currentParentId = EnsureRootPathExists(connection, transaction, currentParentId, parts[p]);
+                                currentParentId = EnsureRootPathExists(connection, transaction, currentParentId, parts[p]).id;
                             }
 
                             // Finally, move the child base root under currentParentId
@@ -732,11 +732,11 @@ namespace PhotoLibrary
             using var connection2 = new SqliteConnection(_connectionString);
             connection2.Open();
             using var transaction = connection2.BeginTransaction();
-            string newId = EnsureRootPathExists(connection2, transaction, null, absolutePath);
+            var result = EnsureRootPathExists(connection2, transaction, null, absolutePath);
             transaction.Commit();
             
-            OnFolderCreated?.Invoke(newId, absolutePath);
-            return newId;
+            if (result.created) OnFolderCreated?.Invoke(result.id, absolutePath);
+            return result.id;
         }
 
         public string GetOrCreateChildRoot(string parentId, string name)
@@ -744,26 +744,21 @@ namespace PhotoLibrary
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             using var transaction = connection.BeginTransaction();
-            string id = EnsureRootPathExists(connection, transaction, parentId, name);
+            var result = EnsureRootPathExists(connection, transaction, parentId, name);
             transaction.Commit();
             
-            OnFolderCreated?.Invoke(id, name);
-            return id;
+            if (result.created) OnFolderCreated?.Invoke(result.id, name);
+            return result.id;
         }
 
-        private string EnsureRootPathExists(SqliteConnection connection, SqliteTransaction transaction, string? parentId, string name)
+        private (string id, bool created) EnsureRootPathExists(SqliteConnection connection, SqliteTransaction transaction, string? parentId, string name)
         {
             if (string.IsNullOrWhiteSpace(name)) 
             {
-                // If name is empty, we can't create a valid path segment.
-                // Return parentId if it exists, or throw if it's a base root.
-                if (parentId != null) return parentId;
+                if (parentId != null) return (parentId, false);
                 throw new ArgumentException("Root path name cannot be empty");
             }
 
-            // If it's a base root, 'name' is the full absolute path.
-            // If it's a child root, 'name' is just the folder name.
-            
             using (var checkCmd = connection.CreateCommand())
             {
                 checkCmd.Transaction = transaction;
@@ -771,7 +766,7 @@ namespace PhotoLibrary
                 else { checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name"; checkCmd.Parameters.AddWithValue("$ParentId", parentId); }
                 checkCmd.Parameters.AddWithValue("$Name", name);
                 var existingId = checkCmd.ExecuteScalar() as string;
-                if (existingId != null) return existingId;
+                if (existingId != null) return (existingId, false);
             }
 
             // Special logic for Adoption: if we are about to create a CHILD that matches an existing BASE root path
@@ -799,7 +794,7 @@ namespace PhotoLibrary
                                 updateCmd.Parameters.AddWithValue("$Id", existingBaseId);
                                 updateCmd.ExecuteNonQuery();
                             }
-                            return existingBaseId;
+                            return (existingBaseId, false); // Technically updated, but effectively 'created' as child? Maybe treated as existing.
                         }
                     }
                 }
@@ -816,7 +811,7 @@ namespace PhotoLibrary
                 insertCmd.ExecuteNonQuery();
             }
 
-            return newId;
+            return (newId, true);
         }
 
         public List<string> GetFileIdsUnderRoot(string rootId, bool recursive)

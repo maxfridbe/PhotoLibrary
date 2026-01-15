@@ -48,6 +48,7 @@ export function FolderTree(props) {
         };
         return h('div.folder-group', { key: item.node.id }, [
             h('div.tree-item', {
+                attrs: { id: `folder-item-${item.node.id}` },
                 class: { selected: isSelected },
                 on: {
                     click: () => props.onFolderClick(item.node.id),

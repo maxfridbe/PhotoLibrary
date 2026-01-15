@@ -84,6 +84,7 @@ class App {
         this.metaGroups = new Map();
         this.importedBatchCount = 0;
         this.importedBatchTimer = null;
+        this.directoryRefreshTimer = null;
         this.importedQueue = [];
         this.importProcessTimer = null;
         this.folderProgress = new Map();
@@ -296,7 +297,12 @@ class App {
         });
         hub.sub(ps.FOLDER_CREATED, (data) => {
             console.log(`[App] Folder created: ${data.name}`);
-            this.refreshDirectories();
+            if (!this.directoryRefreshTimer) {
+                this.directoryRefreshTimer = setTimeout(() => {
+                    this.refreshDirectories().catch(e => console.error("Refresh dirs failed", e));
+                    this.directoryRefreshTimer = null;
+                }, 500);
+            }
         });
         hub.sub(ps.PREVIEW_GENERATED, (data) => {
             this.gridViewManager.refreshStats(data.fileId, this.photos);

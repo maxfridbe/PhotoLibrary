@@ -138,6 +138,7 @@ class App {
 
     private importedBatchCount = 0;
     private importedBatchTimer: any = null;
+    private directoryRefreshTimer: any = null;
     private importedQueue: { id: string, path: string, rootId?: string }[] = [];
     private importProcessTimer: any = null;
     private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
@@ -374,7 +375,12 @@ class App {
 
         hub.sub(ps.FOLDER_CREATED, (data) => {
             console.log(`[App] Folder created: ${data.name}`);
-            this.refreshDirectories();
+            if (!this.directoryRefreshTimer) {
+                this.directoryRefreshTimer = setTimeout(() => {
+                    this.refreshDirectories().catch(e => console.error("Refresh dirs failed", e));
+                    this.directoryRefreshTimer = null;
+                }, 500);
+            }
         });
 
         hub.sub(ps.PREVIEW_GENERATED, (data) => {

@@ -8,13 +8,19 @@ const ps = constants.pubsub;
 const sk = constants.socket;
 
 export async function post(url: string, data: any): Promise<any> {
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    if (!res.ok) return null;
-    return await res.json();
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!res.ok) return null;
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+    } catch (e) {
+        console.error(`POST ${url} failed`, e);
+        return null;
+    }
 }
 
 interface QueuedImage {
