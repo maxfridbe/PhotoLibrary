@@ -50,6 +50,18 @@ export function FolderTree(props) {
             h('div.tree-item', {
                 attrs: { id: `folder-item-${item.node.id}` },
                 class: { selected: isSelected },
+                hook: {
+                    insert: (vnode) => {
+                        if (isSelected)
+                            vnode.elm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    },
+                    update: (old, vnode) => {
+                        const wasSelected = old.data?.class?.selected;
+                        if (isSelected && !wasSelected) {
+                            vnode.elm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }
+                },
                 on: {
                     click: () => props.onFolderClick(item.node.id),
                     contextmenu: (e) => { e.preventDefault(); props.onFolderContextMenu(e, item.node.id); }
