@@ -472,7 +472,7 @@ class App {
                 rep.rating = Math.max(...group.map(p => p.rating));
                 const exts = Array.from(new Set(group.map(p => p.fileName.split('.').pop()?.toUpperCase())));
                 exts.sort();
-                rep.stackExtensions = exts.join(' + ');
+                rep.stackExtensions = exts.join(',');
                 return rep;
             });
         }

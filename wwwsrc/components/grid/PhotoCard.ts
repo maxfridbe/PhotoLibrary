@@ -23,6 +23,16 @@ export function PhotoCard(props: PhotoCardProps): VNode {
     const cacheKey = photo.id + '-300';
     const cachedUrl = imageUrlCache.get(cacheKey);
 
+    const getDisplayName = () => {
+        if (photo.stackCount > 1 && photo.stackExtensions) {
+            const name = photo.fileName || '';
+            const lastDot = name.lastIndexOf('.');
+            const base = lastDot > 0 ? name.substring(0, lastDot) : name;
+            return `${base} (${photo.stackExtensions})`;
+        }
+        return photo.fileName || '';
+    };
+
     return h('div.card', {
         key: `${mode}-${photo.id}`,
         class: {
@@ -64,7 +74,7 @@ export function PhotoCard(props: PhotoCardProps): VNode {
         photo.stackCount > 1 ? h('div.stack-badge', photo.stackCount.toString()) : null,
         h('div.info', [
             h('div.info-top', [
-                h('span.filename', photo.fileName || ''),
+                h('span.filename', getDisplayName()),
                 h('span.pick-btn', {
                     class: { picked: photo.isPicked },
                     on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onTogglePick(photo); } }
