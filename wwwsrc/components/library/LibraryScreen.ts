@@ -48,9 +48,9 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                                         (vnode.elm as HTMLInputElement).value = currentScanPath; 
                                     },
                                     update: (old, vnode) => { 
-                                        const el = vnode.elm as HTMLInputElement;
-                                        if (el.value !== currentScanPath) {
-                                            el.value = currentScanPath;
+                                        const $el = vnode.elm as HTMLInputElement;
+                                        if ($el.value !== currentScanPath) {
+                                            $el.value = currentScanPath;
                                         }
                                     }
                                 },

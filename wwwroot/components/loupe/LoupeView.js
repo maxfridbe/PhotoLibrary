@@ -15,19 +15,19 @@ export function LoupeView(props) {
         },
         hook: {
             insert: (vnode) => {
-                const el = vnode.elm;
-                el._loupeLogic = setupLoupeLogic(el, props);
+                const $el = vnode.elm;
+                $el._loupeLogic = setupLoupeLogic($el, props);
             },
             update: (oldVnode, vnode) => {
-                const el = vnode.elm;
+                const $el = vnode.elm;
                 const oldId = oldVnode.data?.dataset?.id;
                 if (oldId !== photo.id) {
                     if (oldVnode.elm?._loupeLogic)
                         oldVnode.elm._loupeLogic.destroy();
-                    el._loupeLogic = setupLoupeLogic(el, props);
+                    $el._loupeLogic = setupLoupeLogic($el, props);
                 }
-                else if (el._loupeLogic) {
-                    el._loupeLogic.updateProps(props);
+                else if ($el._loupeLogic) {
+                    $el._loupeLogic.updateProps(props);
                 }
             },
             destroy: (vnode) => {
@@ -91,22 +91,22 @@ export function LoupeView(props) {
         ])
     ]);
 }
-function setupLoupeLogic(el, initialProps) {
+function setupLoupeLogic($el, initialProps) {
     let props = initialProps;
     const { photo, imageUrlCache } = props;
     if (!photo)
         return { destroy: () => { }, updateProps: () => { } };
-    const previewArea = el.querySelector('.preview-area');
-    const imgP = el.querySelector('#loupe-preview-placeholder');
-    const imgH = el.querySelector('#main-preview');
-    const spinner = el.querySelector('#preview-spinner');
-    const zoomToolbar = el.querySelector('.zoom-toolbar');
-    const zoomLevel = el.querySelector('.zoom-level');
-    const btnPlus = el.querySelector('.btn-plus');
-    const btnMinus = el.querySelector('.btn-minus');
-    const btn1to1 = el.querySelector('.btn-1to1');
-    const btnRotateLeft = el.querySelector('.btn-rotate-left');
-    const btnRotateRight = el.querySelector('.btn-rotate-right');
+    const $previewArea = $el.querySelector('.preview-area');
+    const $imgP = $el.querySelector('#loupe-preview-placeholder');
+    const $imgH = $el.querySelector('#main-preview');
+    const $spinner = $el.querySelector('#preview-spinner');
+    const $zoomToolbar = $el.querySelector('.zoom-toolbar');
+    const $zoomLevel = $el.querySelector('.zoom-level');
+    const $btnPlus = $el.querySelector('.btn-plus');
+    const $btnMinus = $el.querySelector('.btn-minus');
+    const $btn1to1 = $el.querySelector('.btn-1to1');
+    const $btnRotateLeft = $el.querySelector('.btn-rotate-left');
+    const $btnRotateRight = $el.querySelector('.btn-rotate-right');
     let scale = 1;
     let rotation = props.rotation;
     let pX = 0, pY = 0;
@@ -116,10 +116,10 @@ function setupLoupeLogic(el, initialProps) {
     let isFullResLoaded = false;
     let savePrefsTimer = null;
     const showToolbar = () => {
-        zoomToolbar.style.opacity = '1';
+        $zoomToolbar.style.opacity = '1';
         if (zoomTimer)
             clearTimeout(zoomTimer);
-        zoomTimer = setTimeout(() => zoomToolbar.style.opacity = '0', 2000);
+        zoomTimer = setTimeout(() => $zoomToolbar.style.opacity = '0', 2000);
     };
     const saveViewPrefs = () => {
         if (!photo || !photo.hash)
@@ -129,8 +129,8 @@ function setupLoupeLogic(el, initialProps) {
         const prefs = {
             rotation,
             zoom: scale,
-            panL: pX / previewArea.clientWidth,
-            panT: pY / previewArea.clientHeight
+            panL: pX / $previewArea.clientWidth,
+            panT: pY / $previewArea.clientHeight
         };
         Api.api_settings_set({
             key: `${photo.hash}-pref-img`,
@@ -139,15 +139,15 @@ function setupLoupeLogic(el, initialProps) {
     };
     const updateTransform = (skipSave = false, skipTransition = false) => {
         const transform = `translate(${pX}px, ${pY}px) scale(${scale}) rotate(${rotation}deg)`;
-        imgP.style.transition = skipTransition || isDragging ? 'none' : 'transform 0.2s';
-        imgH.style.transition = skipTransition || isDragging ? 'none' : 'transform 0.2s';
-        imgP.style.transform = transform;
-        imgH.style.transform = transform;
-        zoomLevel.textContent = Math.round(scale * 100) + '%';
+        $imgP.style.transition = skipTransition || isDragging ? 'none' : 'transform 0.2s';
+        $imgH.style.transition = skipTransition || isDragging ? 'none' : 'transform 0.2s';
+        $imgP.style.transform = transform;
+        $imgH.style.transform = transform;
+        $zoomLevel.textContent = Math.round(scale * 100) + '%';
         if (scale > 1)
-            previewArea.style.cursor = isDragging ? 'grabbing' : 'grab';
+            $previewArea.style.cursor = isDragging ? 'grabbing' : 'grab';
         else
-            previewArea.style.cursor = 'default';
+            $previewArea.style.cursor = 'default';
         if (scale > 1.5 && !isFullResLoaded) {
             loadFullRes();
         }
@@ -163,16 +163,16 @@ function setupLoupeLogic(el, initialProps) {
         isFullResLoaded = true;
         const fullResKey = photo.id + '-full';
         const applyFullRes = (url) => {
-            imgH.src = url;
+            $imgH.src = url;
             const onLoaded = () => {
-                imgH.style.opacity = '1';
-                btn1to1.style.display = 'inline-block';
+                $imgH.style.opacity = '1';
+                $btn1to1.style.display = 'inline-block';
                 showToolbar();
             };
-            if (imgH.complete)
+            if ($imgH.complete)
                 onLoaded();
             else
-                imgH.onload = onLoaded;
+                $imgH.onload = onLoaded;
         };
         if (imageUrlCache.has(fullResKey)) {
             applyFullRes(imageUrlCache.get(fullResKey));
@@ -188,33 +188,33 @@ function setupLoupeLogic(el, initialProps) {
     const loadImages = () => {
         const lowResKey = photo.id + '-300';
         const highResKey = photo.id + '-1024';
-        spinner.style.display = 'block';
-        imgH.style.opacity = '0';
-        imgH.src = '';
-        imgP.src = '';
+        $spinner.style.display = 'block';
+        $imgH.style.opacity = '0';
+        $imgH.src = '';
+        $imgP.src = '';
         const requestHighRes = () => {
             const priority = window.app?.getPriority?.(photo.id) || 10;
             server.requestImage(photo.id, 1024, priority).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(highResKey, url);
-                imgH.src = url;
+                $imgH.src = url;
                 const onLoaded = () => {
-                    imgH.style.opacity = '1';
-                    spinner.style.display = 'none';
+                    $imgH.style.opacity = '1';
+                    $spinner.style.display = 'none';
                 };
-                if (imgH.complete)
+                if ($imgH.complete)
                     onLoaded();
                 else
-                    imgH.onload = onLoaded;
+                    $imgH.onload = onLoaded;
             });
         };
         if (imageUrlCache.has(highResKey)) {
-            imgH.src = imageUrlCache.get(highResKey);
-            imgH.style.opacity = '1';
-            spinner.style.display = 'none';
+            $imgH.src = imageUrlCache.get(highResKey);
+            $imgH.style.opacity = '1';
+            $spinner.style.display = 'none';
         }
         else if (imageUrlCache.has(lowResKey)) {
-            imgP.src = imageUrlCache.get(lowResKey);
+            $imgP.src = imageUrlCache.get(lowResKey);
             requestHighRes();
         }
         else {
@@ -222,7 +222,7 @@ function setupLoupeLogic(el, initialProps) {
             server.requestImage(photo.id, 300, priority).then((blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(lowResKey, url);
-                imgP.src = url;
+                $imgP.src = url;
                 requestHighRes();
             });
         }
@@ -233,19 +233,19 @@ function setupLoupeLogic(el, initialProps) {
         showToolbar();
         props.onRotate(photo.id, rotation);
     };
-    btnPlus.onclick = (e) => { e.stopPropagation(); scale = Math.min(5, scale + 0.1); updateTransform(); showToolbar(); };
-    btnMinus.onclick = (e) => { e.stopPropagation(); scale = Math.max(0.1, scale - 0.1); if (scale <= 1) {
+    $btnPlus.onclick = (e) => { e.stopPropagation(); scale = Math.min(5, scale + 0.1); updateTransform(); showToolbar(); };
+    $btnMinus.onclick = (e) => { e.stopPropagation(); scale = Math.max(0.1, scale - 0.1); if (scale <= 1) {
         pX = 0;
         pY = 0;
     } updateTransform(); showToolbar(); };
-    btnRotateLeft.onclick = (e) => { e.stopPropagation(); triggerRotate(-90); };
-    btnRotateRight.onclick = (e) => { e.stopPropagation(); triggerRotate(90); };
-    btn1to1.onclick = (e) => {
+    $btnRotateLeft.onclick = (e) => { e.stopPropagation(); triggerRotate(-90); };
+    $btnRotateRight.onclick = (e) => { e.stopPropagation(); triggerRotate(90); };
+    $btn1to1.onclick = (e) => {
         e.stopPropagation();
-        if (!imgH.complete || imgH.naturalWidth === 0)
+        if (!$imgH.complete || $imgH.naturalWidth === 0)
             return;
-        const containerW = previewArea.clientWidth;
-        const imgW = imgH.naturalWidth;
+        const containerW = $previewArea.clientWidth;
+        const imgW = $imgH.naturalWidth;
         const targetScale = (imgW / window.devicePixelRatio) / containerW;
         scale = targetScale;
         pX = 0;
@@ -258,7 +258,7 @@ function setupLoupeLogic(el, initialProps) {
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
         const newScale = Math.max(0.1, Math.min(5, scale + delta));
         if (newScale !== scale) {
-            const rect = previewArea.getBoundingClientRect();
+            const rect = $previewArea.getBoundingClientRect();
             const mx = e.clientX - rect.left - rect.width / 2;
             const my = e.clientY - rect.top - rect.height / 2;
             pX -= (mx - pX) * (newScale / scale - 1);
@@ -277,7 +277,7 @@ function setupLoupeLogic(el, initialProps) {
             isDragging = true;
             startX = e.clientX - pX;
             startY = e.clientY - pY;
-            previewArea.style.cursor = 'grabbing';
+            $previewArea.style.cursor = 'grabbing';
             e.preventDefault();
         }
     };
@@ -289,13 +289,13 @@ function setupLoupeLogic(el, initialProps) {
             showToolbar();
         }
         else {
-            const rect = previewArea.getBoundingClientRect();
+            const rect = $previewArea.getBoundingClientRect();
             const isBottom = e.clientY > (rect.bottom - 80);
-            const isToolbar = zoomToolbar.contains(e.target);
+            const isToolbar = $zoomToolbar.contains(e.target);
             if (isBottom || isToolbar) {
                 showToolbar();
                 if (isToolbar) {
-                    zoomToolbar.style.opacity = '1';
+                    $zoomToolbar.style.opacity = '1';
                     if (zoomTimer)
                         clearTimeout(zoomTimer);
                 }
@@ -308,8 +308,8 @@ function setupLoupeLogic(el, initialProps) {
             updateTransform();
         }
     };
-    previewArea.addEventListener('wheel', onWheel);
-    previewArea.addEventListener('mousedown', onMouseDown);
+    $previewArea.addEventListener('wheel', onWheel);
+    $previewArea.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
     loadImages();
@@ -319,8 +319,8 @@ function setupLoupeLogic(el, initialProps) {
     window.app.setViewTransform = (r, s, pl, pt) => {
         rotation = r;
         scale = s;
-        pX = pl * previewArea.clientWidth;
-        pY = pt * previewArea.clientHeight;
+        pX = pl * $previewArea.clientWidth;
+        pY = pt * $previewArea.clientHeight;
         updateTransform(true, true);
     };
     return {
@@ -332,8 +332,8 @@ function setupLoupeLogic(el, initialProps) {
             }
         },
         destroy: () => {
-            previewArea.removeEventListener('wheel', onWheel);
-            previewArea.removeEventListener('mousedown', onMouseDown);
+            $previewArea.removeEventListener('wheel', onWheel);
+            $previewArea.removeEventListener('mousedown', onMouseDown);
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
             if (zoomTimer)

@@ -10,21 +10,21 @@ const ps = constants.pubsub;
 type Photo = Res.PhotoResponse;
 
 export class GridView {
-    private _gridViewEl: HTMLElement | null = null;
-    public set gridViewEl(el: HTMLElement | null) {
-        this._gridViewEl = el;
+    private $_gridViewEl: HTMLElement | null = null;
+    public set $gridViewEl(el: HTMLElement | null) {
+        this.$_gridViewEl = el;
         this.gridVNode = null;
     }
-    public get gridViewEl() { return this._gridViewEl; }
+    public get $gridViewEl() { return this.$_gridViewEl; }
 
-    public scrollSentinel: HTMLElement | null = null;
+    public $scrollSentinel: HTMLElement | null = null;
 
-    private _filmstripEl: HTMLElement | null = null;
-    public set filmstripEl(el: HTMLElement | null) {
-        this._filmstripEl = el;
+    private $_filmstripEl: HTMLElement | null = null;
+    public set $filmstripEl(el: HTMLElement | null) {
+        this.$_filmstripEl = el;
         this.filmstripVNode = null;
     }
-    public get filmstripEl() { return this._filmstripEl; }
+    public get $filmstripEl() { return this.$_filmstripEl; }
     
     private gridVNode: VNode | HTMLElement | null = null;
     private filmstripVNode: VNode | HTMLElement | null = null;
@@ -75,10 +75,10 @@ export class GridView {
     }
 
     private get filmstripCardWidth() {
-        if (!this.filmstripEl) return 210;
+        if (!this.$filmstripEl) return 210;
         // height is 12.5em, card is 10.5em h, 12.5em w.
         // Approx 200px wide + 10px gap.
-        const fsHeight = this.filmstripEl.clientHeight;
+        const fsHeight = this.$filmstripEl.clientHeight;
         if (fsHeight === 0) return 210;
         return (fsHeight * 1.0) + 10; // width is same as container height approx
     }
@@ -108,8 +108,8 @@ export class GridView {
 
     // REQ-WFE-00001
     public update(force: boolean = false) {
-        if (!this.gridViewEl) return;
-        const gridContainer = this.gridViewEl.parentElement as HTMLElement;
+        if (!this.$gridViewEl) return;
+        const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
         if (!gridContainer) return;
 
         const containerWidth = gridContainer.clientWidth - 20;
@@ -118,7 +118,7 @@ export class GridView {
         
         const rowCount = Math.ceil(this.photos.length / this.cols);
         const totalHeight = rowCount * this.rowHeight;
-        if (this.scrollSentinel) this.scrollSentinel.style.height = totalHeight + 'px';
+        if (this.$scrollSentinel) this.$scrollSentinel.style.height = totalHeight + 'px';
 
         const scrollTop = gridContainer.scrollTop;
         const viewHeight = gridContainer.clientHeight;
@@ -133,13 +133,13 @@ export class GridView {
             this.render();
         }
 
-        if (this.filmstripEl && window.app.isLoupeMode) {
+        if (this.$filmstripEl && window.app.isLoupeMode) {
             this.renderFilmstrip();
         }
     }
 
     private render() {
-        if (!this.gridViewEl) return;
+        if (!this.$gridViewEl) return;
         const startRow = Math.floor(this.visibleRange.start / this.cols);
         const translateY = startRow * this.rowHeight;
 
@@ -169,13 +169,13 @@ export class GridView {
             }
         }, cards);
 
-        if (!this.gridVNode) this.gridVNode = this.gridViewEl;
+        if (!this.gridVNode) this.gridVNode = this.$gridViewEl;
         this.gridVNode = patch(this.gridVNode, newVNode);
-        this._gridViewEl = (this.gridVNode as VNode).elm as HTMLElement;
+        this.$_gridViewEl = (this.gridVNode as VNode).elm as HTMLElement;
     }
 
     private renderFilmstrip() {
-        if (!this.filmstripEl) return;
+        if (!this.$filmstripEl) return;
 
         const cards = this.photos.map(photo => PhotoCard({
             photo,
@@ -201,13 +201,13 @@ export class GridView {
         }, cards);
 
         if (!this.filmstripVNode) {
-            this.filmstripEl.innerHTML = '';
+            this.$filmstripEl.innerHTML = '';
             const container = document.createElement('div');
-            this.filmstripEl.appendChild(container);
+            this.$filmstripEl.appendChild(container);
             this.filmstripVNode = container;
         }
         this.filmstripVNode = patch(this.filmstripVNode, newVNode);
-        this._filmstripEl = (this.filmstripVNode as VNode).elm as HTMLElement;
+        this.$_filmstripEl = (this.filmstripVNode as VNode).elm as HTMLElement;
     }
 
     public lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
@@ -254,9 +254,9 @@ export class GridView {
         if (index === -1) return;
 
         // Grid Scroll
-        if (this.gridViewEl) {
+        if (this.$gridViewEl) {
             const row = Math.floor(index / this.cols);
-            const gridContainer = this.gridViewEl.parentElement as HTMLElement;
+            const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
             if (gridContainer) {
                 const currentScroll = gridContainer.scrollTop;
                 const viewHeight = gridContainer.clientHeight;
@@ -272,14 +272,14 @@ export class GridView {
         }
 
         // Filmstrip Scroll
-        if (this.filmstripEl) {
+        if (this.$filmstripEl) {
             const cardWidth = this.filmstripCardWidth;
             const targetLeft = index * cardWidth;
-            const currentScroll = this.filmstripEl.scrollLeft;
-            const viewWidth = this.filmstripEl.clientWidth;
+            const currentScroll = this.$filmstripEl.scrollLeft;
+            const viewWidth = this.$filmstripEl.clientWidth;
 
             if (targetLeft < currentScroll || targetLeft + cardWidth > currentScroll + viewWidth) {
-                this.filmstripEl.scrollTo({
+                this.$filmstripEl.scrollTo({
                     left: targetLeft - (viewWidth / 2) + (cardWidth / 2),
                     behavior: 'smooth'
                 });

@@ -108,22 +108,22 @@ class App {
     // Fullscreen state
     private isFullscreen: boolean = false;
     private isApplyingUrl = false;
-    private fullscreenOverlay: HTMLElement | null = null;
-    private fullscreenImgPlaceholder: HTMLImageElement | null = null;
-    private fullscreenImgHighRes: HTMLImageElement | null = null;
-    private fullscreenSpinner: HTMLElement | null = null;
+    private $fullscreenOverlay: HTMLElement | null = null;
+    private $fullscreenImgPlaceholder: HTMLImageElement | null = null;
+    private $fullscreenImgHighRes: HTMLImageElement | null = null;
+    private $fullscreenSpinner: HTMLElement | null = null;
 
-    public libraryEl: HTMLElement | null = null;
-    public workspaceEl: HTMLElement | null = null;
-    public metadataEl: HTMLElement | null = null;
-    public gridHeader: HTMLElement | null = null;
-    public gridView: HTMLElement | null = null;
-    public scrollSentinel: HTMLElement | null = null;
-    public loupeView: HTMLElement | null = null;
-    public filmstrip: HTMLElement | null = null;
+    public $libraryEl: HTMLElement | null = null;
+    public $workspaceEl: HTMLElement | null = null;
+    public $metadataEl: HTMLElement | null = null;
+    public $gridHeader: HTMLElement | null = null;
+    public $gridView: HTMLElement | null = null;
+    public $scrollSentinel: HTMLElement | null = null;
+    public $loupeView: HTMLElement | null = null;
+    public $filmstrip: HTMLElement | null = null;
 
-    private metaTitleEl: HTMLElement | null = null;
-    public metaVisEl: HTMLElement | null = null;
+    private $metaTitleEl: HTMLElement | null = null;
+    public $metaVisEl: HTMLElement | null = null;
     private apertureVNode: VNode | HTMLElement | null = null;
     private libraryVNode: VNode | HTMLElement | null = null;
     private loupeVNode: VNode | HTMLElement | null = null;
@@ -278,7 +278,7 @@ class App {
                 this.updateLoupeOverlay(data.id);
             }
             
-            if (this.workspaceEl) this.workspaceEl.focus();
+            if (this.$workspaceEl) this.$workspaceEl.focus();
             this.syncUrl();
         });
 
@@ -323,8 +323,8 @@ class App {
 
             // Update fullscreen image
             if (this.isFullscreen && this.selectedId === data.id) {
-                if (this.fullscreenImgPlaceholder) this.fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
-                if (this.fullscreenImgHighRes) this.fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
+                if (this.$fullscreenImgPlaceholder) this.$fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
+                if (this.$fullscreenImgHighRes) this.$fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
             }
         });
 
@@ -586,8 +586,8 @@ class App {
     }
 
     private clearMetadata() {
-        if (this.metadataEl) this.metadataEl.innerHTML = '';
-        this.metaTitleEl = null;
+        if (this.$metadataEl) this.$metadataEl.innerHTML = '';
+        this.$metaTitleEl = null;
         this.metaGroups.clear();
     }
 
@@ -670,14 +670,14 @@ class App {
     }
 
     private updateSidebarCountsOnly() {
-        if (!this.libraryEl) return;
-        const allCountEl = this.libraryEl.querySelector('.tree-item[data-type="all"] .count');
+        if (!this.$libraryEl) return;
+        const allCountEl = this.$libraryEl.querySelector('.tree-item[data-type="all"] .count');
         if (allCountEl) allCountEl.textContent = this.stats.totalCount.toString();
 
-        const pickedCountEl = this.libraryEl.querySelector('.tree-item[data-type="picked"] .count');
+        const pickedCountEl = this.$libraryEl.querySelector('.tree-item[data-type="picked"] .count');
         if (pickedCountEl) pickedCountEl.textContent = this.stats.pickedCount.toString();
         for (let i = 1; i <= 5; i++) {
-            const countEl = this.libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
+            const countEl = this.$libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
             if (countEl) countEl.textContent = this.stats.ratingCounts[i-1].toString();
         }
     }
@@ -970,13 +970,13 @@ class App {
             libHeader.appendChild(collapseBtn);
             wrapper.appendChild(libHeader);
 
-            self.libraryEl = document.createElement('div');
+            self.$libraryEl = document.createElement('div');
             self.libraryVNode = null;
-            self.libraryEl.className = 'tree-view';
-            self.libraryEl.style.flex = '1';
-            self.libraryEl.style.overflowY = 'auto';
+            self.$libraryEl.className = 'tree-view';
+            self.$libraryEl.style.flex = '1';
+            self.$libraryEl.style.overflowY = 'auto';
             
-            wrapper.appendChild(self.libraryEl);
+            wrapper.appendChild(self.$libraryEl);
             container.getElement().append(wrapper);
             
             // Hide the expand button in workspace if library is visible
@@ -987,9 +987,9 @@ class App {
         });
         this.layout.registerComponent('workspace', function(container: any) {
             console.log('[App] Workspace component initializing...');
-            self.workspaceEl = document.createElement('div');
-            self.workspaceEl.className = 'gl-component';
-            self.workspaceEl.style.overflow = 'hidden';
+            self.$workspaceEl = document.createElement('div');
+            self.$workspaceEl.className = 'gl-component';
+            self.$workspaceEl.style.overflow = 'hidden';
             
             const header = document.createElement('div');
             header.id = 'grid-header';
@@ -1089,7 +1089,7 @@ class App {
 
             header.appendChild(headerLeft);
             header.appendChild(headerRight);
-            self.workspaceEl.appendChild(header);
+            self.$workspaceEl.appendChild(header);
 
             const gridContainer = document.createElement('div');
             gridContainer.id = 'grid-container';
@@ -1101,49 +1101,49 @@ class App {
             sentinel.id = 'scroll-sentinel';
             sentinel.style.position = 'absolute';
             sentinel.style.top = '0'; sentinel.style.left = '0'; sentinel.style.right = '0'; sentinel.style.height = '0'; sentinel.style.pointerEvents = 'none';
-            const gridView = document.createElement('div');
-            gridView.id = 'grid-view';
-            gridView.className = 'grid-view';
-            gridView.style.position = 'absolute';
-            gridView.style.top = '0'; gridView.style.left = '0'; gridView.style.right = '0';
-            gridContainer.appendChild(gridView);
-            self.workspaceEl.appendChild(gridContainer);
+            const $gridView = document.createElement('div');
+            $gridView.id = 'grid-view';
+            $gridView.className = 'grid-view';
+            $gridView.style.position = 'absolute';
+            $gridView.style.top = '0'; $gridView.style.left = '0'; $gridView.style.right = '0';
+            gridContainer.appendChild($gridView);
+            self.$workspaceEl.appendChild(gridContainer);
 
             gridContainer.onscroll = () => self.gridViewManager.update();
             console.log('[App] Assigning gridViewEl to manager');
-            self.gridViewManager.gridViewEl = gridView;
-            self.gridViewManager.scrollSentinel = sentinel;
+            self.gridViewManager.$gridViewEl = $gridView;
+            self.gridViewManager.$scrollSentinel = sentinel;
             if (self.photos.length > 0) self.gridViewManager.update(true);
 
-            self.loupeView = document.createElement('div');
+            self.$loupeView = document.createElement('div');
             self.loupeVNode = null;
-            self.loupeView.id = 'loupe-view-container';
-            self.loupeView.className = 'loupe-view';
-            self.loupeView.style.display = 'none';
-            self.loupeView.style.height = '100%';
-            self.loupeView.style.position = 'relative';
+            self.$loupeView.id = 'loupe-view-container';
+            self.$loupeView.className = 'loupe-view';
+            self.$loupeView.style.display = 'none';
+            self.$loupeView.style.height = '100%';
+            self.$loupeView.style.position = 'relative';
             
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
             resizer.style.display = 'none';
             
-            const filmstrip = document.createElement('div');
-            filmstrip.id = 'filmstrip';
-            filmstrip.className = 'filmstrip';
-            filmstrip.style.display = 'none';
-            (filmstrip.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
+            const $filmstrip = document.createElement('div');
+            $filmstrip.id = 'filmstrip';
+            $filmstrip.className = 'filmstrip';
+            $filmstrip.style.display = 'none';
+            ($filmstrip.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
             
-            self.workspaceEl.appendChild(self.loupeView);
-            self.workspaceEl.appendChild(resizer);
-            self.workspaceEl.appendChild(filmstrip);
+            self.$workspaceEl.appendChild(self.$loupeView);
+            self.$workspaceEl.appendChild(resizer);
+            self.$workspaceEl.appendChild($filmstrip);
 
-            container.getElement().append(self.workspaceEl);
+            container.getElement().append(self.$workspaceEl);
             
-            self.gridHeader = header;
-            self.gridView = gridView;
-            self.scrollSentinel = sentinel;
-            self.filmstrip = filmstrip;
-            self.gridViewManager.filmstripEl = filmstrip;
+            self.$gridHeader = header;
+            self.$gridView = $gridView;
+            self.$scrollSentinel = sentinel;
+            self.$filmstrip = $filmstrip;
+            self.gridViewManager.$filmstripEl = $filmstrip;
 
             gridContainer.onscroll = () => self.gridViewManager.update();
             
@@ -1151,14 +1151,14 @@ class App {
             let isResizing = false;
             resizer.onmousedown = (e) => { isResizing = true; e.preventDefault(); };
             document.addEventListener('mousemove', (e) => {
-                if (!isResizing || !self.filmstrip) return;
-                const offsetTop = self.loupeView!.getBoundingClientRect().top;
-                const totalHeight = self.loupeView!.clientHeight;
+                if (!isResizing || !self.$filmstrip) return;
+                const offsetTop = self.$loupeView!.getBoundingClientRect().top;
+                const totalHeight = self.$loupeView!.clientHeight;
                 const newHeight = totalHeight - (e.clientY - offsetTop);
                 if (newHeight > 100 && newHeight < 500) {
-                    self.filmstrip.style.height = newHeight + 'px';
+                    self.$filmstrip.style.height = newHeight + 'px';
                     // Scale cards - we can adjust CSS variable or direct style
-                    const cards = self.filmstrip.querySelectorAll('.card');
+                    const cards = self.$filmstrip.querySelectorAll('.card');
                     cards.forEach((c: any) => {
                         c.style.height = (newHeight - 30) + 'px';
                         c.style.width = ((newHeight - 30) * 1.33) + 'px';
@@ -1167,15 +1167,15 @@ class App {
             });
             document.addEventListener('mouseup', () => { isResizing = false; });
 
-            self.workspaceEl.tabIndex = 0;
+            self.$workspaceEl.tabIndex = 0;
             if (self.photos.length > 0) self.renderGrid();
             if (self.isLoupeMode) self.renderLoupe();
         });
         this.layout.registerComponent('metadata', function(container: any) {
-            self.metadataEl = document.createElement('div');
+            self.$metadataEl = document.createElement('div');
             self.metadataVNode = null;
-            self.metadataEl.className = 'metadata-panel gl-component';
-            container.getElement().append(self.metadataEl);
+            self.$metadataEl.className = 'metadata-panel gl-component';
+            container.getElement().append(self.$metadataEl);
             if (self.selectedId) self.renderMetadata();
         });
         this.layout.init();
@@ -1187,12 +1187,12 @@ class App {
     }
 
     private updateSelectionUI(id: string) {
-        const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
+        const oldSel = this.$workspaceEl?.querySelectorAll('.card.selected');
         oldSel?.forEach(e => e.classList.remove('selected'));
-        const newSel = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
+        const newSel = this.$workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
         newSel?.forEach(e => e.classList.add('selected'));
         if (this.isLoupeMode) {
-            const stripItem = this.filmstrip?.querySelector(`.card[data-id="${id}"]`);
+            const stripItem = this.$filmstrip?.querySelector(`.card[data-id="${id}"]`);
             if (stripItem) stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
         }
     }
@@ -1239,7 +1239,7 @@ class App {
 
     // REQ-WFE-00022
     renderLibrary() {
-        if (!this.libraryEl) return;
+        if (!this.$libraryEl) return;
         this.ensureSelectedFolderVisible();
 
         const props = {
@@ -1285,10 +1285,10 @@ class App {
         };
 
         if (!this.libraryVNode) {
-            this.libraryVNode = this.libraryEl;
+            this.libraryVNode = this.$libraryEl;
             // Global click listener to hide query builder
             document.addEventListener('click', (e) => {
-                const searchBox = this.libraryEl?.querySelector('.search-box');
+                const searchBox = this.$libraryEl?.querySelector('.search-box');
                 if (this.showQueryBuilder && searchBox && !searchBox.contains(e.target as Node)) {
                     this.showQueryBuilder = false;
                     this.renderLibrary();
@@ -1542,15 +1542,15 @@ class App {
         else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
         else if (this.filterType === 'collection') { const c = this.userCollections.find(x => x.id === this.selectedCollectionId); headerText = "Collection: " + (c?.name || ""); }
         else if (this.selectedRootId) { const root = this.roots.find(r => r.id === this.selectedRootId); headerText = root ? `Folder: ${root.name}` : "Folder"; }
-        if (this.gridHeader) {
-            const headerTextEl = this.gridHeader.querySelector('#header-text');
+        if (this.$gridHeader) {
+            const headerTextEl = this.$gridHeader.querySelector('#header-text');
             if (headerTextEl) {
                 headerTextEl.innerHTML = '';
                 headerTextEl.appendChild(document.createTextNode('Showing '));
                 const b = document.createElement('b'); b.textContent = headerText;
                 headerTextEl.appendChild(b);
             }
-            const headerCountEl = this.gridHeader.querySelector('#header-count');
+            const headerCountEl = this.$gridHeader.querySelector('#header-count');
             if (headerCountEl) headerCountEl.textContent = `${this.totalPhotos} items`;
         }
     }
@@ -1561,7 +1561,7 @@ class App {
     }
 
     renderLoupe() {
-        if (!this.loupeView) return;
+        if (!this.$loupeView) return;
         const photo = this.selectedId ? this.photoMap.get(this.selectedId) || null : null;
         const props = {
             photo,
@@ -1575,8 +1575,8 @@ class App {
             }
         };
 
-        this.loupeVNode = patch(this.loupeVNode || this.loupeView, LoupeView(props));
-        this.loupeView = (this.loupeVNode as VNode).elm as HTMLElement;
+        this.loupeVNode = patch(this.loupeVNode || this.$loupeView, LoupeView(props));
+        this.$loupeView = (this.loupeVNode as VNode).elm as HTMLElement;
     }
 
     selectPhoto(id: string) {
@@ -1632,22 +1632,22 @@ class App {
             layoutCont.style.display = 'block';
             libraryView.style.display = 'none';
             
-            const gridCont = (this.workspaceEl?.querySelector('#grid-container') as HTMLElement);
-            const resizer = (this.workspaceEl?.querySelector('.filmstrip-resizer') as HTMLElement);
+            const gridCont = (this.$workspaceEl?.querySelector('#grid-container') as HTMLElement);
+            const resizer = (this.$workspaceEl?.querySelector('.filmstrip-resizer') as HTMLElement);
             if (this.isLoupeMode) {
                 if (gridCont) gridCont.style.display = 'none';
-                if (this.gridHeader) this.gridHeader.style.display = 'none';
+                if (this.$gridHeader) this.$gridHeader.style.display = 'none';
                 this.renderLoupe();
                 if (resizer) resizer.style.display = 'block';
-                if (this.filmstrip) this.filmstrip.style.display = 'flex';
+                if (this.$filmstrip) this.$filmstrip.style.display = 'flex';
                 document.getElementById('nav-loupe')?.classList.add('active');
                 this.renderFilmstrip();
             } else {
                 this.renderLoupe();
                 if (gridCont) gridCont.style.display = 'flex';
-                if (this.gridHeader) this.gridHeader.style.display = 'flex';
+                if (this.$gridHeader) this.$gridHeader.style.display = 'flex';
                 if (resizer) resizer.style.display = 'none';
-                if (this.filmstrip) this.filmstrip.style.display = 'none';
+                if (this.$filmstrip) this.$filmstrip.style.display = 'none';
                 document.getElementById('nav-grid')?.classList.add('active');
                 this.gridViewManager.update(true);
             }
@@ -1655,22 +1655,22 @@ class App {
     }
 
     private updateFullscreenImage(id: string) {
-        if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner || !this.fullscreenOverlay) return;
+        if (!this.$fullscreenImgPlaceholder || !this.$fullscreenImgHighRes || !this.$fullscreenSpinner || !this.$fullscreenOverlay) return;
         
-        this.fullscreenImgHighRes.classList.remove('loaded');
-        this.fullscreenImgHighRes.src = '';
-        this.fullscreenImgPlaceholder.style.display = 'none';
-        this.fullscreenImgPlaceholder.src = '';
-        this.fullscreenSpinner.style.display = 'block';
+        this.$fullscreenImgHighRes.classList.remove('loaded');
+        this.$fullscreenImgHighRes.src = '';
+        this.$fullscreenImgPlaceholder.style.display = 'none';
+        this.$fullscreenImgPlaceholder.src = '';
+        this.$fullscreenSpinner.style.display = 'block';
         
         const rot = this.rotationMap.get(id) || 0;
-        this.fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
-        this.fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
+        this.$fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
+        this.$fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
 
-        const dlOrig = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)') as HTMLAnchorElement;
+        const dlOrig = this.$fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)') as HTMLAnchorElement;
         if (dlOrig) dlOrig.href = `/api/download/${id}`;
 
-        const dlJpg = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(1)') as HTMLAnchorElement;
+        const dlJpg = this.$fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(1)') as HTMLAnchorElement;
         if (dlJpg) dlJpg.removeAttribute('href');
 
         const lowResKey = id + '-1024';
@@ -1680,7 +1680,7 @@ class App {
         const requestFullRes = () => {
             if (this.imageUrlCache.has(highResKey)) {
                 const url = this.imageUrlCache.get(highResKey)!;
-                this.fullscreenImgHighRes!.src = url;
+                this.$fullscreenImgHighRes!.src = url;
                 
                 const photo = this.photoMap.get(id);
                 if (dlJpg && photo) {
@@ -1688,14 +1688,14 @@ class App {
                     dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
                 }
 
-                if (this.fullscreenImgHighRes!.complete) {
-                    this.fullscreenImgHighRes!.classList.add('loaded');
-                    this.fullscreenSpinner!.style.display = 'none';
+                if (this.$fullscreenImgHighRes!.complete) {
+                    this.$fullscreenImgHighRes!.classList.add('loaded');
+                    this.$fullscreenSpinner!.style.display = 'none';
                 } else {
-                    this.fullscreenImgHighRes!.onload = () => {
+                    this.$fullscreenImgHighRes!.onload = () => {
                         if (this.selectedId === id) {
-                            this.fullscreenImgHighRes!.classList.add('loaded');
-                            this.fullscreenSpinner!.style.display = 'none';
+                            this.$fullscreenImgHighRes!.classList.add('loaded');
+                            this.$fullscreenSpinner!.style.display = 'none';
                         }
                     };
                 }
@@ -1706,13 +1706,13 @@ class App {
                 if (this.selectedId === id && this.isFullscreen) {
                     if (blob.size === 0) {
                         // Error fallback: just stop spinner
-                        this.fullscreenSpinner!.style.display = 'none';
+                        this.$fullscreenSpinner!.style.display = 'none';
                         return;
                     }
 
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
-                    this.fullscreenImgHighRes!.src = url;
+                    this.$fullscreenImgHighRes!.src = url;
                     
                     const photo = this.photoMap.get(id);
                     if (dlJpg && photo) {
@@ -1720,10 +1720,10 @@ class App {
                         dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
                     }
 
-                    this.fullscreenImgHighRes!.onload = () => {
+                    this.$fullscreenImgHighRes!.onload = () => {
                         if (this.selectedId === id) {
-                            this.fullscreenImgHighRes!.classList.add('loaded');
-                            this.fullscreenSpinner!.style.display = 'none';
+                            this.$fullscreenImgHighRes!.classList.add('loaded');
+                            this.$fullscreenSpinner!.style.display = 'none';
                         }
                     };
                 }
@@ -1736,10 +1736,10 @@ class App {
         else if (this.imageUrlCache.has(thumbKey)) bestUrl = this.imageUrlCache.get(thumbKey)!;
 
         if (bestUrl) {
-            this.fullscreenImgPlaceholder.src = bestUrl;
-            this.fullscreenImgPlaceholder.style.display = 'block';
+            this.$fullscreenImgPlaceholder.src = bestUrl;
+            this.$fullscreenImgPlaceholder.style.display = 'block';
         } else {
-            this.fullscreenImgPlaceholder.style.display = 'none';
+            this.$fullscreenImgPlaceholder.style.display = 'none';
         }
         
         requestFullRes();
@@ -1747,11 +1747,11 @@ class App {
 
     private toggleFullscreen() {
         if (this.isFullscreen) {
-            this.fullscreenOverlay?.remove();
-            this.fullscreenOverlay = null;
-            this.fullscreenImgPlaceholder = null;
-            this.fullscreenImgHighRes = null;
-            this.fullscreenSpinner = null;
+            this.$fullscreenOverlay?.remove();
+            this.$fullscreenOverlay = null;
+            this.$fullscreenImgPlaceholder = null;
+            this.$fullscreenImgHighRes = null;
+            this.$fullscreenSpinner = null;
             this.isFullscreen = false;
             
             // Refresh loupe if we are returning to it
@@ -1770,20 +1770,20 @@ class App {
         
         const spinner = document.createElement('div'); spinner.className = 'spinner'; 
         overlay.appendChild(spinner);
-        this.fullscreenSpinner = spinner;
+        this.$fullscreenSpinner = spinner;
 
         const imgP = document.createElement('img'); 
         imgP.className = 'fullscreen-img placeholder';
         overlay.appendChild(imgP);
-        this.fullscreenImgPlaceholder = imgP;
+        this.$fullscreenImgPlaceholder = imgP;
 
         const imgH = document.createElement('img');
         imgH.className = 'fullscreen-img highres';
         overlay.appendChild(imgH);
-        this.fullscreenImgHighRes = imgH;
+        this.$fullscreenImgHighRes = imgH;
         
         document.body.appendChild(overlay);
-        this.fullscreenOverlay = overlay;
+        this.$fullscreenOverlay = overlay;
         
         const closeBtn = document.createElement('div');
         closeBtn.className = 'fullscreen-close';
@@ -1815,7 +1815,7 @@ class App {
     }
 
     renderMetadata() {
-        if (!this.metadataEl || !this.selectedId) return;
+        if (!this.$metadataEl || !this.selectedId) return;
         const photo = this.photoMap.get(this.selectedId) || null;
         const modelItem = this.selectedMetadata.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
         const model = modelItem?.value || '';
@@ -1828,8 +1828,8 @@ class App {
             onSearch: (tag: string, val: string) => hub.pub(ps.SEARCH_TRIGGERED, { tag, value: val })
         };
 
-        this.metadataVNode = patch(this.metadataVNode || this.metadataEl, MetadataPanel(props));
-        this.metadataEl = (this.metadataVNode as VNode).elm as HTMLElement;
+        this.metadataVNode = patch(this.metadataVNode || this.$metadataEl, MetadataPanel(props));
+        this.$metadataEl = (this.metadataVNode as VNode).elm as HTMLElement;
     }
 
     // REQ-WFE-00013

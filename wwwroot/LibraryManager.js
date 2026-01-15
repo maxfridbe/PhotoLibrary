@@ -47,8 +47,8 @@ export class LibraryManager {
     _renderNow() {
         if (!this.containerId)
             return;
-        const el = document.getElementById(this.containerId);
-        if (!el)
+        const $el = document.getElementById(this.containerId);
+        if (!$el)
             return;
         const props = {
             containerId: this.containerId,
@@ -66,7 +66,7 @@ export class LibraryManager {
                 this.render();
             }
         };
-        this.libraryVNode = patch(this.libraryVNode || el, LibraryScreen(props));
+        this.libraryVNode = patch(this.libraryVNode || $el, LibraryScreen(props));
     }
     async loadLibraryInfo() {
         try {

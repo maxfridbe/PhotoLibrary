@@ -57,20 +57,20 @@ class App {
         // Fullscreen state
         this.isFullscreen = false;
         this.isApplyingUrl = false;
-        this.fullscreenOverlay = null;
-        this.fullscreenImgPlaceholder = null;
-        this.fullscreenImgHighRes = null;
-        this.fullscreenSpinner = null;
-        this.libraryEl = null;
-        this.workspaceEl = null;
-        this.metadataEl = null;
-        this.gridHeader = null;
-        this.gridView = null;
-        this.scrollSentinel = null;
-        this.loupeView = null;
-        this.filmstrip = null;
-        this.metaTitleEl = null;
-        this.metaVisEl = null;
+        this.$fullscreenOverlay = null;
+        this.$fullscreenImgPlaceholder = null;
+        this.$fullscreenImgHighRes = null;
+        this.$fullscreenSpinner = null;
+        this.$libraryEl = null;
+        this.$workspaceEl = null;
+        this.$metadataEl = null;
+        this.$gridHeader = null;
+        this.$gridView = null;
+        this.$scrollSentinel = null;
+        this.$loupeView = null;
+        this.$filmstrip = null;
+        this.$metaTitleEl = null;
+        this.$metaVisEl = null;
         this.apertureVNode = null;
         this.libraryVNode = null;
         this.loupeVNode = null;
@@ -208,8 +208,8 @@ class App {
                 this.renderLoupe();
                 this.updateLoupeOverlay(data.id);
             }
-            if (this.workspaceEl)
-                this.workspaceEl.focus();
+            if (this.$workspaceEl)
+                this.$workspaceEl.focus();
             this.syncUrl();
         });
         hub.sub(ps.VIEW_MODE_CHANGED, (data) => {
@@ -250,10 +250,10 @@ class App {
             }
             // Update fullscreen image
             if (this.isFullscreen && this.selectedId === data.id) {
-                if (this.fullscreenImgPlaceholder)
-                    this.fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
-                if (this.fullscreenImgHighRes)
-                    this.fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
+                if (this.$fullscreenImgPlaceholder)
+                    this.$fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
+                if (this.$fullscreenImgHighRes)
+                    this.$fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
             }
         });
         hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag || null, data.value || null, data.query));
@@ -489,9 +489,9 @@ class App {
             this.renderFilmstrip();
     }
     clearMetadata() {
-        if (this.metadataEl)
-            this.metadataEl.innerHTML = '';
-        this.metaTitleEl = null;
+        if (this.$metadataEl)
+            this.$metadataEl.innerHTML = '';
+        this.$metaTitleEl = null;
         this.metaGroups.clear();
     }
     showNotification(message, type) {
@@ -568,16 +568,16 @@ class App {
         walk(null);
     }
     updateSidebarCountsOnly() {
-        if (!this.libraryEl)
+        if (!this.$libraryEl)
             return;
-        const allCountEl = this.libraryEl.querySelector('.tree-item[data-type="all"] .count');
+        const allCountEl = this.$libraryEl.querySelector('.tree-item[data-type="all"] .count');
         if (allCountEl)
             allCountEl.textContent = this.stats.totalCount.toString();
-        const pickedCountEl = this.libraryEl.querySelector('.tree-item[data-type="picked"] .count');
+        const pickedCountEl = this.$libraryEl.querySelector('.tree-item[data-type="picked"] .count');
         if (pickedCountEl)
             pickedCountEl.textContent = this.stats.pickedCount.toString();
         for (let i = 1; i <= 5; i++) {
-            const countEl = this.libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
+            const countEl = this.$libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
             if (countEl)
                 countEl.textContent = this.stats.ratingCounts[i - 1].toString();
         }
@@ -874,12 +874,12 @@ class App {
             libHeader.appendChild(title);
             libHeader.appendChild(collapseBtn);
             wrapper.appendChild(libHeader);
-            self.libraryEl = document.createElement('div');
+            self.$libraryEl = document.createElement('div');
             self.libraryVNode = null;
-            self.libraryEl.className = 'tree-view';
-            self.libraryEl.style.flex = '1';
-            self.libraryEl.style.overflowY = 'auto';
-            wrapper.appendChild(self.libraryEl);
+            self.$libraryEl.className = 'tree-view';
+            self.$libraryEl.style.flex = '1';
+            self.$libraryEl.style.overflowY = 'auto';
+            wrapper.appendChild(self.$libraryEl);
             container.getElement().append(wrapper);
             // Hide the expand button in workspace if library is visible
             const expandBtn = document.getElementById('lib-expand-btn');
@@ -890,9 +890,9 @@ class App {
         });
         this.layout.registerComponent('workspace', function (container) {
             console.log('[App] Workspace component initializing...');
-            self.workspaceEl = document.createElement('div');
-            self.workspaceEl.className = 'gl-component';
-            self.workspaceEl.style.overflow = 'hidden';
+            self.$workspaceEl = document.createElement('div');
+            self.$workspaceEl.className = 'gl-component';
+            self.$workspaceEl.style.overflow = 'hidden';
             const header = document.createElement('div');
             header.id = 'grid-header';
             header.className = 'grid-header';
@@ -985,7 +985,7 @@ class App {
             headerRight.appendChild(headerCount);
             header.appendChild(headerLeft);
             header.appendChild(headerRight);
-            self.workspaceEl.appendChild(header);
+            self.$workspaceEl.appendChild(header);
             const gridContainer = document.createElement('div');
             gridContainer.id = 'grid-container';
             gridContainer.style.flex = '1';
@@ -1000,59 +1000,59 @@ class App {
             sentinel.style.right = '0';
             sentinel.style.height = '0';
             sentinel.style.pointerEvents = 'none';
-            const gridView = document.createElement('div');
-            gridView.id = 'grid-view';
-            gridView.className = 'grid-view';
-            gridView.style.position = 'absolute';
-            gridView.style.top = '0';
-            gridView.style.left = '0';
-            gridView.style.right = '0';
-            gridContainer.appendChild(gridView);
-            self.workspaceEl.appendChild(gridContainer);
+            const $gridView = document.createElement('div');
+            $gridView.id = 'grid-view';
+            $gridView.className = 'grid-view';
+            $gridView.style.position = 'absolute';
+            $gridView.style.top = '0';
+            $gridView.style.left = '0';
+            $gridView.style.right = '0';
+            gridContainer.appendChild($gridView);
+            self.$workspaceEl.appendChild(gridContainer);
             gridContainer.onscroll = () => self.gridViewManager.update();
             console.log('[App] Assigning gridViewEl to manager');
-            self.gridViewManager.gridViewEl = gridView;
-            self.gridViewManager.scrollSentinel = sentinel;
+            self.gridViewManager.$gridViewEl = $gridView;
+            self.gridViewManager.$scrollSentinel = sentinel;
             if (self.photos.length > 0)
                 self.gridViewManager.update(true);
-            self.loupeView = document.createElement('div');
+            self.$loupeView = document.createElement('div');
             self.loupeVNode = null;
-            self.loupeView.id = 'loupe-view-container';
-            self.loupeView.className = 'loupe-view';
-            self.loupeView.style.display = 'none';
-            self.loupeView.style.height = '100%';
-            self.loupeView.style.position = 'relative';
+            self.$loupeView.id = 'loupe-view-container';
+            self.$loupeView.className = 'loupe-view';
+            self.$loupeView.style.display = 'none';
+            self.$loupeView.style.height = '100%';
+            self.$loupeView.style.position = 'relative';
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
             resizer.style.display = 'none';
-            const filmstrip = document.createElement('div');
-            filmstrip.id = 'filmstrip';
-            filmstrip.className = 'filmstrip';
-            filmstrip.style.display = 'none';
-            filmstrip.style.scrollbarGutter = 'stable';
-            self.workspaceEl.appendChild(self.loupeView);
-            self.workspaceEl.appendChild(resizer);
-            self.workspaceEl.appendChild(filmstrip);
-            container.getElement().append(self.workspaceEl);
-            self.gridHeader = header;
-            self.gridView = gridView;
-            self.scrollSentinel = sentinel;
-            self.filmstrip = filmstrip;
-            self.gridViewManager.filmstripEl = filmstrip;
+            const $filmstrip = document.createElement('div');
+            $filmstrip.id = 'filmstrip';
+            $filmstrip.className = 'filmstrip';
+            $filmstrip.style.display = 'none';
+            $filmstrip.style.scrollbarGutter = 'stable';
+            self.$workspaceEl.appendChild(self.$loupeView);
+            self.$workspaceEl.appendChild(resizer);
+            self.$workspaceEl.appendChild($filmstrip);
+            container.getElement().append(self.$workspaceEl);
+            self.$gridHeader = header;
+            self.$gridView = $gridView;
+            self.$scrollSentinel = sentinel;
+            self.$filmstrip = $filmstrip;
+            self.gridViewManager.$filmstripEl = $filmstrip;
             gridContainer.onscroll = () => self.gridViewManager.update();
             // Filmstrip Resizer Logic
             let isResizing = false;
             resizer.onmousedown = (e) => { isResizing = true; e.preventDefault(); };
             document.addEventListener('mousemove', (e) => {
-                if (!isResizing || !self.filmstrip)
+                if (!isResizing || !self.$filmstrip)
                     return;
-                const offsetTop = self.loupeView.getBoundingClientRect().top;
-                const totalHeight = self.loupeView.clientHeight;
+                const offsetTop = self.$loupeView.getBoundingClientRect().top;
+                const totalHeight = self.$loupeView.clientHeight;
                 const newHeight = totalHeight - (e.clientY - offsetTop);
                 if (newHeight > 100 && newHeight < 500) {
-                    self.filmstrip.style.height = newHeight + 'px';
+                    self.$filmstrip.style.height = newHeight + 'px';
                     // Scale cards - we can adjust CSS variable or direct style
-                    const cards = self.filmstrip.querySelectorAll('.card');
+                    const cards = self.$filmstrip.querySelectorAll('.card');
                     cards.forEach((c) => {
                         c.style.height = (newHeight - 30) + 'px';
                         c.style.width = ((newHeight - 30) * 1.33) + 'px';
@@ -1060,17 +1060,17 @@ class App {
                 }
             });
             document.addEventListener('mouseup', () => { isResizing = false; });
-            self.workspaceEl.tabIndex = 0;
+            self.$workspaceEl.tabIndex = 0;
             if (self.photos.length > 0)
                 self.renderGrid();
             if (self.isLoupeMode)
                 self.renderLoupe();
         });
         this.layout.registerComponent('metadata', function (container) {
-            self.metadataEl = document.createElement('div');
+            self.$metadataEl = document.createElement('div');
             self.metadataVNode = null;
-            self.metadataEl.className = 'metadata-panel gl-component';
-            container.getElement().append(self.metadataEl);
+            self.$metadataEl.className = 'metadata-panel gl-component';
+            container.getElement().append(self.$metadataEl);
             if (self.selectedId)
                 self.renderMetadata();
         });
@@ -1082,12 +1082,12 @@ class App {
         this.layout.on('stateChanged', () => hub.pub(ps.UI_LAYOUT_CHANGED, {}));
     }
     updateSelectionUI(id) {
-        const oldSel = this.workspaceEl?.querySelectorAll('.card.selected');
+        const oldSel = this.$workspaceEl?.querySelectorAll('.card.selected');
         oldSel?.forEach(e => e.classList.remove('selected'));
-        const newSel = this.workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
+        const newSel = this.$workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
         newSel?.forEach(e => e.classList.add('selected'));
         if (this.isLoupeMode) {
-            const stripItem = this.filmstrip?.querySelector(`.card[data-id="${id}"]`);
+            const stripItem = this.$filmstrip?.querySelector(`.card[data-id="${id}"]`);
             if (stripItem)
                 stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
         }
@@ -1130,7 +1130,7 @@ class App {
     }
     // REQ-WFE-00022
     renderLibrary() {
-        if (!this.libraryEl)
+        if (!this.$libraryEl)
             return;
         this.ensureSelectedFolderVisible();
         const props = {
@@ -1178,10 +1178,10 @@ class App {
             onCancelTask: (id) => Api.api_library_cancel_task({ id: `thumbnails-${id}` })
         };
         if (!this.libraryVNode) {
-            this.libraryVNode = this.libraryEl;
+            this.libraryVNode = this.$libraryEl;
             // Global click listener to hide query builder
             document.addEventListener('click', (e) => {
-                const searchBox = this.libraryEl?.querySelector('.search-box');
+                const searchBox = this.$libraryEl?.querySelector('.search-box');
                 if (this.showQueryBuilder && searchBox && !searchBox.contains(e.target)) {
                     this.showQueryBuilder = false;
                     this.renderLibrary();
@@ -1451,8 +1451,8 @@ class App {
             const root = this.roots.find(r => r.id === this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
-        if (this.gridHeader) {
-            const headerTextEl = this.gridHeader.querySelector('#header-text');
+        if (this.$gridHeader) {
+            const headerTextEl = this.$gridHeader.querySelector('#header-text');
             if (headerTextEl) {
                 headerTextEl.innerHTML = '';
                 headerTextEl.appendChild(document.createTextNode('Showing '));
@@ -1460,7 +1460,7 @@ class App {
                 b.textContent = headerText;
                 headerTextEl.appendChild(b);
             }
-            const headerCountEl = this.gridHeader.querySelector('#header-count');
+            const headerCountEl = this.$gridHeader.querySelector('#header-count');
             if (headerCountEl)
                 headerCountEl.textContent = `${this.totalPhotos} items`;
         }
@@ -1470,7 +1470,7 @@ class App {
         this.gridViewManager.update(true);
     }
     renderLoupe() {
-        if (!this.loupeView)
+        if (!this.$loupeView)
             return;
         const photo = this.selectedId ? this.photoMap.get(this.selectedId) || null : null;
         const props = {
@@ -1484,8 +1484,8 @@ class App {
                 hub.pub(ps.PHOTO_ROTATED, { id, rotation: rot });
             }
         };
-        this.loupeVNode = patch(this.loupeVNode || this.loupeView, LoupeView(props));
-        this.loupeView = this.loupeVNode.elm;
+        this.loupeVNode = patch(this.loupeVNode || this.$loupeView, LoupeView(props));
+        this.$loupeView = this.loupeVNode.elm;
     }
     selectPhoto(id) {
         if (this.selectedId === id)
@@ -1538,18 +1538,18 @@ class App {
         else {
             layoutCont.style.display = 'block';
             libraryView.style.display = 'none';
-            const gridCont = this.workspaceEl?.querySelector('#grid-container');
-            const resizer = this.workspaceEl?.querySelector('.filmstrip-resizer');
+            const gridCont = this.$workspaceEl?.querySelector('#grid-container');
+            const resizer = this.$workspaceEl?.querySelector('.filmstrip-resizer');
             if (this.isLoupeMode) {
                 if (gridCont)
                     gridCont.style.display = 'none';
-                if (this.gridHeader)
-                    this.gridHeader.style.display = 'none';
+                if (this.$gridHeader)
+                    this.$gridHeader.style.display = 'none';
                 this.renderLoupe();
                 if (resizer)
                     resizer.style.display = 'block';
-                if (this.filmstrip)
-                    this.filmstrip.style.display = 'flex';
+                if (this.$filmstrip)
+                    this.$filmstrip.style.display = 'flex';
                 document.getElementById('nav-loupe')?.classList.add('active');
                 this.renderFilmstrip();
             }
@@ -1557,32 +1557,32 @@ class App {
                 this.renderLoupe();
                 if (gridCont)
                     gridCont.style.display = 'flex';
-                if (this.gridHeader)
-                    this.gridHeader.style.display = 'flex';
+                if (this.$gridHeader)
+                    this.$gridHeader.style.display = 'flex';
                 if (resizer)
                     resizer.style.display = 'none';
-                if (this.filmstrip)
-                    this.filmstrip.style.display = 'none';
+                if (this.$filmstrip)
+                    this.$filmstrip.style.display = 'none';
                 document.getElementById('nav-grid')?.classList.add('active');
                 this.gridViewManager.update(true);
             }
         }
     }
     updateFullscreenImage(id) {
-        if (!this.fullscreenImgPlaceholder || !this.fullscreenImgHighRes || !this.fullscreenSpinner || !this.fullscreenOverlay)
+        if (!this.$fullscreenImgPlaceholder || !this.$fullscreenImgHighRes || !this.$fullscreenSpinner || !this.$fullscreenOverlay)
             return;
-        this.fullscreenImgHighRes.classList.remove('loaded');
-        this.fullscreenImgHighRes.src = '';
-        this.fullscreenImgPlaceholder.style.display = 'none';
-        this.fullscreenImgPlaceholder.src = '';
-        this.fullscreenSpinner.style.display = 'block';
+        this.$fullscreenImgHighRes.classList.remove('loaded');
+        this.$fullscreenImgHighRes.src = '';
+        this.$fullscreenImgPlaceholder.style.display = 'none';
+        this.$fullscreenImgPlaceholder.src = '';
+        this.$fullscreenSpinner.style.display = 'block';
         const rot = this.rotationMap.get(id) || 0;
-        this.fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
-        this.fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
-        const dlOrig = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)');
+        this.$fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
+        this.$fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
+        const dlOrig = this.$fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(2)');
         if (dlOrig)
             dlOrig.href = `/api/download/${id}`;
-        const dlJpg = this.fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(1)');
+        const dlJpg = this.$fullscreenOverlay.querySelector('.fullscreen-btn:nth-child(1)');
         if (dlJpg)
             dlJpg.removeAttribute('href');
         const lowResKey = id + '-1024';
@@ -1591,21 +1591,21 @@ class App {
         const requestFullRes = () => {
             if (this.imageUrlCache.has(highResKey)) {
                 const url = this.imageUrlCache.get(highResKey);
-                this.fullscreenImgHighRes.src = url;
+                this.$fullscreenImgHighRes.src = url;
                 const photo = this.photoMap.get(id);
                 if (dlJpg && photo) {
                     dlJpg.href = url;
                     dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
                 }
-                if (this.fullscreenImgHighRes.complete) {
-                    this.fullscreenImgHighRes.classList.add('loaded');
-                    this.fullscreenSpinner.style.display = 'none';
+                if (this.$fullscreenImgHighRes.complete) {
+                    this.$fullscreenImgHighRes.classList.add('loaded');
+                    this.$fullscreenSpinner.style.display = 'none';
                 }
                 else {
-                    this.fullscreenImgHighRes.onload = () => {
+                    this.$fullscreenImgHighRes.onload = () => {
                         if (this.selectedId === id) {
-                            this.fullscreenImgHighRes.classList.add('loaded');
-                            this.fullscreenSpinner.style.display = 'none';
+                            this.$fullscreenImgHighRes.classList.add('loaded');
+                            this.$fullscreenSpinner.style.display = 'none';
                         }
                     };
                 }
@@ -1615,21 +1615,21 @@ class App {
                 if (this.selectedId === id && this.isFullscreen) {
                     if (blob.size === 0) {
                         // Error fallback: just stop spinner
-                        this.fullscreenSpinner.style.display = 'none';
+                        this.$fullscreenSpinner.style.display = 'none';
                         return;
                     }
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
-                    this.fullscreenImgHighRes.src = url;
+                    this.$fullscreenImgHighRes.src = url;
                     const photo = this.photoMap.get(id);
                     if (dlJpg && photo) {
                         dlJpg.href = url;
                         dlJpg.download = (photo.fileName || 'render').split('.')[0] + '_render.jpg';
                     }
-                    this.fullscreenImgHighRes.onload = () => {
+                    this.$fullscreenImgHighRes.onload = () => {
                         if (this.selectedId === id) {
-                            this.fullscreenImgHighRes.classList.add('loaded');
-                            this.fullscreenSpinner.style.display = 'none';
+                            this.$fullscreenImgHighRes.classList.add('loaded');
+                            this.$fullscreenSpinner.style.display = 'none';
                         }
                     };
                 }
@@ -1642,21 +1642,21 @@ class App {
         else if (this.imageUrlCache.has(thumbKey))
             bestUrl = this.imageUrlCache.get(thumbKey);
         if (bestUrl) {
-            this.fullscreenImgPlaceholder.src = bestUrl;
-            this.fullscreenImgPlaceholder.style.display = 'block';
+            this.$fullscreenImgPlaceholder.src = bestUrl;
+            this.$fullscreenImgPlaceholder.style.display = 'block';
         }
         else {
-            this.fullscreenImgPlaceholder.style.display = 'none';
+            this.$fullscreenImgPlaceholder.style.display = 'none';
         }
         requestFullRes();
     }
     toggleFullscreen() {
         if (this.isFullscreen) {
-            this.fullscreenOverlay?.remove();
-            this.fullscreenOverlay = null;
-            this.fullscreenImgPlaceholder = null;
-            this.fullscreenImgHighRes = null;
-            this.fullscreenSpinner = null;
+            this.$fullscreenOverlay?.remove();
+            this.$fullscreenOverlay = null;
+            this.$fullscreenImgPlaceholder = null;
+            this.$fullscreenImgHighRes = null;
+            this.$fullscreenSpinner = null;
             this.isFullscreen = false;
             // Refresh loupe if we are returning to it
             if (this.isLoupeMode && this.selectedId) {
@@ -1673,17 +1673,17 @@ class App {
         const spinner = document.createElement('div');
         spinner.className = 'spinner';
         overlay.appendChild(spinner);
-        this.fullscreenSpinner = spinner;
+        this.$fullscreenSpinner = spinner;
         const imgP = document.createElement('img');
         imgP.className = 'fullscreen-img placeholder';
         overlay.appendChild(imgP);
-        this.fullscreenImgPlaceholder = imgP;
+        this.$fullscreenImgPlaceholder = imgP;
         const imgH = document.createElement('img');
         imgH.className = 'fullscreen-img highres';
         overlay.appendChild(imgH);
-        this.fullscreenImgHighRes = imgH;
+        this.$fullscreenImgHighRes = imgH;
         document.body.appendChild(overlay);
-        this.fullscreenOverlay = overlay;
+        this.$fullscreenOverlay = overlay;
         const closeBtn = document.createElement('div');
         closeBtn.className = 'fullscreen-close';
         closeBtn.innerHTML = '&times;';
@@ -1708,7 +1708,7 @@ class App {
         this.updateFullscreenImage(this.selectedId);
     }
     renderMetadata() {
-        if (!this.metadataEl || !this.selectedId)
+        if (!this.$metadataEl || !this.selectedId)
             return;
         const photo = this.photoMap.get(this.selectedId) || null;
         const modelItem = this.selectedMetadata.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
@@ -1720,8 +1720,8 @@ class App {
             cameraThumbUrl: thumbUrl,
             onSearch: (tag, val) => hub.pub(ps.SEARCH_TRIGGERED, { tag, value: val })
         };
-        this.metadataVNode = patch(this.metadataVNode || this.metadataEl, MetadataPanel(props));
-        this.metadataEl = this.metadataVNode.elm;
+        this.metadataVNode = patch(this.metadataVNode || this.$metadataEl, MetadataPanel(props));
+        this.$metadataEl = this.metadataVNode.elm;
     }
     // REQ-WFE-00013
     async loadMetadata(id) {

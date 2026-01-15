@@ -31,9 +31,9 @@ export function LibraryScreen(props) {
                                         vnode.elm.value = currentScanPath;
                                     },
                                     update: (old, vnode) => {
-                                        const el = vnode.elm;
-                                        if (el.value !== currentScanPath) {
-                                            el.value = currentScanPath;
+                                        const $el = vnode.elm;
+                                        if ($el.value !== currentScanPath) {
+                                            $el.value = currentScanPath;
                                         }
                                     }
                                 },
