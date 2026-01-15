@@ -32,6 +32,13 @@ namespace PhotoLibrary
             _hashCache.Clear();
         }
 
+        public SqliteConnection GetOpenConnection()
+        {
+            var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            return connection;
+        }
+
         public void Initialize()
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -860,12 +867,22 @@ namespace PhotoLibrary
 
         public void UpsertFileEntry(FileEntry entry)
         {
-            try 
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            UpsertFileEntryWithConnection(connection, null, entry);
+        }
+
+        public void UpsertFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, FileEntry entry)
+        {
+            bool ownTransaction = false;
+            if (transaction == null)
             {
-                using var connection = new SqliteConnection(_connectionString);
-                connection.Open();
-                using var transaction = connection.BeginTransaction();
-                
+                transaction = connection.BeginTransaction();
+                ownTransaction = true;
+            }
+
+            try
+            {
                 string baseName = Path.GetFileNameWithoutExtension(entry.FileName ?? "");
 
                 using (var command = connection.CreateCommand())
@@ -886,7 +903,7 @@ namespace PhotoLibrary
                     command.Parameters.AddWithValue("$Hash", entry.Hash ?? (object)DBNull.Value);
                     command.ExecuteNonQuery();
                 }
-                
+
                 string? actualId = null;
                 using (var getIdCmd = connection.CreateCommand())
                 {
@@ -897,7 +914,8 @@ namespace PhotoLibrary
                     actualId = getIdCmd.ExecuteScalar() as string;
                 }
 
-                if (actualId != null) {
+                if (actualId != null)
+                {
                     using (var deleteCmd = connection.CreateCommand())
                     {
                         deleteCmd.Transaction = transaction;
@@ -906,11 +924,14 @@ namespace PhotoLibrary
                         deleteCmd.ExecuteNonQuery();
                     }
                 }
-                transaction.Commit();
+
+                if (ownTransaction) transaction.Commit();
             }
             catch (Exception ex)
             {
+                if (ownTransaction) transaction.Rollback();
                 _logger.LogError(ex, "Error upserting file {FileName}", entry.FileName);
+                throw;
             }
         }
 
@@ -993,8 +1014,14 @@ namespace PhotoLibrary
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
+            return GetFileIdWithConnection(connection, null, rootPathId, fileName);
+        }
+
+        public string? GetFileIdWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string rootPathId, string fileName)
+        {
             using (var command = connection.CreateCommand())
             {
+                if (transaction != null) command.Transaction = transaction;
                 command.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootPathId AND {Column.FileEntry.FileName} = $FileName";
                 command.Parameters.AddWithValue("$RootPathId", rootPathId);
                 command.Parameters.AddWithValue("$FileName", fileName);
@@ -1144,22 +1171,42 @@ namespace PhotoLibrary
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            using var transaction = connection.BeginTransaction();
-            foreach (var item in metadata) {
-                using (var command = connection.CreateCommand())
-                {
-                    command.Transaction = transaction;
-                    command.CommandText = $@"INSERT INTO {TableName.Metadata} ({Column.Metadata.FileId}, {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value}) VALUES ($FileId, $Directory, $Tag, $Value)";
-                    command.Parameters.AddWithValue("$FileId", fileId);
-                    command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
-                    command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
-                    string val = item.Value ?? "";
-                    if (val.Length > 100) val = val.Substring(0, 100);
-                    command.Parameters.AddWithValue("$Value", val);
-                    command.ExecuteNonQuery();
-                }
+            InsertMetadataWithConnection(connection, null, fileId, metadata);
+        }
+
+        public void InsertMetadataWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, IEnumerable<MetadataItem> metadata)
+        {
+            bool ownTransaction = false;
+            if (transaction == null)
+            {
+                transaction = connection.BeginTransaction();
+                ownTransaction = true;
             }
-            transaction.Commit();
+
+            try
+            {
+                foreach (var item in metadata)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = $@"INSERT INTO {TableName.Metadata} ({Column.Metadata.FileId}, {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value}) VALUES ($FileId, $Directory, $Tag, $Value)";
+                        command.Parameters.AddWithValue("$FileId", fileId);
+                        command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
+                        command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
+                        string val = item.Value ?? "";
+                        if (val.Length > 100) val = val.Substring(0, 100);
+                        command.Parameters.AddWithValue("$Value", val);
+                        command.ExecuteNonQuery();
+                    }
+                }
+                if (ownTransaction) transaction.Commit();
+            }
+            catch
+            {
+                if (ownTransaction) transaction.Rollback();
+                throw;
+            }
         }
 
         public IEnumerable<RootPathResponse> GetAllRootPaths()

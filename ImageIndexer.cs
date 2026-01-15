@@ -23,6 +23,9 @@ namespace PhotoLibrary
         private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
         private static readonly Process _currentProcess = Process.GetCurrentProcess();
+        
+        private Microsoft.Data.Sqlite.SqliteConnection? _sharedConnection;
+        private int _processedSinceCleanup = 0;
 
         public event Action<string, string>? OnFileProcessed;
 
@@ -33,12 +36,13 @@ namespace PhotoLibrary
             TotalToIndex = total;
         }
 
-        public ImageIndexer(DatabaseManager db, ILogger<ImageIndexer> logger, PreviewManager? previewManager = null, int[]? longEdges = null)
+        public ImageIndexer(DatabaseManager db, ILogger<ImageIndexer> logger, PreviewManager? previewManager = null, int[]? longEdges = null, Microsoft.Data.Sqlite.SqliteConnection? connection = null)
         {
             _db = db;
             _logger = logger;
             _previewManager = previewManager;
             _longEdges = longEdges ?? Array.Empty<int>();
+            _sharedConnection = connection;
         }
 
         public void Scan(string directoryPath, bool testOne = false, int? limit = null)
@@ -50,73 +54,118 @@ namespace PhotoLibrary
                 return;
             }
 
-            string fullScanPath = root.FullName;
-            _logger.LogInformation("Scanning {FullScanPath}...", fullScanPath);
-            
-            string? parentDir = Path.GetDirectoryName(fullScanPath);
-            string targetName = root.Name;
-
-            if (parentDir == null) parentDir = fullScanPath;
-
-            string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
-            string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
-            
-            _pathCache[fullScanPath] = targetRootId;
-
-            int count = 0;
-            int importedCount = 0;
-            var files = root.EnumerateFiles("*", SearchOption.AllDirectories);
-
-            foreach (var file in files)
+            bool ownConnection = false;
+            if (_sharedConnection == null)
             {
-                try
-                {
-                    bool wasImported = ProcessFile(file, fullScanPath, targetRootId);
-                    count++;
+                _sharedConnection = _db.GetOpenConnection();
+                ownConnection = true;
+            }
 
-                    if (wasImported)
+            try
+            {
+                string fullScanPath = root.FullName;
+                _logger.LogInformation("Scanning {FullScanPath}...", fullScanPath);
+                
+                string? parentDir = Path.GetDirectoryName(fullScanPath);
+                string targetName = root.Name;
+
+                if (parentDir == null) parentDir = fullScanPath;
+
+                string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
+                string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
+                
+                _pathCache[fullScanPath] = targetRootId;
+
+                int count = 0;
+                int importedCount = 0;
+                var files = root.EnumerateFiles("*", SearchOption.AllDirectories);
+
+                foreach (var file in files)
+                {
+                    try
                     {
-                        importedCount++;
-                        if (limit.HasValue && importedCount >= limit.Value)
+                        bool wasImported = ProcessFile(file, fullScanPath, targetRootId);
+                        count++;
+
+                        if (wasImported)
                         {
-                            _logger.LogInformation("Limit of {Limit} imports reached.", limit.Value);
+                            importedCount++;
+                            if (limit.HasValue && importedCount >= limit.Value)
+                            {
+                                _logger.LogInformation("Limit of {Limit} imports reached.", limit.Value);
+                                break;
+                            }
+                        }
+
+                        if (count % 1000 == 0) {
+                            _logger.LogInformation("Indexed {Count} files...", count);
+                            PerformPeriodicCleanup();
+                        }
+
+                        if (testOne)
+                        {
+                            _logger.LogInformation("Processed single file: {FileName}", file.Name);
                             break;
                         }
                     }
-
-                    if (count % 1000 == 0) {
-                        _logger.LogInformation("Indexed {Count} files...", count);
-                    }
-
-                    if (testOne)
+                    catch (Exception ex)
                     {
-                        _logger.LogInformation("Processed single file: {FileName}", file.Name);
-                        break;
+                        _logger.LogError(ex, "Error processing {FileFullName}", file.FullName);
                     }
                 }
-                catch (Exception ex)
+                _logger.LogInformation("Scanned {Count} files total. Imported/Updated {ImportedCount}.", count, importedCount);
+            }
+            finally
+            {
+                if (ownConnection)
                 {
-                    _logger.LogError(ex, "Error processing {FileFullName}", file.FullName);
+                    _sharedConnection?.Dispose();
+                    _sharedConnection = null;
                 }
             }
-            _logger.LogInformation("Scanned {Count} files total. Imported/Updated {ImportedCount}.", count, importedCount);
+        }
+
+        private void PerformPeriodicCleanup()
+        {
+            _pathCache.Clear();
+            _db.ClearCaches();
+            GC.Collect(1, GCCollectionMode.Optimized, false);
         }
 
         public void ProcessSingleFile(FileInfo file, string scanRootPath)
         {
             _logger.LogDebug("[INDEXER] ProcessSingleFile START: {FileName}", file.Name);
             string fullScanPath = Path.GetFullPath(scanRootPath);
-            string? parentDir = Path.GetDirectoryName(fullScanPath);
-            string targetName = Path.GetFileName(fullScanPath);
-
-            if (parentDir == null) parentDir = fullScanPath;
-
-            string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
-            string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
             
-            _pathCache[fullScanPath] = targetRootId;
-            
-            ProcessFile(file, fullScanPath, targetRootId);
+            bool ownConnection = false;
+            if (_sharedConnection == null)
+            {
+                _sharedConnection = _db.GetOpenConnection();
+                ownConnection = true;
+            }
+
+            try
+            {
+                string? parentDir = Path.GetDirectoryName(fullScanPath);
+                string targetName = Path.GetFileName(fullScanPath);
+
+                if (parentDir == null) parentDir = fullScanPath;
+
+                string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
+                string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
+                
+                _pathCache[fullScanPath] = targetRootId;
+                
+                ProcessFile(file, fullScanPath, targetRootId);
+            }
+            finally
+            {
+                if (ownConnection)
+                {
+                    _sharedConnection?.Dispose();
+                    _sharedConnection = null;
+                }
+            }
             _logger.LogDebug("[INDEXER] ProcessSingleFile END: {FileName}", file.Name);
         }
 
@@ -128,14 +177,13 @@ namespace PhotoLibrary
             if (dirPath == null) return false;
             dirPath = Path.GetFullPath(dirPath);
 
-            var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName);
+            var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName, _sharedConnection);
             if (exists && lastIndexedModified.HasValue && Math.Abs((file.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
             {
                 return false; 
             }
 
             string rootPathId;
-            // ... (rest of the logic to find rootPathId)
             if (dirPath == scanRootPath)
             {
                 rootPathId = scanRootId;
@@ -188,13 +236,13 @@ namespace PhotoLibrary
                     Hash = hash
                 };
 
-                _db.UpsertFileEntry(entry);
-                var fileId = _db.GetFileId(entry.RootPathId, entry.FileName!);
+                _db.UpsertFileEntryWithConnection(_sharedConnection!, null, entry);
+                var fileId = _db.GetFileIdWithConnection(_sharedConnection!, null, entry.RootPathId, entry.FileName!);
 
                 if (fileId != null)
                 {
                     var metadata = ExtractMetadata(stream);
-                    _db.InsertMetadata(fileId, metadata);
+                    _db.InsertMetadataWithConnection(_sharedConnection!, null, fileId, metadata);
 
                     if (_previewManager != null && _longEdges.Length > 0)
                     {
@@ -205,6 +253,14 @@ namespace PhotoLibrary
                     // Notify UI only after everything is ready (DB + Previews)
                     OnFileProcessed?.Invoke(fileId, file.FullName);
                 }
+
+                _processedSinceCleanup++;
+                if (_processedSinceCleanup >= 500)
+                {
+                    PerformPeriodicCleanup();
+                    _processedSinceCleanup = 0;
+                }
+
                 return true;
             }
             catch (Exception ex)
