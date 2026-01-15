@@ -1,4 +1,5 @@
 import { h } from '../../snabbdom-setup.js';
+import { themes } from '../../themes.js';
 export function SettingsModal(props) {
     const { isVisible, currentTheme, overlayFormat, onClose, onThemeChange, onOverlayFormatChange, onResetLayout } = props;
     return h('div.modal-overlay', {
@@ -14,11 +15,7 @@ export function SettingsModal(props) {
                 h('select', {
                     style: { background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.2em 0.5em', borderRadius: '4px' },
                     on: { change: (e) => onThemeChange(e.target.value) }
-                }, [
-                    h('option', { attrs: { value: 'dark', selected: currentTheme === 'dark' } }, 'Dark (Default)'),
-                    h('option', { attrs: { value: 'light', selected: currentTheme === 'light' } }, 'Light'),
-                    h('option', { attrs: { value: 'oled', selected: currentTheme === 'oled' } }, 'True Black (OLED)')
-                ])
+                }, Object.keys(themes).map(name => h('option', { attrs: { value: name, selected: currentTheme === name } }, name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))))
             ]),
             h('div.shortcut-row', [
                 h('span.shortcut-desc', 'Loupe Overlay Format'),

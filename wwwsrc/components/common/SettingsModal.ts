@@ -1,4 +1,5 @@
 import { h, VNode } from '../../snabbdom-setup.js';
+import { themes } from '../../themes.js';
 
 export interface SettingsModalProps {
     isVisible: boolean;
@@ -26,11 +27,11 @@ export function SettingsModal(props: SettingsModalProps): VNode {
                 h('select', {
                     style: { background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.2em 0.5em', borderRadius: '4px' },
                     on: { change: (e: Event) => onThemeChange((e.target as HTMLSelectElement).value) }
-                }, [
-                    h('option', { attrs: { value: 'dark', selected: currentTheme === 'dark' } }, 'Dark (Default)'),
-                    h('option', { attrs: { value: 'light', selected: currentTheme === 'light' } }, 'Light'),
-                    h('option', { attrs: { value: 'oled', selected: currentTheme === 'oled' } }, 'True Black (OLED)')
-                ])
+                }, Object.keys(themes).map(name => 
+                    h('option', { attrs: { value: name, selected: currentTheme === name } }, 
+                        name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                    )
+                ))
             ]),
             h('div.shortcut-row', [
                 h('span.shortcut-desc', 'Loupe Overlay Format'),
