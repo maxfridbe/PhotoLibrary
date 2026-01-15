@@ -1,7 +1,7 @@
 import { h } from '../../snabbdom-setup.js';
 export function LibraryScreen(props) {
     try {
-        const { containerId, info, scanResults, isIndexing, isScanning, currentScanPath, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
+        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
         return h('div.library-screen-container', {
             attrs: { id: containerId },
             style: { display: 'flex', height: '100%', width: '100%', gap: '1.5em', padding: '1.5em', boxSizing: 'border-box', background: 'var(--bg-main)', overflow: 'hidden' }
@@ -61,10 +61,10 @@ export function LibraryScreen(props) {
                     h('div.folder-list-container', {
                         style: {
                             border: '1px solid var(--border-main)', borderRadius: '4px',
-                            background: 'var(--bg-input)', minHeight: '150px', maxHeight: '350px',
+                            background: 'var(--bg-panel-alt)', minHeight: '150px', maxHeight: '350px',
                             overflowY: 'auto'
                         }
-                    }, info ? renderFolderList(info, onPathChange) : [])
+                    }, info ? renderHierarchicalFolderList(info, onPathChange) : [])
                 ]),
                 // Section 2: Results
                 h('div.lib-pane', { style: { display: 'flex', flexDirection: 'column', gap: '1em', paddingBottom: '4em' } }, [
@@ -72,7 +72,7 @@ export function LibraryScreen(props) {
                     h('div', {
                         style: {
                             border: '1px solid var(--border-main)', borderRadius: '4px',
-                            background: 'var(--bg-input)', minHeight: '100px', maxHeight: '10em',
+                            background: 'var(--bg-panel-alt)', minHeight: '100px', maxHeight: '10em',
                             overflowY: 'auto', position: 'relative'
                         }
                     }, [
@@ -89,7 +89,7 @@ export function LibraryScreen(props) {
                             ? h('div', { style: { padding: '3em', color: 'var(--text-muted)', textAlign: 'center' } }, 'No new files found.')
                             : renderScanTable(scanResults)
                     ]),
-                    renderImportControls(isIndexing, scanResults, currentScanPath, onIndexFiles, onCancelImport)
+                    renderImportControls(isIndexing, isCancelling, scanResults, currentScanPath, onIndexFiles, onCancelImport)
                 ])
             ])
         ]);
@@ -99,17 +99,41 @@ export function LibraryScreen(props) {
         return h('div', { style: { color: 'red', padding: '1em' } }, 'Render Error (check console)');
     }
 }
-function renderFolderList(info, onPathChange) {
-    const sorted = [...info.folders].sort((a, b) => a.path.localeCompare(b.path));
-    return sorted.map(f => h('div.folder-row', {
-        key: f.id,
-        style: { padding: '0.6em 1em', borderBottom: '1px solid var(--border-dim)', cursor: 'pointer', fontSize: '0.95em' },
-        on: { click: (e) => {
-                e.preventDefault();
-                console.log(`[LibraryScreen] Folder row clicked: ${f.path}`);
-                onPathChange(f.path);
-            } }
-    }, f.path));
+function renderHierarchicalFolderList(info, onPathChange) {
+    const map = new Map();
+    info.folders.forEach(f => map.set(f.id, { node: f, children: [] }));
+    const roots = [];
+    info.folders.forEach(f => {
+        if (f.parentId && map.has(f.parentId))
+            map.get(f.parentId).children.push(map.get(f.id));
+        else
+            roots.push(map.get(f.id));
+    });
+    const renderNode = (item, depth) => {
+        // Derive simple name from path if needed, or use path if it's root
+        const name = item.node.path.split(/[/\\]/).pop() || item.node.path;
+        const indent = depth * 1.5 + 'em';
+        return h('div', [
+            h('div.folder-row', {
+                key: item.node.id,
+                style: {
+                    padding: '0.4em 1em 0.4em ' + indent,
+                    borderBottom: '1px solid var(--border-dim)',
+                    cursor: 'pointer',
+                    fontSize: '0.9em',
+                    display: 'flex',
+                    alignItems: 'center'
+                },
+                on: { click: (e) => { e.preventDefault(); onPathChange(item.node.path); } }
+            }, [
+                h('span', { style: { marginRight: '0.5em', color: 'var(--accent)' } }, '\uD83D\uDCC1'),
+                h('span', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, attrs: { title: item.node.path } }, name),
+                h('span', { style: { color: 'var(--text-muted)', fontSize: '0.85em' } }, item.node.imageCount.toString())
+            ]),
+            ...item.children.map(c => renderNode(c, depth + 1))
+        ]);
+    };
+    return h('div', roots.map(r => renderNode(r, 1)));
 }
 function renderStats(info) {
     const item = (label, val, sub) => h('div', { style: { marginBottom: '1.2em' } }, [
@@ -145,20 +169,24 @@ function renderScanTable(results) {
         ])))
     ]);
 }
-function renderImportControls(isIndexing, results, currentPath, onIndex, onCancel) {
+function renderImportControls(isIndexing, isCancelling, results, currentPath, onIndex, onCancel) {
     if (isIndexing) {
         const indexed = results.filter(r => r.status === 'indexed').length;
         const total = results.length;
         const percent = total > 0 ? (indexed / total) * 100 : 0;
         return h('div', { style: { paddingTop: '2em', borderTop: '1px solid var(--border-main)' } }, [
             h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1em' } }, [
-                h('span', 'Indexing Photos...'),
+                h('span', isCancelling ? 'Cancelling...' : 'Indexing Photos...'),
                 h('div', [
                     h('span', `${indexed} / ${total}`),
                     h('button', {
-                        style: { marginLeft: '1em', padding: '2px 10px', background: '#8b0000', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' },
-                        on: { click: onCancel }
-                    }, 'CANCEL')
+                        style: { marginLeft: '1em', padding: '2px 10px', background: isCancelling ? '#555' : '#8b0000', color: 'white', border: 'none', borderRadius: '4px', cursor: isCancelling ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' },
+                        on: { click: isCancelling ? (() => { }) : onCancel },
+                        attrs: { disabled: isCancelling }
+                    }, [
+                        isCancelling ? h('span.spinner', { style: { width: '0.8em', height: '0.8em', borderWidth: '2px' } }) : null,
+                        'CANCEL'
+                    ])
                 ])
             ]),
             h('div', { style: { width: '100%', height: '1.5em', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-light)' } }, [

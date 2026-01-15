@@ -18,6 +18,7 @@ export class LibraryManager {
     private infoCache: Res.LibraryInfoResponse | null = null;
     private isIndexing = false;
     private isScanning = false;
+    private isCancelling = false;
     private libraryVNode: VNode | HTMLElement | null = null;
     private containerId: string | null = null;
     private currentScanPath: string = '';
@@ -68,10 +69,18 @@ export class LibraryManager {
             scanResults: this.scanResults,
             isIndexing: this.isIndexing,
             isScanning: this.isScanning,
+            isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
-            onCancelImport: () => Api.api_library_cancel_task({ id: 'import-batch' }),
+            onCancelImport: () => {
+                this.isCancelling = true;
+                this.render();
+                Api.api_library_cancel_task({ id: 'import-batch' }).then(() => {
+                    this.isCancelling = false;
+                    this.render();
+                });
+            },
             onPathChange: (path: string) => {
                 console.log(`[LibraryManager] Path changed to: ${path}`);
                 this.currentScanPath = path;
