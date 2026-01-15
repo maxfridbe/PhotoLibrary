@@ -5,8 +5,14 @@ import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
 import { GridView } from './grid.js';
 import { constants } from './constants.js';
+import { patch, h } from './snabbdom-setup.js';
+import { LibrarySidebar } from './components/library/LibrarySidebar.js';
+import { LoupeView } from './components/loupe/LoupeView.js';
+import { MetadataPanel } from './components/metadata/MetadataPanel.js';
+import { ShortcutsDialog } from './components/common/ShortcutsDialog.js';
+import { SettingsModal } from './components/common/SettingsModal.js';
+import { NotificationManager } from './components/common/NotificationManager.js';
 const ps = constants.pubsub;
-import { visualizeLensData } from './aperatureVis.js';
 // REQ-ARCH-00003
 class App {
     constructor() {
@@ -24,6 +30,7 @@ class App {
         this.selectedId = null;
         this.selectedMetadata = [];
         this.selectedRootId = null;
+        this.lastSelectedRootId = null;
         this.selectedCollectionId = null;
         this.filterType = 'all';
         this.filterRating = 0;
@@ -40,7 +47,8 @@ class App {
         this.isLibraryMode = false;
         this.isIndexing = false;
         this.overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
-        this.loupeOverlayEl = null;
+        this.isShortcutsVisible = false;
+        this.isSettingsVisible = false;
         // Connection State
         this.disconnectedAt = null;
         this.isConnected = false;
@@ -61,11 +69,18 @@ class App {
         this.scrollSentinel = null;
         this.loupeView = null;
         this.filmstrip = null;
-        this.loupePreviewPlaceholder = null;
-        this.mainPreview = null;
-        this.previewSpinner = null;
         this.metaTitleEl = null;
         this.metaVisEl = null;
+        this.apertureVNode = null;
+        this.libraryVNode = null;
+        this.loupeVNode = null;
+        this.metadataVNode = null;
+        this.modalsVNode = null;
+        this.notificationsVNode = null;
+        this.showQueryBuilder = false;
+        this.overlayText = '';
+        this.notifications = [];
+        this.notificationIdCounter = 0;
         this.metaGroups = new Map();
         this.importedBatchCount = 0;
         this.importedBatchTimer = null;
@@ -93,11 +108,11 @@ class App {
                     prog.thumbnailed = data.thumbnailed;
             }
             this.folderProgress.set(data.rootId, prog);
-            this.updateFolderProgressUI(data.rootId);
+            this.renderLibrary();
         });
         hub.sub(ps.FOLDER_FINISHED, (data) => {
             this.folderProgress.delete(data.rootId);
-            this.updateFolderProgressUI(data.rootId);
+            this.renderLibrary();
             this.showNotification('Thumbnail generation finished', 'success');
             this.refreshDirectories(); // Refresh stats from DB
         });
@@ -116,7 +131,34 @@ class App {
                 this.isConnected = true;
                 this.updateStatusUI();
             }
+            // Init modals
+            this.renderModals();
+            this.renderNotifications();
+            document.getElementById('settings-trigger')?.addEventListener('click', () => {
+                this.isSettingsVisible = true;
+                this.renderModals();
+            });
         });
+    }
+    renderModals() {
+        const container = document.getElementById('modals-container');
+        if (!container)
+            return;
+        const shortcuts = ShortcutsDialog({
+            isVisible: this.isShortcutsVisible,
+            onClose: () => { this.isShortcutsVisible = false; this.renderModals(); }
+        });
+        const settings = SettingsModal({
+            isVisible: this.isSettingsVisible,
+            currentTheme: this.themeManager.getCurrentTheme(),
+            overlayFormat: this.themeManager.getOverlayFormat(),
+            onClose: () => { this.isSettingsVisible = false; this.renderModals(); },
+            onThemeChange: (t) => { this.setTheme(t); this.renderModals(); },
+            onOverlayFormatChange: (f) => { this.setOverlayFormat(f); this.renderModals(); },
+            onResetLayout: () => { this.resetLayout(); this.isSettingsVisible = false; this.renderModals(); }
+        });
+        const vnode = h('div#modals-container', [shortcuts, settings]);
+        this.modalsVNode = patch(this.modalsVNode || container, vnode);
     }
     setTheme(name) { this.themeManager.setTheme(name); }
     async setOverlayFormat(format) {
@@ -125,14 +167,12 @@ class App {
             this.updateLoupeOverlay(this.selectedId);
     }
     updateLoupeOverlay(id) {
-        if (!this.loupeOverlayEl)
-            return;
         const photo = this.photoMap.get(id);
         if (!photo || !this.isLoupeMode) {
-            this.loupeOverlayEl.style.display = 'none';
+            this.overlayText = '';
+            this.renderLoupe();
             return;
         }
-        this.loupeOverlayEl.style.display = 'block';
         const date = new Date(photo.createdAt);
         const dateStr = date.toISOString().split('T')[0];
         const timeStr = date.toTimeString().split(' ')[0];
@@ -146,28 +186,27 @@ class App {
             const item = this.selectedMetadata.find(m => m.tag === tag);
             return item ? (item.value || '') : '';
         });
-        this.loupeOverlayEl.innerText = text;
+        this.overlayText = text;
+        this.renderLoupe();
     }
     initPubSub() {
         hub.sub(ps.PHOTO_SELECTED, (data) => {
             this.selectedId = data.id;
             this.updateSelectionUI(data.id);
             this.gridViewManager.setSelected(data.id);
+            this.gridViewManager.scrollToPhoto(data.id);
             this.loadMetadata(data.id);
             if (this.isFullscreen) {
                 this.updateFullscreenImage(data.id);
                 // Also update loupe in background if we are in that mode
                 if (this.isLoupeMode) {
-                    this.loadMainPreview(data.id);
+                    this.renderLoupe();
                     this.updateLoupeOverlay(data.id);
                 }
             }
             else if (this.isLoupeMode) {
-                this.loadMainPreview(data.id);
+                this.renderLoupe();
                 this.updateLoupeOverlay(data.id);
-            }
-            else {
-                this.gridViewManager.scrollToPhoto(data.id);
             }
             if (this.workspaceEl)
                 this.workspaceEl.focus();
@@ -179,6 +218,9 @@ class App {
             if (data.mode === 'loupe' && data.id) {
                 hub.pub(ps.PHOTO_SELECTED, { id: data.id, photo: this.photoMap.get(data.id) });
                 this.updateLoupeOverlay(data.id);
+            }
+            else if (data.mode === 'loupe') {
+                this.renderLoupe();
             }
             this.syncUrl();
         });
@@ -204,14 +246,7 @@ class App {
             this.gridViewManager.refreshStats(data.id, this.photos);
             // Update loupe
             if (this.selectedId === data.id && this.isLoupeMode) {
-                if (this.mainPreview) {
-                    this.mainPreview.style.transform = `rotate(${data.rotation}deg)`;
-                    this.mainPreview.classList.toggle('is-portrait-rotated', data.rotation % 180 !== 0);
-                }
-                if (this.loupePreviewPlaceholder) {
-                    this.loupePreviewPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
-                    this.loupePreviewPlaceholder.classList.toggle('is-portrait-rotated', data.rotation % 180 !== 0);
-                }
+                this.renderLoupe();
             }
             // Update fullscreen image
             if (this.isFullscreen && this.selectedId === data.id) {
@@ -222,7 +257,10 @@ class App {
             }
         });
         hub.sub(ps.SEARCH_TRIGGERED, (data) => this.searchPhotos(data.tag || null, data.value || null, data.query));
-        hub.sub(ps.SHORTCUTS_SHOW, () => document.getElementById('shortcuts-modal')?.classList.add('active'));
+        hub.sub(ps.SHORTCUTS_SHOW, () => {
+            this.isShortcutsVisible = true;
+            this.renderModals();
+        });
         hub.sub(ps.UI_LAYOUT_CHANGED, () => this.gridViewManager.update());
         hub.sub(ps.CONNECTION_CHANGED, (data) => {
             this.isConnected = data.connected;
@@ -274,7 +312,7 @@ class App {
                     prog.thumbnailed = (prog.thumbnailed || 0) + 1;
                     prog.processed = Math.max(prog.processed, prog.thumbnailed); // Keep processed in sync for fallback
                     this.folderProgress.set(data.rootId, prog);
-                    this.updateFolderProgressUI(data.rootId);
+                    this.renderLibrary();
                 }
             }
         });
@@ -457,33 +495,19 @@ class App {
         this.metaGroups.clear();
     }
     showNotification(message, type) {
-        const container = document.getElementById('notifications');
+        const id = ++this.notificationIdCounter;
+        this.notifications.push({ id, message, type });
+        this.renderNotifications();
+        setTimeout(() => {
+            this.notifications = this.notifications.filter(n => n.id !== id);
+            this.renderNotifications();
+        }, 3000);
+    }
+    renderNotifications() {
+        const container = document.getElementById('notifications-mount');
         if (!container)
             return;
-        const el = document.createElement('div');
-        el.style.padding = '0.8em 1.5em';
-        el.style.borderRadius = '4px';
-        el.style.color = '#fff';
-        el.style.fontSize = '0.9em';
-        el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-        el.style.pointerEvents = 'auto';
-        el.style.minWidth = '200px';
-        el.style.transition = 'all 0.3s ease';
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(20px)';
-        el.style.background = type === 'error' ? '#d32f2f' : (type === 'success' ? '#388e3c' : '#333');
-        el.textContent = message;
-        container.appendChild(el);
-        // Trigger entrance animation
-        setTimeout(() => {
-            el.style.opacity = '1';
-            el.style.transform = 'translateY(0)';
-        }, 10);
-        setTimeout(() => {
-            el.style.opacity = '0';
-            el.style.transform = 'translateY(-20px)';
-            setTimeout(() => el.remove(), 300);
-        }, 3000);
+        this.notificationsVNode = patch(this.notificationsVNode || container, NotificationManager({ notifications: this.notifications }));
     }
     updateStatusUI() {
         const el = document.getElementById('connection-status');
@@ -522,7 +546,26 @@ class App {
     }
     async refreshDirectories() {
         this.roots = await Api.api_directories({});
+        this.updateFlatFolderList();
         this.renderLibrary();
+    }
+    updateFlatFolderList() {
+        this.flatFolderList = [];
+        const map = new Map();
+        this.roots.forEach(r => {
+            const children = map.get(r.parentId || '') || [];
+            children.push(r);
+            map.set(r.parentId || '', children);
+        });
+        const walk = (parentId) => {
+            const children = map.get(parentId || '') || [];
+            children.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            children.forEach(c => {
+                this.flatFolderList.push(c.id);
+                walk(c.id);
+            });
+        };
+        walk(null);
     }
     updateSidebarCountsOnly() {
         if (!this.libraryEl)
@@ -710,6 +753,7 @@ class App {
                 Api.api_settings_get({ name: 'folder-expanded-state' })
             ]);
             this.roots = roots;
+            this.updateFlatFolderList();
             this.userCollections = colls;
             this.stats = stats;
             if (expState && expState.value) {
@@ -789,7 +833,8 @@ class App {
         }
         document.getElementById('layout-container').innerHTML = '';
         this.initLayout();
-        document.getElementById('settings-modal')?.classList.remove('active');
+        this.isSettingsVisible = false;
+        this.renderModals();
         this.showNotification('Layout reset to default', 'success');
     }
     initLayout() {
@@ -830,6 +875,7 @@ class App {
             libHeader.appendChild(collapseBtn);
             wrapper.appendChild(libHeader);
             self.libraryEl = document.createElement('div');
+            self.libraryVNode = null;
             self.libraryEl.className = 'tree-view';
             self.libraryEl.style.flex = '1';
             self.libraryEl.style.overflowY = 'auto';
@@ -969,314 +1015,30 @@ class App {
             self.gridViewManager.scrollSentinel = sentinel;
             if (self.photos.length > 0)
                 self.gridViewManager.update(true);
-            const loupeView = document.createElement('div');
-            loupeView.id = 'loupe-view';
-            loupeView.className = 'loupe-view';
-            loupeView.style.display = 'none';
-            loupeView.style.height = '100%';
-            const previewArea = document.createElement('div');
-            previewArea.className = 'preview-area';
-            const overlay = document.createElement('div');
-            overlay.className = 'loupe-overlay';
-            overlay.id = 'loupe-overlay';
-            self.loupeOverlayEl = overlay;
-            const spinner = document.createElement('div');
-            spinner.className = 'spinner center-spinner';
-            spinner.id = 'preview-spinner';
-            const imgP = document.createElement('img');
-            imgP.id = 'loupe-preview-placeholder';
-            imgP.className = 'loupe-img placeholder';
-            const imgH = document.createElement('img');
-            imgH.id = 'main-preview';
-            imgH.className = 'loupe-img highres';
-            // Zoom Toolbar
-            const zoomToolbar = document.createElement('div');
-            zoomToolbar.className = 'zoom-toolbar';
-            zoomToolbar.style.cssText = 'position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); padding: 5px 15px; border-radius: 20px; display: flex; gap: 15px; align-items: center; color: white; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100; border: 1px solid rgba(255,255,255,0.2);';
-            const btnRotateLeft = document.createElement('span');
-            btnRotateLeft.innerHTML = '&#8634;';
-            btnRotateLeft.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 1.2em;';
-            btnRotateLeft.title = 'Rotate Left ([)';
-            const btnMinus = document.createElement('span');
-            btnMinus.textContent = '-';
-            btnMinus.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto;';
-            const zoomLevel = document.createElement('span');
-            zoomLevel.textContent = '100%';
-            zoomLevel.style.cssText = 'font-variant-numeric: tabular-nums; width: 3em; text-align: center;';
-            const btnPlus = document.createElement('span');
-            btnPlus.textContent = '+';
-            btnPlus.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto;';
-            const btnOneToOne = document.createElement('span');
-            btnOneToOne.textContent = '1:1';
-            btnOneToOne.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 0.8em; border: 1px solid white; border-radius: 4px; display: none;';
-            btnOneToOne.title = 'Zoom to Device Pixels';
-            const btnRotateRight = document.createElement('span');
-            btnRotateRight.innerHTML = '&#8635;';
-            btnRotateRight.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 5px; pointer-events: auto; font-size: 1.2em;';
-            btnRotateRight.title = 'Rotate Right (])';
-            zoomToolbar.appendChild(btnRotateLeft);
-            zoomToolbar.appendChild(btnMinus);
-            zoomToolbar.appendChild(zoomLevel);
-            zoomToolbar.appendChild(btnPlus);
-            zoomToolbar.appendChild(btnOneToOne);
-            zoomToolbar.appendChild(btnRotateRight);
-            previewArea.appendChild(spinner);
-            previewArea.appendChild(overlay);
-            previewArea.appendChild(imgP);
-            previewArea.appendChild(imgH);
-            previewArea.appendChild(zoomToolbar);
-            // Zoom & Rotate Logic Variables
-            let scale = 1;
-            let rotation = 0;
-            let pX = 0, pY = 0;
-            let isDragging = false;
-            let startX = 0, startY = 0;
-            let zoomTimer = null;
-            let isFullResLoaded = false;
-            let savePrefsTimer = null;
-            const showToolbar = () => {
-                zoomToolbar.style.opacity = '1';
-                if (zoomTimer)
-                    clearTimeout(zoomTimer);
-                zoomTimer = setTimeout(() => zoomToolbar.style.opacity = '0', 2000);
-            };
-            const saveViewPrefs = () => {
-                if (!self.selectedId)
-                    return;
-                const photo = self.photoMap.get(self.selectedId);
-                if (!photo || !photo.hash)
-                    return;
-                // Don't save if everything is default
-                if (rotation === 0 && scale === 1 && pX === 0 && pY === 0)
-                    return;
-                const prefs = {
-                    rotation,
-                    zoom: scale,
-                    panL: pX / previewArea.clientWidth,
-                    panT: pY / previewArea.clientHeight
-                };
-                Api.api_settings_set({
-                    key: `${photo.hash}-pref-img`,
-                    value: JSON.stringify(prefs)
-                });
-            };
-            const loadFullRes = () => {
-                if (!self.selectedId || isFullResLoaded)
-                    return;
-                isFullResLoaded = true; // Mark as requested to prevent dupes
-                const id = self.selectedId;
-                const fullResKey = id + '-full';
-                const applyFullRes = (url) => {
-                    imgH.src = url;
-                    // Show 1:1 button when high res is ready
-                    imgH.onload = () => {
-                        if (self.selectedId === id) {
-                            btnOneToOne.style.display = 'inline-block';
-                            showToolbar();
-                        }
-                    };
-                };
-                if (self.imageUrlCache.has(fullResKey)) {
-                    applyFullRes(self.imageUrlCache.get(fullResKey));
-                    return;
-                }
-                // Request size 0 for original
-                server.requestImage(id, 0).then((blob) => {
-                    if (self.selectedId === id) {
-                        const url = URL.createObjectURL(blob);
-                        self.imageUrlCache.set(fullResKey, url);
-                        applyFullRes(url);
-                    }
-                });
-            };
-            const updateTransform = (skipSave = false, skipTransition = false) => {
-                const transform = `translate(${pX}px, ${pY}px) scale(${scale}) rotate(${rotation}deg)`;
-                imgP.style.transition = 'transform 0.2s';
-                imgH.style.transition = 'transform 0.2s';
-                if (isDragging || skipTransition) {
-                    imgP.style.transition = 'none';
-                    imgH.style.transition = 'none';
-                }
-                imgP.style.transform = transform;
-                imgH.style.transform = transform;
-                zoomLevel.textContent = Math.round(scale * 100) + '%';
-                // Cursor logic
-                if (scale > 1)
-                    previewArea.style.cursor = isDragging ? 'grabbing' : 'grab';
-                else
-                    previewArea.style.cursor = 'default';
-                // Load full res if zoomed in past 150%
-                if (scale > 1.5 && !isFullResLoaded) {
-                    loadFullRes();
-                }
-                if (!skipSave) {
-                    if (savePrefsTimer)
-                        clearTimeout(savePrefsTimer);
-                    savePrefsTimer = setTimeout(saveViewPrefs, 1000);
-                }
-            };
-            // Expose for restore
-            self.setViewTransform = (r, s, pl, pt) => {
-                rotation = r;
-                scale = s;
-                // Restore pan from percentages
-                pX = pl * previewArea.clientWidth;
-                pY = pt * previewArea.clientHeight;
-                updateTransform(true, true); // skip save and transition on restore
-                if (self.selectedId)
-                    hub.pub(ps.PHOTO_ROTATED, { id: self.selectedId, rotation });
-            };
-            // Controls
-            const triggerRotate = () => {
-                updateTransform();
-                showToolbar();
-                if (self.selectedId)
-                    hub.pub(ps.PHOTO_ROTATED, { id: self.selectedId, rotation });
-            };
-            btnRotateLeft.onclick = (e) => { e.stopPropagation(); rotation -= 90; triggerRotate(); };
-            btnRotateRight.onclick = (e) => { e.stopPropagation(); rotation += 90; triggerRotate(); };
-            btnMinus.onclick = (e) => { e.stopPropagation(); scale = Math.max(0.1, scale - 0.1); if (scale <= 1) {
-                pX = 0;
-                pY = 0;
-            } updateTransform(); showToolbar(); };
-            btnPlus.onclick = (e) => { e.stopPropagation(); scale = Math.min(5, scale + 0.1); updateTransform(); showToolbar(); };
-            btnOneToOne.onclick = (e) => {
-                e.stopPropagation();
-                if (!imgH.complete || imgH.naturalWidth === 0)
-                    return;
-                // Calculate scale for 1 image pixel : 1 physical device pixel
-                // Current rendered width at scale 1 (Fit)
-                const containerW = previewArea.clientWidth;
-                const containerH = previewArea.clientHeight;
-                const imgW = imgH.naturalWidth;
-                const imgH_h = imgH.naturalHeight;
-                const aspectImg = imgW / imgH_h;
-                const aspectContainer = containerW / containerH;
-                let renderedW, renderedH;
-                if (aspectImg > aspectContainer) {
-                    // Limited by width
-                    renderedW = containerW;
-                    renderedH = containerW / aspectImg;
-                }
-                else {
-                    // Limited by height
-                    renderedH = containerH;
-                    renderedW = containerH * aspectImg;
-                }
-                const scale1to1 = imgW / renderedW;
-                // devicePixelRatio logic:
-                // logical pixels = physical / devicePixelRatio
-                // we want 1 CSS pixel = 1 image pixel? No, usually 1:1 means 1 image pixel = 1 CSS pixel.
-                // "Zoom to device pixels" means 1 image pixel = 1 physical pixel.
-                // So if DPR is 2 (Retina), we want displayed CSS width = imgW / 2.
-                // Target CSS width = imgW / window.devicePixelRatio
-                // Target Scale = (imgW / window.devicePixelRatio) / renderedW
-                const targetScale = (imgW / window.devicePixelRatio) / renderedW;
-                scale = targetScale;
-                pX = 0;
-                pY = 0; // Center it
-                updateTransform();
-                showToolbar();
-            };
-            // Wheel Zoom
-            previewArea.onwheel = (e) => {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                const newScale = Math.max(0.1, Math.min(5, scale + delta));
-                if (newScale !== scale) {
-                    const rect = previewArea.getBoundingClientRect();
-                    // Cursor position relative to center
-                    const mx = e.clientX - rect.left - rect.width / 2;
-                    const my = e.clientY - rect.top - rect.height / 2;
-                    // Adjust pan to keep cursor point fixed
-                    pX -= (mx - pX) * (newScale / scale - 1);
-                    pY -= (my - pY) * (newScale / scale - 1);
-                    scale = newScale;
-                    if (scale <= 1) {
-                        pX = 0;
-                        pY = 0;
-                    }
-                    updateTransform();
-                    showToolbar();
-                }
-            };
-            // Pan Logic
-            previewArea.onmousedown = (e) => {
-                if (scale > 1 && e.button === 0) {
-                    isDragging = true;
-                    // Adjust for rotation? No, let's keep it simple: pan moves the image in screen space.
-                    // If rotated, the image moves "weirdly" relative to its own axes but correctly relative to screen.
-                    startX = e.clientX - pX;
-                    startY = e.clientY - pY;
-                    previewArea.style.cursor = 'grabbing';
-                    e.preventDefault();
-                }
-            };
-            document.addEventListener('mousemove', (e) => {
-                if (isDragging && scale > 1) {
-                    pX = e.clientX - startX;
-                    pY = e.clientY - startY;
-                    updateTransform();
-                    showToolbar();
-                }
-                else if (self.isLoupeMode && previewArea.contains(e.target)) {
-                    // Show toolbar when hovering near bottom or over the toolbar itself
-                    const rect = previewArea.getBoundingClientRect();
-                    const isBottom = e.clientY > (rect.bottom - 80);
-                    const isToolbar = zoomToolbar.contains(e.target);
-                    if (isBottom || isToolbar) {
-                        showToolbar();
-                        // Keep it visible if hovering directly
-                        if (isToolbar) {
-                            zoomToolbar.style.opacity = '1';
-                            if (zoomTimer)
-                                clearTimeout(zoomTimer);
-                        }
-                    }
-                }
-            });
-            document.addEventListener('mouseup', () => {
-                if (isDragging) {
-                    isDragging = false;
-                    updateTransform();
-                }
-            });
-            // Reset on load
-            hub.sub(ps.PHOTO_SELECTED, (data) => {
-                scale = 1;
-                rotation = self.rotationMap.get(data.id) || 0;
-                pX = 0;
-                pY = 0;
-                isFullResLoaded = false;
-                // Hide highres and apply rotation CSS BEFORE loading new src
-                imgH.classList.remove('loaded');
-                imgH.classList.toggle('is-portrait-rotated', rotation % 180 !== 0);
-                imgP.classList.toggle('is-portrait-rotated', rotation % 180 !== 0);
-                updateTransform(true, true);
-            });
-            // Expose rotation handlers for keyboard
-            self.rotateLeft = () => { rotation -= 90; triggerRotate(); };
-            self.rotateRight = () => { rotation += 90; triggerRotate(); };
+            self.loupeView = document.createElement('div');
+            self.loupeVNode = null;
+            self.loupeView.id = 'loupe-view-container';
+            self.loupeView.className = 'loupe-view';
+            self.loupeView.style.display = 'none';
+            self.loupeView.style.height = '100%';
+            self.loupeView.style.position = 'relative';
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
+            resizer.style.display = 'none';
             const filmstrip = document.createElement('div');
             filmstrip.id = 'filmstrip';
             filmstrip.className = 'filmstrip';
+            filmstrip.style.display = 'none';
             filmstrip.style.scrollbarGutter = 'stable';
-            loupeView.appendChild(previewArea);
-            loupeView.appendChild(resizer);
-            loupeView.appendChild(filmstrip);
-            self.workspaceEl.appendChild(loupeView);
+            self.workspaceEl.appendChild(self.loupeView);
+            self.workspaceEl.appendChild(resizer);
+            self.workspaceEl.appendChild(filmstrip);
             container.getElement().append(self.workspaceEl);
             self.gridHeader = header;
             self.gridView = gridView;
             self.scrollSentinel = sentinel;
-            self.loupeView = loupeView;
             self.filmstrip = filmstrip;
             self.gridViewManager.filmstripEl = filmstrip;
-            self.loupePreviewPlaceholder = imgP;
-            self.mainPreview = imgH;
-            self.previewSpinner = spinner;
             gridContainer.onscroll = () => self.gridViewManager.update();
             // Filmstrip Resizer Logic
             let isResizing = false;
@@ -1301,17 +1063,20 @@ class App {
             self.workspaceEl.tabIndex = 0;
             if (self.photos.length > 0)
                 self.renderGrid();
+            if (self.isLoupeMode)
+                self.renderLoupe();
         });
         this.layout.registerComponent('metadata', function (container) {
             self.metadataEl = document.createElement('div');
+            self.metadataVNode = null;
             self.metadataEl.className = 'metadata-panel gl-component';
             container.getElement().append(self.metadataEl);
+            if (self.selectedId)
+                self.renderMetadata();
         });
         this.layout.init();
         window.addEventListener('resize', () => {
             this.layout.updateSize();
-            if (this.libraryManager.libraryLayout)
-                this.libraryManager.libraryLayout.updateSize();
             hub.pub(ps.UI_LAYOUT_CHANGED, {});
         });
         this.layout.on('stateChanged', () => hub.pub(ps.UI_LAYOUT_CHANGED, {}));
@@ -1329,6 +1094,10 @@ class App {
     }
     ensureSelectedFolderVisible() {
         if (!this.selectedRootId)
+            return;
+        // Only auto-expand if the selection has actually changed
+        // This allows users to manually collapse the currently selected folder
+        if (this.selectedRootId === this.lastSelectedRootId)
             return;
         let changed = false;
         let currentId = this.selectedRootId;
@@ -1357,316 +1126,75 @@ class App {
                 value: JSON.stringify(Array.from(this.expandedFolders))
             });
         }
+        this.lastSelectedRootId = this.selectedRootId;
     }
     // REQ-WFE-00022
     renderLibrary() {
         if (!this.libraryEl)
             return;
         this.ensureSelectedFolderVisible();
-        this.libraryEl.innerHTML = '';
-        const createSection = (title) => {
-            const el = document.createElement('div');
-            el.className = 'tree-section-header';
-            el.textContent = title;
-            return el;
+        const props = {
+            stats: this.stats,
+            roots: this.roots,
+            userCollections: this.userCollections,
+            filterType: this.filterType,
+            filterRating: this.filterRating,
+            selectedRootId: this.selectedRootId,
+            selectedCollectionId: this.selectedCollectionId,
+            searchTitle: this.searchTitle,
+            searchResultCount: this.searchResultIds.length,
+            expandedFolders: this.expandedFolders,
+            folderProgress: this.folderProgress,
+            showQueryBuilder: this.showQueryBuilder,
+            onFilterChange: (type, rating, rootId) => this.setFilter(type, rating, rootId),
+            onCollectionFilterChange: (c) => this.setCollectionFilter(c),
+            onSearch: (query) => hub.pub(ps.SEARCH_TRIGGERED, { query }),
+            onInputClick: () => { this.showQueryBuilder = true; this.renderLibrary(); },
+            onFolderToggle: (id, expanded) => {
+                if (expanded)
+                    this.expandedFolders.add(id);
+                else
+                    this.expandedFolders.delete(id);
+                this.renderLibrary();
+                Api.api_settings_set({ key: 'folder-expanded-state', value: JSON.stringify(Array.from(this.expandedFolders)) });
+            },
+            onFolderContextMenu: (e, id) => this.showFolderContextMenu(e, id),
+            onPhotoContextMenu: (e, p) => this.showPhotoContextMenu(e, p),
+            onPickedContextMenu: (e) => this.showPickedContextMenu(e),
+            onCollectionContextMenu: (e, c) => this.showCollectionContextMenu(e, c),
+            onAnnotationSave: async (id, annotation, color) => {
+                const node = this.roots.find(r => r.id === id);
+                if (!node)
+                    return;
+                const targetColor = color || node.color;
+                if (annotation !== (node.annotation || '') || color) {
+                    await Api.api_library_set_annotation({ folderId: id, annotation, color: targetColor || undefined });
+                    node.annotation = annotation;
+                    if (targetColor)
+                        node.color = targetColor;
+                    this.renderLibrary();
+                }
+            },
+            onCancelTask: (id) => Api.api_library_cancel_task({ id: `thumbnails-${id}` })
         };
-        this.libraryEl.appendChild(createSection('Search'));
-        const searchBox = document.createElement('div');
-        searchBox.className = 'search-box';
-        searchBox.style.position = 'relative';
-        const searchInput = document.createElement('input');
-        searchInput.type = 'text';
-        searchInput.className = 'search-input';
-        searchInput.placeholder = 'Search (path:xxx, tag:xxx, size>2mb)...';
-        searchInput.onkeydown = (e) => { if (e.key === 'Enter')
-            hub.pub(ps.SEARCH_TRIGGERED, { query: searchInput.value }); };
-        const qBuilder = document.createElement('div');
-        qBuilder.className = 'query-builder';
-        qBuilder.innerHTML = `
-            <div class="query-row">
-                <span>Path:</span>
-                <input type="text" id="qb-path" placeholder="segment...">
-                <span class="query-add-btn" id="qb-path-add">+</span>
-            </div>
-            <div class="query-row">
-                <span>Tag:</span>
-                <input type="text" id="qb-tag" placeholder="Name [= Value]">
-                <span class="query-add-btn" id="qb-tag-add">+</span>
-            </div>
-            <div class="query-row">
-                <span>Size:</span>
-                <select id="qb-size-op"><option>></option><option><</option></select>
-                <input type="text" id="qb-size-val" placeholder="2mb">
-                <span class="query-add-btn" id="qb-size-add">+</span>
-            </div>
-            <div class="query-help">Click + to add to search. Press Enter to search.</div>
-        `;
-        const addSegment = (seg) => {
-            const current = searchInput.value.trim();
-            searchInput.value = (current ? current + ' ' : '') + seg;
-            searchInput.focus();
-        };
-        qBuilder.querySelector('#qb-path-add')?.addEventListener('click', () => {
-            const val = document.getElementById('qb-path').value;
-            if (val)
-                addSegment(`path:${val}`);
-        });
-        qBuilder.querySelector('#qb-tag-add')?.addEventListener('click', () => {
-            const val = document.getElementById('qb-tag').value;
-            if (val)
-                addSegment(`tag:${val}`);
-        });
-        qBuilder.querySelector('#qb-size-add')?.addEventListener('click', () => {
-            const op = document.getElementById('qb-size-op').value;
-            const val = document.getElementById('qb-size-val').value;
-            if (val)
-                addSegment(`size ${op} ${val}`);
-        });
-        searchInput.addEventListener('click', (e) => {
-            e.stopPropagation();
-            qBuilder.classList.add('active');
-        });
-        document.addEventListener('click', (e) => {
-            if (!searchBox.contains(e.target)) {
-                qBuilder.classList.remove('active');
-            }
-        });
-        const searchSpinner = document.createElement('div');
-        searchSpinner.className = 'search-loading';
-        searchBox.appendChild(searchInput);
-        searchBox.appendChild(searchSpinner);
-        searchBox.appendChild(qBuilder);
-        this.libraryEl.appendChild(searchBox);
-        if (this.filterType === 'search')
-            this.addTreeItem(this.libraryEl, '\uD83D\uDD0D ' + this.searchTitle, this.searchResultIds.length, () => this.setFilter('search'), true, 'search');
-        this.libraryEl.appendChild(createSection('Collections'));
-        this.addTreeItem(this.libraryEl, 'All Photos', this.stats.totalCount, () => this.setFilter('all'), this.filterType === 'all' && !this.selectedRootId, 'all');
-        const pEl = this.addTreeItem(this.libraryEl, '\u2691 Picked', this.stats.pickedCount, () => this.setFilter('picked'), this.filterType === 'picked', 'picked');
-        pEl.oncontextmenu = (e) => { e.preventDefault(); this.showPickedContextMenu(e); };
-        this.userCollections.forEach(c => {
-            const el = this.addTreeItem(this.libraryEl, '\uD83D\uDCC1 ' + c.name, c.count, () => this.setCollectionFilter(c), this.selectedCollectionId === c.id, 'collection-' + c.id);
-            el.oncontextmenu = (e) => { e.preventDefault(); this.showCollectionContextMenu(e, c); };
-        });
-        for (let i = 5; i >= 1; i--) {
-            const count = this.stats.ratingCounts[i - 1];
-            this.addTreeItem(this.libraryEl, '\u2605'.repeat(i), count, () => this.setFilter('rating', i), this.filterType === 'rating' && this.filterRating === i, 'rating-' + i);
-        }
-        this.libraryEl.appendChild(createSection('Folders'));
-        const treeContainer = document.createElement('div');
-        treeContainer.className = 'tree-folder-root';
-        this.libraryEl.appendChild(treeContainer);
-        this.renderFolderTree(treeContainer);
-    }
-    updateFolderProgressUI(rootId, container) {
-        const prog = this.folderProgress.get(rootId);
-        const el = container || document.getElementById(`folder-prog-${rootId}`);
-        if (!el)
-            return;
-        if (!prog || prog.total === 0) {
-            el.innerHTML = '';
-            return;
-        }
-        const total = prog.total;
-        const thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
-        // Disappear if 100%
-        if (thumbnailed >= total) {
-            el.innerHTML = '';
-            return;
-        }
-        const notThumbnailed = total - thumbnailed;
-        // Formula: (thumbnailed - notthumbnailed) / total
-        const rawPercent = ((thumbnailed - notThumbnailed) / total) * 100;
-        const displayPercent = Math.max(0, Math.round(rawPercent));
-        el.innerHTML = `
-            <div style="width: 60px; height: 8px; background: var(--bg-input); border: 1px solid var(--border-light); border-radius: 4px; overflow: hidden; margin: 0 0.5em; position: relative;" title="Thumbnailed: ${thumbnailed}, Remaining: ${notThumbnailed}, Total: ${total}">
-                <div style="width: ${displayPercent}%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
-            </div>
-            <span class="cancel-task" style="cursor: pointer; padding: 0 4px; color: var(--text-muted); font-size: 1.2em; line-height: 1;" title="Cancel">&times;</span>
-        `;
-        el.querySelector('.cancel-task')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            Api.api_library_cancel_task({ id: `thumbnails-${rootId}` });
-        });
-    }
-    getContrastColor(hexcolor) {
-        // If no color provided, default to white text
-        if (!hexcolor)
-            return '#ffffff';
-        // Remove # if present
-        const hex = hexcolor.replace('#', '');
-        // Convert to RGB
-        const r = parseInt(hex.substr(0, 2), 16);
-        const g = parseInt(hex.substr(2, 2), 16);
-        const b = parseInt(hex.substr(4, 2), 16);
-        // Calculate YIQ brightness
-        const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-        // Return black or white based on brightness
-        return (yiq >= 128) ? '#000000' : '#ffffff';
-    }
-    renderFolderTree(container) {
-        const map = new Map();
-        this.roots.forEach(r => map.set(r.id, { node: r, children: [] }));
-        const roots = [];
-        this.roots.forEach(r => {
-            if (r.parentId && map.has(r.parentId))
-                map.get(r.parentId).children.push(map.get(r.id));
-            else
-                roots.push(map.get(r.id));
-        });
-        this.flatFolderList = [];
-        const saveExpansionState = () => {
-            Api.api_settings_set({
-                key: 'folder-expanded-state',
-                value: JSON.stringify(Array.from(this.expandedFolders))
+        if (!this.libraryVNode) {
+            this.libraryVNode = this.libraryEl;
+            // Global click listener to hide query builder
+            document.addEventListener('click', (e) => {
+                const searchBox = this.libraryEl?.querySelector('.search-box');
+                if (this.showQueryBuilder && searchBox && !searchBox.contains(e.target)) {
+                    this.showQueryBuilder = false;
+                    this.renderLibrary();
+                }
             });
-        };
-        const renderNode = (item, target) => {
-            this.flatFolderList.push(item.node.id);
-            const el = document.createElement('div');
-            el.className = 'tree-item' + (this.selectedRootId === item.node.id ? ' selected' : '');
-            el.id = `folder-item-${item.node.id}`;
-            const pill = document.createElement('span');
-            pill.className = 'annotation-pill' + (item.node.annotation ? ' has-content' : '');
-            pill.contentEditable = 'true';
-            pill.textContent = item.node.annotation || '';
-            if (item.node.color) {
-                pill.style.backgroundColor = item.node.color;
-                pill.style.color = this.getContrastColor(item.node.color);
-            }
-            const saveAnnotation = async (color) => {
-                const raw = pill.textContent || '';
-                const words = raw.trim().split(/\s+/).slice(0, 3).join(' ');
-                const targetColor = color || item.node.color;
-                if (words !== (item.node.annotation || '') || color) {
-                    await Api.api_library_set_annotation({ folderId: item.node.id, annotation: words, color: targetColor || undefined });
-                    item.node.annotation = words;
-                    if (targetColor) {
-                        item.node.color = targetColor;
-                        pill.style.backgroundColor = targetColor;
-                        pill.style.color = this.getContrastColor(targetColor);
-                    }
-                }
-                pill.textContent = words;
-                pill.classList.toggle('has-content', !!words);
-            };
-            pill.onblur = () => saveAnnotation();
-            pill.onfocus = () => {
-                pill.classList.add('has-content'); // Ensure visible during edit
-            };
-            pill.onclick = (e) => e.stopPropagation();
-            pill.oncontextmenu = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const input = document.createElement('input');
-                input.type = 'color';
-                input.value = item.node.color || '#00bcd4'; // Default accent
-                input.oninput = () => {
-                    pill.style.backgroundColor = input.value;
-                    pill.style.color = this.getContrastColor(input.value);
-                };
-                input.onchange = () => {
-                    saveAnnotation(input.value);
-                };
-                input.click();
-            };
-            pill.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    pill.blur();
-                }
-            };
-            const annotationIcon = document.createElement('span');
-            annotationIcon.className = 'annotation-icon';
-            annotationIcon.innerHTML = '&#128172;';
-            annotationIcon.title = 'Add/Edit Annotation';
-            annotationIcon.onclick = (e) => {
-                e.stopPropagation();
-                pill.classList.add('has-content');
-                pill.focus();
-            };
-            const isExpanded = this.expandedFolders.has(item.node.id);
-            const toggle = document.createElement('span');
-            toggle.style.width = '1.2em';
-            toggle.style.display = 'inline-block';
-            toggle.style.textAlign = 'center';
-            toggle.style.cursor = 'pointer';
-            toggle.innerHTML = item.children.length > 0 ? (isExpanded ? '&#9662;' : '&#9656;') : '&nbsp;';
-            el.appendChild(annotationIcon);
-            el.appendChild(pill);
-            el.appendChild(toggle);
-            const name = document.createElement('span');
-            name.className = 'tree-name';
-            name.style.flex = '1';
-            name.style.overflow = 'hidden';
-            name.style.textOverflow = 'ellipsis';
-            name.textContent = item.node.name;
-            const progContainer = document.createElement('div');
-            progContainer.id = `folder-prog-${item.node.id}`;
-            progContainer.style.display = 'flex';
-            progContainer.style.alignItems = 'center';
-            el.appendChild(toggle);
-            el.appendChild(name);
-            el.appendChild(progContainer);
-            // Initial render of progress if active
-            if (this.folderProgress.has(item.node.id)) {
-                this.updateFolderProgressUI(item.node.id, progContainer);
-            }
-            const count = document.createElement('span');
-            count.className = 'count';
-            count.textContent = item.node.imageCount > 0 ? item.node.imageCount.toString() : '';
-            el.appendChild(count);
-            target.appendChild(el);
-            const childrenContainer = document.createElement('div');
-            childrenContainer.className = 'tree-children';
-            childrenContainer.style.paddingLeft = '1em';
-            childrenContainer.style.display = isExpanded ? 'block' : 'none';
-            target.appendChild(childrenContainer);
-            el.onclick = () => this.setFilter('all', 0, item.node.id);
-            el.oncontextmenu = (e) => {
-                e.preventDefault();
-                this.showFolderContextMenu(e, item.node.id);
-            };
-            if (this.selectedRootId === item.node.id) {
-                setTimeout(() => el.scrollIntoView({ behavior: 'auto', block: 'nearest' }), 50);
-            }
-            if (item.children.length > 0) {
-                toggle.onclick = (e) => {
-                    e.stopPropagation();
-                    const nowExpanded = childrenContainer.style.display === 'none';
-                    if (nowExpanded) {
-                        childrenContainer.style.display = 'block';
-                        toggle.innerHTML = '&#9662;';
-                        this.expandedFolders.add(item.node.id);
-                    }
-                    else {
-                        childrenContainer.style.display = 'none';
-                        toggle.innerHTML = '&#9656;';
-                        this.expandedFolders.delete(item.node.id);
-                    }
-                    saveExpansionState();
-                };
-                item.children.forEach((c) => renderNode(c, childrenContainer));
-            }
-        };
-        roots.forEach(r => renderNode(r, container));
-    }
-    addTreeItem(container, text, count, onClick, isSelected, typeAttr) {
-        const el = document.createElement('div');
-        el.className = 'tree-item' + (isSelected ? ' selected' : '');
-        el.dataset.type = typeAttr;
-        const s = document.createElement('span');
-        s.textContent = text;
-        const c = document.createElement('span');
-        c.className = 'count';
-        c.textContent = count > 0 ? count.toString() : '';
-        el.appendChild(s);
-        el.appendChild(c);
-        el.onclick = onClick;
-        container.appendChild(el);
-        return el;
+        }
+        this.libraryVNode = patch(this.libraryVNode, LibrarySidebar(props));
     }
     // REQ-WFE-00016
     setFilter(type, rating = 0, rootId = null, keepSelection = false) {
+        if (this.filterType === type && this.filterRating === rating && this.selectedRootId === rootId && type !== 'collection' && type !== 'search') {
+            return;
+        }
         this.prioritySession++;
         this.filterType = type;
         this.filterRating = rating;
@@ -1885,6 +1413,13 @@ class App {
     // REQ-WFE-00015
     // REQ-WFE-00021
     async searchPhotos(tag, value, query) {
+        this.showQueryBuilder = false;
+        if (!query && !tag) {
+            this.searchResultIds = [];
+            this.searchTitle = '';
+            this.setFilter('all');
+            return;
+        }
         const spinner = document.querySelector('.search-loading');
         if (spinner)
             spinner.classList.add('active');
@@ -1932,16 +1467,25 @@ class App {
     }
     // REQ-WFE-00019
     renderFilmstrip() {
-        if (!this.filmstrip)
+        this.gridViewManager.update(true);
+    }
+    renderLoupe() {
+        if (!this.loupeView)
             return;
-        this.filmstrip.innerHTML = '';
-        const loadedPhotos = this.getFilteredPhotos();
-        loadedPhotos.forEach(p => this.filmstrip.appendChild(this.gridViewManager.createCard(p, 'filmstrip')));
-        if (this.selectedId) {
-            const el = this.filmstrip.querySelector(`.card[data-id="${this.selectedId}"]`);
-            if (el)
-                el.scrollIntoView({ behavior: 'auto', inline: 'center' });
-        }
+        const photo = this.selectedId ? this.photoMap.get(this.selectedId) || null : null;
+        const props = {
+            photo,
+            rotation: this.selectedId ? this.rotationMap.get(this.selectedId) || 0 : 0,
+            overlayText: this.overlayText,
+            imageUrlCache: this.imageUrlCache,
+            isVisible: this.isLoupeMode,
+            onRotate: (id, rot) => {
+                this.rotationMap.set(id, rot);
+                hub.pub(ps.PHOTO_ROTATED, { id, rotation: rot });
+            }
+        };
+        this.loupeVNode = patch(this.loupeVNode || this.loupeView, LoupeView(props));
+        this.loupeView = this.loupeVNode.elm;
     }
     selectPhoto(id) {
         if (this.selectedId === id)
@@ -1952,7 +1496,7 @@ class App {
         if (this.isFullscreen)
             this.updateFullscreenImage(id);
         else if (this.isLoupeMode)
-            this.loadMainPreview(id);
+            this.renderLoupe();
     }
     // REQ-WFE-00012
     enterLoupeMode(id) {
@@ -1961,7 +1505,7 @@ class App {
         this.isLibraryMode = false;
         this.updateViewModeUI();
         this.selectPhoto(id);
-        this.loadMainPreview(id);
+        this.renderLoupe();
     }
     // REQ-WFE-00012
     enterGridMode() {
@@ -1978,12 +1522,7 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.updateViewModeUI();
-        if (!this.libraryManager.libraryLayout) {
-            this.libraryManager.initLayout('library-view', () => {
-                this.isIndexing = true;
-                this.libraryManager.triggerScan(this.showNotification.bind(this));
-            });
-        }
+        this.libraryManager.initLayout('library-view', () => { });
         this.libraryManager.loadLibraryInfo();
         this.syncUrl();
     }
@@ -1993,101 +1532,40 @@ class App {
         document.querySelectorAll('.lr-nav-item').forEach(el => el.classList.remove('active'));
         if (this.isLibraryMode) {
             layoutCont.style.display = 'none';
-            libraryView.style.display = 'block';
+            libraryView.style.display = 'flex';
             document.getElementById('nav-library')?.classList.add('active');
         }
         else {
             layoutCont.style.display = 'block';
             libraryView.style.display = 'none';
             const gridCont = this.workspaceEl?.querySelector('#grid-container');
+            const resizer = this.workspaceEl?.querySelector('.filmstrip-resizer');
             if (this.isLoupeMode) {
                 if (gridCont)
                     gridCont.style.display = 'none';
                 if (this.gridHeader)
                     this.gridHeader.style.display = 'none';
-                if (this.loupeView)
-                    this.loupeView.style.display = 'flex';
+                this.renderLoupe();
+                if (resizer)
+                    resizer.style.display = 'block';
+                if (this.filmstrip)
+                    this.filmstrip.style.display = 'flex';
                 document.getElementById('nav-loupe')?.classList.add('active');
                 this.renderFilmstrip();
             }
             else {
-                if (this.loupeView)
-                    this.loupeView.style.display = 'none';
+                this.renderLoupe();
                 if (gridCont)
                     gridCont.style.display = 'flex';
                 if (this.gridHeader)
                     this.gridHeader.style.display = 'flex';
+                if (resizer)
+                    resizer.style.display = 'none';
+                if (this.filmstrip)
+                    this.filmstrip.style.display = 'none';
                 document.getElementById('nav-grid')?.classList.add('active');
                 this.gridViewManager.update(true);
             }
-        }
-    }
-    loadMainPreview(id) {
-        if (!this.mainPreview || !this.loupePreviewPlaceholder || !this.previewSpinner)
-            return;
-        this.mainPreview.classList.remove('loaded');
-        this.mainPreview.src = ''; // Clear to prevent showing old image with new rotation
-        this.loupePreviewPlaceholder.style.display = 'none';
-        this.loupePreviewPlaceholder.src = '';
-        this.previewSpinner.style.display = 'block';
-        const lowResKey = id + '-300';
-        const highResKey = id + '-1024';
-        const requestHighRes = () => {
-            // console.log(`[Loupe] Requesting high-res for ${id}`);
-            const priority = this.getPriority?.(id) || (this.prioritySession + 2); // Boost loupe priority
-            server.requestImage(id, 1024, priority).then((blob) => {
-                if (this.selectedId === id && this.isLoupeMode) {
-                    const url = URL.createObjectURL(blob);
-                    this.imageUrlCache.set(highResKey, url);
-                    this.mainPreview.src = url;
-                    this.mainPreview.onload = () => {
-                        if (this.selectedId === id) {
-                            this.mainPreview.classList.add('loaded');
-                            this.previewSpinner.style.display = 'none';
-                        }
-                    };
-                    this.mainPreview.onerror = () => {
-                        console.error(`[Loupe] High-res load error for ${id}`);
-                        if (this.selectedId === id)
-                            this.previewSpinner.style.display = 'none';
-                    };
-                }
-            }).catch(e => {
-                console.error(`[Loupe] High-res request failed for ${id}`, e);
-                if (this.selectedId === id)
-                    this.previewSpinner.style.display = 'none';
-            });
-        };
-        if (this.imageUrlCache.has(highResKey)) {
-            // console.log(`[Loupe] High-res cache hit for ${id}`);
-            this.mainPreview.src = this.imageUrlCache.get(highResKey);
-            this.mainPreview.classList.add('loaded');
-            this.previewSpinner.style.display = 'none';
-            this.loupePreviewPlaceholder.style.display = 'none';
-            return;
-        }
-        if (this.imageUrlCache.has(lowResKey)) {
-            // console.log(`[Loupe] Low-res cache hit for ${id}`);
-            this.loupePreviewPlaceholder.src = this.imageUrlCache.get(lowResKey);
-            this.loupePreviewPlaceholder.style.display = 'block';
-            requestHighRes();
-        }
-        else {
-            this.loupePreviewPlaceholder.style.display = 'none';
-            // console.log(`[Loupe] Requesting low-res for ${id}`);
-            const priority = this.getPriority?.(id) || (this.prioritySession + 2);
-            server.requestImage(id, 300, priority).then((blob) => {
-                const url = URL.createObjectURL(blob);
-                this.imageUrlCache.set(lowResKey, url);
-                if (this.selectedId === id && this.isLoupeMode) {
-                    this.loupePreviewPlaceholder.src = url;
-                    this.loupePreviewPlaceholder.style.display = 'block';
-                    requestHighRes();
-                }
-            }).catch(e => {
-                console.error(`[Loupe] Low-res request failed for ${id}`, e);
-                requestHighRes(); // Try high-res anyway?
-            });
         }
     }
     updateFullscreenImage(id) {
@@ -2182,7 +1660,7 @@ class App {
             this.isFullscreen = false;
             // Refresh loupe if we are returning to it
             if (this.isLoupeMode && this.selectedId) {
-                this.loadMainPreview(this.selectedId);
+                this.renderLoupe();
                 this.updateLoupeOverlay(this.selectedId);
             }
             return;
@@ -2229,15 +1707,29 @@ class App {
         overlay.onclick = () => this.toggleFullscreen();
         this.updateFullscreenImage(this.selectedId);
     }
+    renderMetadata() {
+        if (!this.metadataEl || !this.selectedId)
+            return;
+        const photo = this.photoMap.get(this.selectedId) || null;
+        const modelItem = this.selectedMetadata.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
+        const model = modelItem?.value || '';
+        const thumbUrl = model ? this.cameraThumbCache.get(model.toString()) : undefined;
+        const props = {
+            photo,
+            metadata: this.selectedMetadata,
+            cameraThumbUrl: thumbUrl,
+            onSearch: (tag, val) => hub.pub(ps.SEARCH_TRIGGERED, { tag, value: val })
+        };
+        this.metadataVNode = patch(this.metadataVNode || this.metadataEl, MetadataPanel(props));
+        this.metadataEl = this.metadataVNode.elm;
+    }
     // REQ-WFE-00013
     async loadMetadata(id) {
-        if (!this.metadataEl || !id)
+        if (!id)
             return;
         const photo = this.photoMap.get(id);
         if (!photo)
             return;
-        const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
-        const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
         try {
             const meta = await Api.api_metadata({ id });
             this.selectedMetadata = meta;
@@ -2261,141 +1753,30 @@ class App {
                     console.error('Failed to restore view prefs', e);
                 }
             }
-            const groups = {};
-            meta.forEach(m => { const k = m.directory || 'Unknown'; if (!groups[k])
-                groups[k] = []; groups[k].push(m); });
-            groups['File Info'] = [
-                { directory: 'File Info', tag: 'Created', value: new Date(photo.createdAt).toLocaleString() },
-                { directory: 'File Info', tag: 'Size', value: (photo.size / (1024 * 1024)).toFixed(2) + ' MB' },
-                { directory: 'File Info', tag: 'ID', value: id }
-            ];
-            const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
-                const getMinPriority = (g) => { const priorities = groups[g].map(i => priorityTags.indexOf(i.tag)).filter(p => p !== -1); return priorities.length > 0 ? Math.min(...priorities) : 999; };
-                const pa = getMinPriority(a);
-                const pb = getMinPriority(b);
-                if (pa !== pb)
-                    return pa - pb;
-                let ia = groupOrder.indexOf(a);
-                let ib = groupOrder.indexOf(b);
-                if (ia === -1)
-                    ia = 999;
-                if (ib === -1)
-                    ib = 999;
-                return ia - ib;
-            });
-            if (!this.metaTitleEl) {
-                this.metaTitleEl = document.createElement('h2');
-                this.metadataEl.appendChild(this.metaTitleEl);
-            }
-            const pickText = photo.isPicked ? '\u2691' : '';
-            const starsText = photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '';
-            this.metaTitleEl.textContent = `${photo.fileName} ${pickText} ${starsText}`;
-            if (!this.metaVisEl) {
-                this.metaVisEl = document.createElement('div');
-                this.metaVisEl.id = 'meta-vis-container';
-                this.metaVisEl.style.marginBottom = '1em';
-                this.metaTitleEl.after(this.metaVisEl);
-            }
-            // Camera Thumbnail & Visualization
+            // Initial render without camera thumb
+            this.renderMetadata();
+            // Camera Thumbnail loading
             const modelItem = meta.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
-            const model = modelItem?.value || '';
-            const renderVis = (thumbUrl) => {
-                const hasAperture = meta.some(m => m.tag === 'F-Number' || m.tag === 'Aperture Value');
-                const hasFocal = meta.some(m => m.tag === 'Focal Length');
-                if (hasAperture && hasFocal) {
-                    this.metaVisEl.style.display = 'block';
-                    visualizeLensData(meta, 'meta-vis-container', thumbUrl);
-                }
-                else {
-                    this.metaVisEl.style.display = 'none';
-                }
-            };
-            if (model) {
-                if (this.cameraThumbCache.has(model)) {
-                    renderVis(this.cameraThumbCache.get(model));
-                }
-                else {
-                    const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
-                    const img = new Image();
-                    img.onload = () => {
-                        this.cameraThumbCache.set(model, thumbUrl);
-                        renderVis(thumbUrl);
-                    };
-                    img.onerror = () => {
-                        this.cameraThumbCache.set(model, '');
-                        renderVis();
-                    };
-                    img.src = thumbUrl;
-                }
+            const model = modelItem?.value?.toString() || '';
+            if (model && !this.cameraThumbCache.has(model)) {
+                const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
+                const img = new Image();
+                img.onload = () => {
+                    this.cameraThumbCache.set(model, thumbUrl);
+                    this.renderMetadata();
+                };
+                img.onerror = () => {
+                    this.cameraThumbCache.set(model, '');
+                    this.renderMetadata();
+                };
+                img.src = thumbUrl;
             }
             else {
-                renderVis();
-            }
-            const seenGroups = new Set();
-            for (const k of sortedGroupKeys) {
-                seenGroups.add(k);
-                let groupInfo = this.metaGroups.get(k);
-                if (!groupInfo) {
-                    const container = document.createElement('div');
-                    container.className = 'meta-group';
-                    const h3 = document.createElement('h3');
-                    h3.textContent = k;
-                    container.appendChild(h3);
-                    this.metadataEl.appendChild(container);
-                    groupInfo = { container, rows: new Map() };
-                    this.metaGroups.set(k, groupInfo);
-                }
-                const items = groups[k];
-                items.sort((a, b) => { let ia = priorityTags.indexOf(a.tag); let ib = priorityTags.indexOf(b.tag); if (ia === -1)
-                    ia = 999; if (ib === -1)
-                    ib = 999; if (ia !== ib)
-                    return ia - ib; return a.tag.localeCompare(b.tag); });
-                const seenRows = new Set();
-                for (const m of items) {
-                    const tagKey = m.tag;
-                    seenRows.add(tagKey);
-                    let row = groupInfo.rows.get(tagKey);
-                    if (!row) {
-                        row = document.createElement('div');
-                        row.className = 'meta-row';
-                        const keySpan = document.createElement('span');
-                        keySpan.className = 'meta-key';
-                        keySpan.textContent = m.tag || '';
-                        const valSpan = document.createElement('span');
-                        valSpan.className = 'meta-val';
-                        const search = document.createElement('span');
-                        search.className = 'meta-search-btn';
-                        search.textContent = '\uD83D\uDD0D';
-                        search.title = 'Search';
-                        row.appendChild(keySpan);
-                        row.appendChild(valSpan);
-                        row.appendChild(search);
-                        groupInfo.container.appendChild(row);
-                        groupInfo.rows.set(tagKey, row);
-                    }
-                    const valSpan = row.querySelector('.meta-val');
-                    valSpan.textContent = m.value || '';
-                    const searchBtn = row.querySelector('.meta-search-btn');
-                    searchBtn.onclick = () => hub.pub(ps.SEARCH_TRIGGERED, { tag: m.tag, value: m.value });
-                }
-                for (const [tag, rowEl] of groupInfo.rows.entries()) {
-                    if (!seenRows.has(tag)) {
-                        rowEl.remove();
-                        groupInfo.rows.delete(tag);
-                    }
-                }
-            }
-            for (const [groupName, info] of this.metaGroups.entries()) {
-                if (!seenGroups.has(groupName)) {
-                    info.container.remove();
-                    this.metaGroups.delete(groupName);
-                }
+                this.renderMetadata();
             }
         }
         catch (err) {
             console.error(err);
-            if (this.metadataEl)
-                this.metadataEl.textContent = 'Error loading metadata';
         }
     }
     // REQ-WFE-00014

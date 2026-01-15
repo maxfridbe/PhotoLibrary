@@ -69,8 +69,9 @@
 
         /* Folder Annotations */
         .tree-item { position: relative; padding: 0.4em 1em 0.4em 3.5em !important; }
-        .annotation-icon { position: absolute; left: 0.2em; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity 0.2s; cursor: pointer; color: var(--accent); font-size: 1.1em; z-index: 10; }
-        .tree-item:hover .annotation-icon { opacity: 1; }
+        .tree-item-prefix { position: absolute; left: 0; top: 0; bottom: 0; width: 3.5em; z-index: 5; display: flex; align-items: center; justify-content: center; }
+        .annotation-icon { position: absolute; left: 0.2em; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity 0.3s ease; cursor: pointer; color: var(--accent); font-size: 1.1em; z-index: 10; }
+        .tree-item-prefix:hover .annotation-icon { opacity: 1; }
         .tree-item:has(.annotation-pill.has-content) .annotation-icon { display: none; }
         .annotation-pill { 
             position: absolute; 
@@ -253,7 +254,7 @@
 </head>
 <body>
     <div class="lr-header">
-        <div class="lr-logo">Photo<b>Library</b><span class="settings-trigger" onclick="document.getElementById('settings-modal').classList.add('active')">&#9881;</span></div>
+        <div class="lr-logo">Photo<b>Library</b><span class="settings-trigger" id="settings-trigger">&#9881;</span></div>
         <div class="lr-nav">
             <div class="lr-nav-item" id="nav-library" onclick="app.enterLibraryMode()">LIBRARY</div>
             <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
@@ -268,57 +269,11 @@
 
     <div id="library-view" style="display: none; width: 100%; height: calc(100% - 40px); background: var(--bg-main);"></div>
 
-    <div id="notifications" style="position: fixed; bottom: 2em; right: 2em; z-index: 100000; display: flex; flex-direction: column; gap: 0.5em; pointer-events: none;"></div>
+    <div id="notifications-mount"></div>
+
+    <div id="modals-container"></div>
 
     <div class="context-menu" id="context-menu"></div>
-
-    <div class="modal-overlay" id="settings-modal">
-        <div class="shortcuts-dialog">
-            <h2>Application Settings</h2>
-            <div class="shortcut-row">
-                <span class="shortcut-desc">UI Theme</span>
-                <select id="theme-select" onchange="app.setTheme(this.value)" style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.2em 0.5em; border-radius: 4px;">
-                    <option value="dark">Dark (Default)</option>
-                    <option value="light">Light</option>
-                    <option value="oled">True Black (OLED)</option>
-                </select>
-            </div>
-            <div class="shortcut-row">
-                <span class="shortcut-desc">Loupe Overlay Format</span>
-                <input type="text" id="overlay-format-input" onchange="app.setOverlayFormat(this.value)" style="background: var(--bg-input); color: var(--text-input); border: 1px solid var(--border-light); padding: 0.2em 0.5em; border-radius: 4px; flex: 1; margin-left: 1em;">
-            </div>
-            <div style="margin-top: 1em; font-size: 0.75em; color: var(--text-muted);">
-                Variables: {Filename}, {Takendate}, {Takentime}, {MD:Any Metadata Tag}
-            </div>
-            <div style="border-top: 1px solid var(--border-light); margin: 1em 0; padding-top: 1em;">
-                <button onclick="app.resetLayout()" style="width: 100%; padding: 8px; cursor: pointer; background: #8b0000; color: white; border: none; border-radius: 4px; font-weight: bold;">Reset Layout</button>
-            </div>
-            <div style="margin-top: 20px; text-align: right;">
-                <button onclick="document.getElementById('settings-modal').classList.remove('active')" style="padding: 5px 15px; cursor: pointer; background: var(--border-light); color: var(--text-bright); border: none; border-radius: 4px;">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="shortcuts-modal">
-        <div class="shortcuts-dialog">
-            <h2>Keyboard Shortcuts</h2>
-            <div class="shortcut-row"><span class="shortcut-desc">Grid View</span><span class="shortcut-key">G</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Loupe (Preview) View</span><span class="shortcut-key">L</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Toggle Pick Flag</span><span class="shortcut-key">P</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Set Rating</span><span class="shortcut-key">1-5</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Clear Rating</span><span class="shortcut-key">0</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Rotate Left</span><span class="shortcut-key">[</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Rotate Right</span><span class="shortcut-key">]</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Toggle Metadata</span><span class="shortcut-key">M</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Toggle Library</span><span class="shortcut-key">B</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Navigate Photos</span><span class="shortcut-key">Arrows</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Navigate Folders</span><span class="shortcut-key">PgUp/PgDn</span></div>
-            <div class="shortcut-row"><span class="shortcut-desc">Show Shortcuts</span><span class="shortcut-key">?</span></div>
-            <div style="margin-top: 20px; text-align: right;">
-                <button onclick="document.getElementById('shortcuts-modal').classList.remove('active')" style="padding: 5px 15px; cursor: pointer; background: #444; color: #fff; border: none; border-radius: 4px;">Close</button>
-            </div>
-        </div>
-    </div>
 
     <script type="module" src="app.js"></script>
 </body>

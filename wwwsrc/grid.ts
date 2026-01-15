@@ -2,17 +2,33 @@ import * as Res from './Responses.generated.js';
 import { hub } from './PubSub.js';
 import { server } from './CommunicationManager.js';
 import { constants } from './constants.js';
+import { patch, h, VNode } from './snabbdom-setup.js';
+import { PhotoCard } from './components/grid/PhotoCard.js';
 
 const ps = constants.pubsub;
 
 type Photo = Res.PhotoResponse;
 
 export class GridView {
-    public gridViewEl: HTMLElement | null = null;
+    private _gridViewEl: HTMLElement | null = null;
+    public set gridViewEl(el: HTMLElement | null) {
+        this._gridViewEl = el;
+        this.gridVNode = null;
+    }
+    public get gridViewEl() { return this._gridViewEl; }
+
     public scrollSentinel: HTMLElement | null = null;
-    public filmstripEl: HTMLElement | null = null;
+
+    private _filmstripEl: HTMLElement | null = null;
+    public set filmstripEl(el: HTMLElement | null) {
+        this._filmstripEl = el;
+        this.filmstripVNode = null;
+    }
+    public get filmstripEl() { return this._filmstripEl; }
     
-    private cardCache: Map<string, HTMLElement> = new Map();
+    private gridVNode: VNode | HTMLElement | null = null;
+    private filmstripVNode: VNode | HTMLElement | null = null;
+
     private imageUrlCache: Map<string, string>;
     private rotationMap: Map<string, number>;
     
@@ -22,6 +38,7 @@ export class GridView {
     private readonly baseMinCardWidth = 200; 
     
     private visibleRange = { start: 0, end: 50 };
+    private filmstripVisibleRange = { start: 0, end: 20 };
     private photos: Photo[] = [];
     private selectedId: string | null = null;
     private generatingIds = new Set<string>();
@@ -34,41 +51,20 @@ export class GridView {
 
         hub.sub(ps.PREVIEW_GENERATING, (data) => {
             this.generatingIds.add(data.fileId);
-            this.updateCardSpinner(data.fileId, true);
+            this.update(true);
         });
 
         hub.sub(ps.PREVIEW_GENERATED, (data) => {
             this.generatingIds.delete(data.fileId);
-            this.updateCardSpinner(data.fileId, false);
-            // Also force image reload if visible?
-            // lazyLoadImage will handle cache check, but we might need to force re-check
-            // Actually, lazyLoadImage sets cache. 
-            // If we are showing spinner, image is not loaded.
-            // We should re-trigger load or just let lazyLoad handle it?
-            // If the card is visible, lazyLoadImage's observer has already fired request.
-            // We need to update the img src if it was empty/placeholder.
-            // But requestImage awaits... so it should resolve now?
-            // No, requestImage resolves when server responds.
-            // So we don't need to do anything else here except hide spinner.
+            this.update(true);
         });
-    }
 
-    private updateCardSpinner(id: string, show: boolean) {
-        const card = this.cardCache.get(id);
-        if (card) {
-            if (show) card.classList.add('generating');
-            else card.classList.remove('generating');
-        }
-        
-        const containers = [this.gridViewEl, this.filmstripEl];
-        for (const cont of containers) {
-            if (!cont) continue;
-            const el = cont.querySelector(`.card[data-id="${id}"]`);
-            if (el) {
-                if (show) el.classList.add('generating');
-                else el.classList.remove('generating');
-            }
-        }
+        hub.sub(ps.PHOTO_UPDATED, () => this.update(true));
+        hub.sub(ps.PHOTO_PICKED_ADDED, () => this.update(true));
+        hub.sub(ps.PHOTO_PICKED_REMOVED, () => this.update(true));
+        hub.sub(ps.PHOTO_STARRED_ADDED, () => this.update(true));
+        hub.sub(ps.PHOTO_STARRED_REMOVED, () => this.update(true));
+        hub.sub(ps.PHOTO_STARRED_CHANGED, () => this.update(true));
     }
 
     private get rowHeight() { 
@@ -78,36 +74,35 @@ export class GridView {
         return (this.baseMinCardWidth + 10) * this.gridScale; 
     }
 
+    private get filmstripCardWidth() {
+        if (!this.filmstripEl) return 210;
+        // height is 12.5em, card is 10.5em h, 12.5em w.
+        // Approx 200px wide + 10px gap.
+        const fsHeight = this.filmstripEl.clientHeight;
+        if (fsHeight === 0) return 210;
+        return (fsHeight * 1.0) + 10; // width is same as container height approx
+    }
+
     public setPhotos(photos: Photo[]) {
         this.photos = photos;
-        this.cardCache.clear();
+        this.update(true);
+    }
+
+    public clearCache() {
+        this.imageUrlCache.forEach(url => URL.revokeObjectURL(url));
+        this.imageUrlCache.clear();
         this.update(true);
     }
 
     public setSelected(id: string | null) {
-        const oldId = this.selectedId;
         this.selectedId = id;
-        if (oldId) this.updateCardSelection(oldId, false);
-        if (id) this.updateCardSelection(id, true);
-    }
-
-    private updateCardSelection(id: string, isSelected: boolean) {
-        const card = this.cardCache.get(id);
-        if (card) card.classList.toggle('selected', isSelected);
-        
-        const containers = [this.gridViewEl, this.filmstripEl];
-        for (const cont of containers) {
-            if (!cont) continue;
-            const el = cont.querySelector(`.card[data-id="${id}"]`);
-            if (el) el.classList.toggle('selected', isSelected);
-        }
+        this.update(true);
     }
 
     public setScale(scale: number) {
         this.gridScale = scale;
         document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
         document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
-        this.cardCache.clear();
         this.update(true);
     }
 
@@ -137,135 +132,85 @@ export class GridView {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.render();
         }
+
+        if (this.filmstripEl && window.app.isLoupeMode) {
+            this.renderFilmstrip();
+        }
     }
 
     private render() {
         if (!this.gridViewEl) return;
         const startRow = Math.floor(this.visibleRange.start / this.cols);
-        this.gridViewEl.style.transform = `translateY(${startRow * this.rowHeight}px)`;
+        const translateY = startRow * this.rowHeight;
 
-        const fragment = document.createDocumentFragment();
+        const cards: VNode[] = [];
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
             if (photo) {
-                let card = this.cardCache.get(photo.id);
-                if (!card) {
-                    card = this.createCard(photo);
-                    this.cardCache.set(photo.id, card);
-                } else {
-                    this.syncCardData(card, photo);
-                }
-                fragment.appendChild(card);
+                cards.push(PhotoCard({
+                    photo,
+                    isSelected: this.selectedId === photo.id,
+                    isGenerating: this.generatingIds.has(photo.id),
+                    rotation: this.rotationMap.get(photo.id) || 0,
+                    mode: 'grid',
+                    imageUrlCache: this.imageUrlCache,
+                    onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
+                    onDoubleClick: (id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id }),
+                    onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
+                    onTogglePick: (p) => server.togglePick(p)
+                }));
             }
         }
-        this.gridViewEl.innerHTML = '';
-        this.gridViewEl.appendChild(fragment);
-    }
 
-    // REQ-WFE-00002
-    public createCard(p: Photo, mode: 'grid' | 'filmstrip' = 'grid'): HTMLElement {
-        const card = document.createElement('div');
-        card.className = 'card loading'; // Start with loading
-        if (this.generatingIds.has(p.id)) card.classList.add('generating');
-        if (this.selectedId === p.id) card.classList.add('selected');
-        card.dataset.id = p.id;
-        
-        const imgContainer = document.createElement('div');
-        imgContainer.className = 'img-container';
-        const img = document.createElement('img');
-        
-        const spinner = document.createElement('div');
-        spinner.className = 'card-spinner';
-        imgContainer.appendChild(spinner);
-
-        const rot = this.rotationMap.get(p.id);
-        if (rot) img.style.transform = `rotate(${rot}deg)`;
-        
-        imgContainer.appendChild(img);
-        this.lazyLoadImage(p.id, img, 300);
-        card.appendChild(imgContainer);
-        
-        const info = document.createElement('div');
-        info.className = 'info';
-        
-        const top = document.createElement('div');
-        top.className = 'info-top';
-        const name = document.createElement('span'); name.className = 'filename'; 
-        top.appendChild(name);
-        
-        const pick = document.createElement('span'); pick.className = 'pick-btn' + (p.isPicked ? ' picked' : ''); pick.textContent = '\u2691';
-        pick.onclick = (e) => { e.stopPropagation(); server.togglePick(p); };
-        top.appendChild(pick);
-        
-        const mid = document.createElement('div');
-        mid.className = 'info-mid';
-        mid.textContent = new Date(p.createdAt).toISOString().split('T')[0];
-        
-        const bottom = document.createElement('div');
-        bottom.className = 'info-bottom';
-        const stars = document.createElement('span'); stars.className = 'stars' + (p.rating > 0 ? ' has-rating' : '');
-        stars.textContent = '\u2605'.repeat(p.rating) || '\u2606\u2606\u2606\u2606\u2606';
-        bottom.appendChild(stars);
-        
-        info.appendChild(top); 
-        info.appendChild(mid);
-        info.appendChild(bottom);
-        card.appendChild(info);
-        
-        if (mode === 'grid') {
-            card.addEventListener('dblclick', () => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id: p.id }));
-        }
-        card.addEventListener('click', () => hub.pub(ps.PHOTO_SELECTED, { id: p.id, photo: p }));
-        card.oncontextmenu = (e) => {
-            e.preventDefault();
-            window.app.showPhotoContextMenu(e, p);
-        };
-        
-        this.syncCardData(card, p); 
-        return card;
-    }
-
-    public syncCardData(card: HTMLElement, photo: Photo) {
-        const nameEl = card.querySelector('.filename');
-        if (nameEl) nameEl.textContent = photo.fileName || '';
-
-        const pickEl = card.querySelector('.pick-btn');
-        if (pickEl) {
-            pickEl.className = 'pick-btn' + (photo.isPicked ? ' picked' : '');
-        }
-
-        const starsEl = card.querySelector('.stars');
-        if (starsEl) {
-            starsEl.className = 'stars' + (photo.rating > 0 ? ' has-rating' : '');
-            starsEl.textContent = '\u2605'.repeat(photo.rating) || '\u2606\u2606\u2606\u2606\u2606';
-        }
-
-        const stackCount = photo.stackCount || 1;
-        card.classList.toggle('is-stacked', stackCount > 1);
-        let badge = card.querySelector('.stack-badge');
-        if (stackCount > 1) {
-            if (!badge) {
-                badge = document.createElement('div');
-                badge.className = 'stack-badge';
-                card.appendChild(badge);
+        const newVNode = h('div#grid-view.grid-view', {
+            style: { 
+                transform: `translateY(${translateY}px)`,
+                position: 'absolute', top: '0', left: '0', right: '0'
             }
-            badge.textContent = stackCount.toString();
-        } else if (badge) {
-            badge.remove();
-        }
+        }, cards);
 
-        const img = card.querySelector('img');
-        if (img) {
-            const rot = this.rotationMap.get(photo.id) || 0;
-            img.style.transform = `rotate(${rot}deg)`;
-            img.classList.toggle('is-portrait-rotated', rot % 180 !== 0);
-        }
-
-        if (this.generatingIds.has(photo.id)) card.classList.add('generating');
-        else card.classList.remove('generating');
+        if (!this.gridVNode) this.gridVNode = this.gridViewEl;
+        this.gridVNode = patch(this.gridVNode, newVNode);
+        this._gridViewEl = (this.gridVNode as VNode).elm as HTMLElement;
     }
 
-    private lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
+    private renderFilmstrip() {
+        if (!this.filmstripEl) return;
+
+        const cards = this.photos.map(photo => PhotoCard({
+            photo,
+            isSelected: this.selectedId === photo.id,
+            isGenerating: this.generatingIds.has(photo.id),
+            rotation: this.rotationMap.get(photo.id) || 0,
+            mode: 'filmstrip',
+            imageUrlCache: this.imageUrlCache,
+            onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
+            onDoubleClick: () => {},
+            onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
+            onTogglePick: (p) => server.togglePick(p)
+        }));
+
+        const newVNode = h('div#filmstrip-content', {
+            style: { 
+                display: 'flex',
+                height: '100%',
+                gap: '0.65em',
+                padding: '0 0.65em',
+                alignItems: 'center'
+            }
+        }, cards);
+
+        if (!this.filmstripVNode) {
+            this.filmstripEl.innerHTML = '';
+            const container = document.createElement('div');
+            this.filmstripEl.appendChild(container);
+            this.filmstripVNode = container;
+        }
+        this.filmstripVNode = patch(this.filmstripVNode, newVNode);
+        this._filmstripEl = (this.filmstripVNode as VNode).elm as HTMLElement;
+    }
+
+    public lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
         const cacheKey = id + '-' + size;
         if (this.imageUrlCache.has(cacheKey)) {
             // console.log(`[Grid] Cache hit for ${id}`);
@@ -307,38 +252,45 @@ export class GridView {
     public scrollToPhoto(id: string) {
         const index = this.photos.findIndex(p => p?.id === id);
         if (index === -1) return;
-        const row = Math.floor(index / this.cols);
-        const gridContainer = this.gridViewEl?.parentElement as HTMLElement;
-        if (!gridContainer) return;
 
-        const currentScroll = gridContainer.scrollTop;
-        const viewHeight = gridContainer.clientHeight;
-        const targetTop = row * this.rowHeight;
-        
-        if (targetTop < currentScroll || targetTop + this.rowHeight > currentScroll + viewHeight) {
-            gridContainer.scrollTo({
-                top: targetTop - (viewHeight / 2) + (this.rowHeight / 2),
-                behavior: 'smooth'
-            });
+        // Grid Scroll
+        if (this.gridViewEl) {
+            const row = Math.floor(index / this.cols);
+            const gridContainer = this.gridViewEl.parentElement as HTMLElement;
+            if (gridContainer) {
+                const currentScroll = gridContainer.scrollTop;
+                const viewHeight = gridContainer.clientHeight;
+                const targetTop = row * this.rowHeight;
+                
+                if (targetTop < currentScroll || targetTop + this.rowHeight > currentScroll + viewHeight) {
+                    gridContainer.scrollTo({
+                        top: targetTop - (viewHeight / 2) + (this.rowHeight / 2),
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        }
+
+        // Filmstrip Scroll
+        if (this.filmstripEl) {
+            const cardWidth = this.filmstripCardWidth;
+            const targetLeft = index * cardWidth;
+            const currentScroll = this.filmstripEl.scrollLeft;
+            const viewWidth = this.filmstripEl.clientWidth;
+
+            if (targetLeft < currentScroll || targetLeft + cardWidth > currentScroll + viewWidth) {
+                this.filmstripEl.scrollTo({
+                    left: targetLeft - (viewWidth / 2) + (cardWidth / 2),
+                    behavior: 'smooth'
+                });
+            }
         }
     }
+
 
     public refreshStats(id: string, photos: Photo[]) {
-        const photo = photos.find(p => p.id === id);
-        if (!photo) return;
-        const cached = this.cardCache.get(id);
-        if (cached) this.syncCardData(cached, photo);
-
-        const containers = [this.gridViewEl, this.filmstripEl];
-        for (const cont of containers) {
-            if (!cont) continue;
-            const inDom = cont.querySelectorAll(`.card[data-id="${id}"]`);
-            inDom?.forEach(card => this.syncCardData(card as HTMLElement, photo));
-        }
-    }
-
-    public clearCache() {
-        this.cardCache.clear();
+        this.photos = photos;
+        this.update(true);
     }
 
     public getColumnCount() {

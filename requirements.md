@@ -12,6 +12,7 @@
 - REQ-ARCH-00009: Stacking (e.g., JPG+RAW grouping) shall be handled exclusively by the client to maintain backend simplicity and performance.
 - REQ-ARCH-00010: The system shall support multiple concurrent frontend instances by tracking client identifiers to route private responses while broadcasting global library events.
 - REQ-ARCH-00011: The system shall utilize the WebP format for all thumbnails and previews to optimize storage and transfer efficiency.
+- REQ-ARCH-00012: ANY and all DOM references in typescript must have a $prefix ie, $loupe to denote a dom reference.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.
