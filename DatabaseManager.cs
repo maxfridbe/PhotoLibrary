@@ -100,9 +100,9 @@ namespace PhotoLibrary
                     FOREIGN KEY({Column.CollectionFiles.CollectionId}) REFERENCES {TableName.UserCollections}({Column.UserCollections.Id}),
                     FOREIGN KEY({Column.CollectionFiles.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
                 );",
-                @"CREATE TABLE IF NOT EXISTS Settings (
-                    Key TEXT PRIMARY KEY,
-                    Value TEXT
+                $@"CREATE TABLE IF NOT EXISTS {TableName.Settings} (
+                    {Column.Settings.Key} TEXT PRIMARY KEY,
+                    {Column.Settings.Value} TEXT
                 );",
                 $@"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON {TableName.Metadata}({Column.Metadata.FileId});",
                 $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON {TableName.FileEntry}({Column.FileEntry.CreatedAt});",
@@ -386,7 +386,7 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Value FROM Settings WHERE Key = $Key";
+                command.CommandText = $"SELECT {Column.Settings.Value} FROM {TableName.Settings} WHERE {Column.Settings.Key} = $Key";
                 command.Parameters.AddWithValue("$Key", key);
                 return command.ExecuteScalar() as string;
             }
@@ -399,7 +399,10 @@ namespace PhotoLibrary
             connection.Open();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "INSERT INTO Settings (Key, Value) VALUES ($Key, $Value) ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value";
+                command.CommandText = $@"
+                    INSERT INTO {TableName.Settings} ({Column.Settings.Key}, {Column.Settings.Value}) 
+                    VALUES ($Key, $Value) 
+                    ON CONFLICT({Column.Settings.Key}) DO UPDATE SET {Column.Settings.Value} = excluded.{Column.Settings.Value}";
                 command.Parameters.AddWithValue("$Key", key);
                 command.Parameters.AddWithValue("$Value", value ?? (object)DBNull.Value);
                 command.ExecuteNonQuery();

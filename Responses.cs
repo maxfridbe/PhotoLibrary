@@ -33,6 +33,12 @@ namespace PhotoLibrary
         public string? Value { get; set; }
     }
 
+    public class MetadataGroupResponse
+    {
+        public string Name { get; set; } = "";
+        public Dictionary<string, string> Items { get; set; } = new();
+    }
+
     public class DirectoryNodeResponse
     {
         public string Id { get; set; } = "";

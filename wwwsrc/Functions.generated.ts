@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-15T19:35:17.8164380-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-16T08:11:50.9741162-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -13,8 +13,8 @@ export async function api_photos(data: any): Promise<Res.PagedPhotosResponse> {
     return await post<Res.PagedPhotosResponse>('/api/photos', data);
 }
 
-export async function api_metadata(data: any): Promise<Res.MetadataItemResponse[]> {
-    return await post<Res.MetadataItemResponse[]>('/api/metadata', data);
+export async function api_metadata(data: Req.IdRequest): Promise<Res.MetadataGroupResponse[]> {
+    return await post<Res.MetadataGroupResponse[]>('/api/metadata', data);
 }
 
 export async function api_directories(data: any): Promise<Res.DirectoryNodeResponse[]> {

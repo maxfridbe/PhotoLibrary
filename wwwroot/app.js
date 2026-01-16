@@ -188,8 +188,11 @@ class App {
         // Handle {MD:key} tags
         const mdRegex = /{MD:(.+?)}/g;
         text = text.replace(mdRegex, (match, tag) => {
-            const item = this.selectedMetadata.find(m => m.tag === tag);
-            return item ? (item.value || '') : '';
+            for (const group of this.selectedMetadata) {
+                if (group.items[tag])
+                    return group.items[tag];
+            }
+            return '';
         });
         this.overlayText = text;
         this.renderLoupe();
@@ -249,6 +252,7 @@ class App {
         hub.sub(ps.PHOTO_ROTATED, (data) => {
             this.rotationMap.set(data.id, data.rotation);
             this.gridViewManager.refreshStats(data.id, this.photos);
+            this.savePhotoPreferences(data.id, data.rotation);
             // Update loupe
             if (this.selectedId === data.id && this.isLoupeMode) {
                 this.renderLoupe();
@@ -1577,6 +1581,7 @@ class App {
             isVisible: this.isLoupeMode,
             onRotate: (id, rot) => {
                 this.rotationMap.set(id, rot);
+                this.savePhotoPreferences(id, rot);
                 hub.pub(ps.PHOTO_ROTATED, { id, rotation: rot });
             }
         };
@@ -1807,8 +1812,17 @@ class App {
         if (!this.$metadataEl || !this.selectedId)
             return;
         const photo = this.photoMap.get(this.selectedId) || null;
-        const modelItem = this.selectedMetadata.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
-        const model = modelItem?.value || '';
+        let model = '';
+        for (const group of this.selectedMetadata) {
+            if (group.items['Model']) {
+                model = group.items['Model'];
+                break;
+            }
+            if (group.items['Camera Model Name']) {
+                model = group.items['Camera Model Name'];
+                break;
+            }
+        }
         const thumbUrl = model ? this.cameraThumbCache.get(model.toString()) : undefined;
         const props = {
             photo,
@@ -1832,17 +1846,29 @@ class App {
             if (this.isLoupeMode)
                 this.updateLoupeOverlay(id);
             // Update hash if provided (lazy computed)
-            const hashItem = meta.find(m => m.tag === 'FileHash');
-            if (hashItem && hashItem.value) {
+            let fileHash = '';
+            for (const group of meta) {
+                if (group.items['FileHash']) {
+                    fileHash = group.items['FileHash'];
+                    break;
+                }
+            }
+            if (fileHash) {
                 const p = this.photoMap.get(id);
                 if (p)
-                    p.hash = hashItem.value;
+                    p.hash = fileHash;
             }
             // Restore View Preferences
-            const viewPref = meta.find(m => m.tag === 'ViewPreferences');
-            if (viewPref && viewPref.value && this.isLoupeMode && this.setViewTransform) {
+            let viewPrefs = '';
+            for (const group of meta) {
+                if (group.items['ViewPreferences']) {
+                    viewPrefs = group.items['ViewPreferences'];
+                    break;
+                }
+            }
+            if (viewPrefs && this.isLoupeMode && this.setViewTransform) {
                 try {
-                    const p = JSON.parse(viewPref.value);
+                    const p = JSON.parse(viewPrefs);
                     this.setViewTransform(p.rotation, p.zoom, p.panL, p.panT);
                 }
                 catch (e) {
@@ -1852,8 +1878,17 @@ class App {
             // Initial render without camera thumb
             this.renderMetadata();
             // Camera Thumbnail loading
-            const modelItem = meta.find(m => m.tag === 'Model' || m.tag === 'Camera Model Name');
-            const model = modelItem?.value?.toString() || '';
+            let model = '';
+            for (const group of meta) {
+                if (group.items['Model']) {
+                    model = group.items['Model'];
+                    break;
+                }
+                if (group.items['Camera Model Name']) {
+                    model = group.items['Camera Model Name'];
+                    break;
+                }
+            }
             if (model && !this.cameraThumbCache.has(model)) {
                 const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
                 const img = new Image();

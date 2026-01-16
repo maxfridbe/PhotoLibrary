@@ -134,7 +134,7 @@ namespace TypeGen
                 }
 
                 if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
-                else if (route.Contains("metadata")) resType = "Res.MetadataItemResponse[]";
+                else if (route.Contains("metadata")) resType = "Res.MetadataGroupResponse[]";
                 else if (route.Contains("directories")) resType = "Res.DirectoryNodeResponse[]";
                 else if (route.Contains("collections/list")) resType = "Res.CollectionResponse[]";
                 else if (route.Contains("stats")) resType = "Res.StatsResponse";
@@ -153,6 +153,18 @@ namespace TypeGen
         private static string MapType(string csType)
         {
             string t = csType.Replace("?", "").Trim();
+
+            if (t.StartsWith("Dictionary<") || t.StartsWith("IDictionary<"))
+            {
+                int start = t.IndexOf("<") + 1;
+                int end = t.LastIndexOf(">");
+                var inner = t.Substring(start, end - start);
+                var comma = inner.IndexOf(",");
+                var keyType = MapType(inner.Substring(0, comma));
+                var valueType = MapType(inner.Substring(comma + 1));
+                return $"{{ [key: {keyType}]: {valueType} }}";
+            }
+
             bool isArray = t.Contains("[]") || t.StartsWith("IEnumerable") || t.StartsWith("List") || t.StartsWith("ICollection");
 
             if (t.Contains("<") && t.Contains(">"))

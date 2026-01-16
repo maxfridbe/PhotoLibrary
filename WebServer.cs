@@ -119,12 +119,19 @@ namespace PhotoLibrary
                 return Results.Ok(response);
             });
 
-            app.MapPost("/api/metadata", async (HttpContext context, DatabaseManager db) =>
+            app.MapPost("/api/metadata", (IdRequest req, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
-                if (req == null) return Results.BadRequest();
-                var metadata = db.GetMetadata(req.id);
-                return Results.Ok(metadata);
+                var flatMetadata = db.GetMetadata(req.id);
+                var grouped = flatMetadata
+                    .GroupBy(m => m.Directory ?? "General")
+                    .Select(g => new MetadataGroupResponse
+                    {
+                        Name = g.Key,
+                        Items = g.GroupBy(i => i.Tag ?? "")
+                                 .ToDictionary(tg => tg.Key, tg => tg.First().Value ?? "")
+                    })
+                    .ToList();
+                return Results.Ok(grouped);
             });
 
             app.MapPost("/api/directories", (DatabaseManager db) =>

@@ -1,4 +1,4 @@
-// Generated from Responses.cs via Roslyn at 2026-01-15T19:35:17.7757611-06:00
+// Generated from Responses.cs via Roslyn at 2026-01-16T08:11:50.9334549-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -27,6 +27,11 @@ export interface MetadataItemResponse {
     directory?: string;
     tag?: string;
     value?: string;
+}
+
+export interface MetadataGroupResponse {
+    name: string;
+    items: { [key: string]: string };
 }
 
 export interface DirectoryNodeResponse {

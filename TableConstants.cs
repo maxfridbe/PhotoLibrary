@@ -12,10 +12,16 @@ namespace PhotoLibrary
             public const string UserCollections = "UserCollections";
             public const string CollectionFiles = "CollectionFiles";
             public const string Previews = "Previews";
+            public const string Settings = "Settings";
         }
 
         public static class Column
         {
+            public static class Settings
+            {
+                public const string Key = "Key";
+                public const string Value = "Value";
+            }
             public static class RootPaths
             {
                 public const string Id = "Id";
