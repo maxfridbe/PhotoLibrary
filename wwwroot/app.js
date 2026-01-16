@@ -39,6 +39,8 @@ class App {
         this.searchResultIds = [];
         this.searchTitle = '';
         this.collectionFiles = [];
+        this.hiddenIds = new Set();
+        this.showHidden = false;
         this.gridScale = 1.0;
         this.isLoadingChunk = new Set();
         this.rotationMap = new Map();
@@ -88,6 +90,8 @@ class App {
         this.importedQueue = [];
         this.importProcessTimer = null;
         this.folderProgress = new Map();
+        this.parentMap = new Map();
+        this.folderNodeMap = new Map();
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
         this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap, (id) => {
@@ -340,6 +344,29 @@ class App {
         this.processUIStacks();
         this.syncUrl();
     }
+    async toggleHide(id) {
+        if (!this.selectedRootId)
+            return; // Only allow hiding in folder view for now
+        const photo = this.photoMap.get(id);
+        if (!photo)
+            return;
+        const targetIds = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [id];
+        let changed = false;
+        targetIds.forEach(tid => {
+            if (this.hiddenIds.has(tid)) {
+                this.hiddenIds.delete(tid);
+                changed = true;
+            }
+            else {
+                this.hiddenIds.add(tid);
+                changed = true;
+            }
+        });
+        if (changed) {
+            await this.saveHiddenSettings();
+            this.refreshPhotos(true); // Re-run filter
+        }
+    }
     savePhotoPreferences(id, rotation) {
         const photo = this.photoMap.get(id);
         if (!photo || !photo.hash)
@@ -382,7 +409,7 @@ class App {
         // Immediate UI updates for counts
         this.stats.totalCount++;
         if (data.rootId) {
-            const root = this.roots.find(r => r.id === data.rootId);
+            const root = this.folderNodeMap.get(data.rootId);
             if (root) {
                 root.imageCount++;
                 const el = document.getElementById(`folder-item-${data.rootId}`);
@@ -557,21 +584,21 @@ class App {
     }
     updateFlatFolderList() {
         this.flatFolderList = [];
-        const map = new Map();
-        this.roots.forEach(r => {
-            const children = map.get(r.parentId || '') || [];
-            children.push(r);
-            map.set(r.parentId || '', children);
-        });
-        const walk = (parentId) => {
-            const children = map.get(parentId || '') || [];
-            children.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            children.forEach(c => {
-                this.flatFolderList.push(c.id);
-                walk(c.id);
+        this.parentMap.clear();
+        this.folderNodeMap.clear();
+        const walk = (nodes, parentId) => {
+            const sorted = [...nodes].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            sorted.forEach(node => {
+                this.flatFolderList.push(node.id);
+                this.folderNodeMap.set(node.id, node);
+                if (parentId)
+                    this.parentMap.set(node.id, parentId);
+                if (node.children && node.children.length > 0) {
+                    walk(node.children, node.id);
+                }
             });
         };
-        walk(null);
+        walk(this.roots, null);
     }
     updateSidebarCountsOnly() {
         if (!this.$libraryEl)
@@ -613,6 +640,7 @@ class App {
         params.set('sort', this.sortBy);
         params.set('size', this.gridScale.toString());
         params.set('stacked', this.stackingEnabled.toString());
+        params.set('hidden', this.showHidden.toString());
         const newHash = `#!/${mode}/${filterPart}${photoPart}?${params.toString()}`;
         if (window.location.hash !== newHash) {
             window.location.hash = newHash;
@@ -660,6 +688,13 @@ class App {
                         stackChanged = true;
                     }
                 }
+                if (params.has('hidden')) {
+                    const newHidden = params.get('hidden') === 'true';
+                    if (newHidden !== this.showHidden) {
+                        this.showHidden = newHidden;
+                        stackChanged = true;
+                    }
+                }
             }
             let newFilterType = this.filterType;
             let newRootId = null;
@@ -703,6 +738,12 @@ class App {
                 else if (this.filterType === 'search') {
                     this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
                 }
+                if (this.selectedRootId) {
+                    await this.loadHiddenSettings(this.selectedRootId);
+                }
+                else {
+                    this.hiddenIds.clear();
+                }
                 await this.refreshPhotos(true);
             }
             else if (sortChanged || stackChanged) {
@@ -739,6 +780,32 @@ class App {
             this.isApplyingUrl = false;
         }
     }
+    async loadHiddenSettings(rootId) {
+        this.hiddenIds.clear();
+        try {
+            const res = await Api.api_settings_get({ name: `settings.${rootId}` });
+            if (res && res.value) {
+                const data = JSON.parse(res.value);
+                if (data.hidden && Array.isArray(data.hidden)) {
+                    this.hiddenIds = new Set(data.hidden);
+                }
+            }
+        }
+        catch (e) {
+            console.error("Failed to load hidden settings", e);
+        }
+    }
+    async saveHiddenSettings() {
+        if (!this.selectedRootId)
+            return;
+        try {
+            const data = { hidden: Array.from(this.hiddenIds) };
+            await Api.api_settings_set({ key: `settings.${this.selectedRootId}`, value: JSON.stringify(data) });
+        }
+        catch (e) {
+            console.error("Failed to save hidden settings", e);
+        }
+    }
     updateHeaderUI() {
         const sortSelect = document.getElementById('grid-sort-select');
         if (sortSelect)
@@ -746,6 +813,9 @@ class App {
         const stackCheck = document.getElementById('grid-stack-check');
         if (stackCheck)
             stackCheck.checked = this.stackingEnabled;
+        const hiddenCheck = document.getElementById('grid-hidden-check');
+        if (hiddenCheck)
+            hiddenCheck.checked = this.showHidden;
         const scaleSlider = document.getElementById('grid-scale-slider');
         if (scaleSlider)
             scaleSlider.value = this.gridScale.toString();
@@ -804,6 +874,10 @@ class App {
                 this.rotationMap.set(p.id, p.rotation);
         });
         this.stats = stats;
+        // Filter hidden items
+        if (!this.showHidden && this.hiddenIds.size > 0) {
+            this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
+        }
         this.photos = this.allPhotosFlat;
         // Initialize folder progress counts from current state
         this.roots.forEach(r => {
@@ -982,12 +1056,28 @@ class App {
             stackSpan.textContent = 'Stacked';
             stackLabel.appendChild(stackCheck);
             stackLabel.appendChild(stackSpan);
+            const hiddenLabel = document.createElement('label');
+            hiddenLabel.className = 'control-item';
+            hiddenLabel.title = 'Show hidden photos';
+            const hiddenCheck = document.createElement('input');
+            hiddenCheck.id = 'grid-hidden-check';
+            hiddenCheck.type = 'checkbox';
+            hiddenCheck.checked = self.showHidden;
+            hiddenCheck.onchange = (e) => {
+                self.showHidden = e.target.checked;
+                self.refreshPhotos(true);
+            };
+            const hiddenSpan = document.createElement('span');
+            hiddenSpan.textContent = 'Hidden';
+            hiddenLabel.appendChild(hiddenCheck);
+            hiddenLabel.appendChild(hiddenSpan);
             const headerCount = document.createElement('span');
             headerCount.id = 'header-count';
             headerCount.textContent = '0 items';
             headerRight.appendChild(scaleLabel);
             headerRight.appendChild(sortLabel);
             headerRight.appendChild(stackLabel);
+            headerRight.appendChild(hiddenLabel);
             headerRight.appendChild(headerCount);
             header.appendChild(headerLeft);
             header.appendChild(headerRight);
@@ -1114,13 +1204,13 @@ class App {
         }
         // Trace up and expand ancestors
         while (currentId) {
-            const node = this.roots.find(r => r.id === currentId);
-            if (node && node.parentId) {
-                if (!this.expandedFolders.has(node.parentId)) {
-                    this.expandedFolders.add(node.parentId);
+            const parentId = this.parentMap.get(currentId);
+            if (parentId) {
+                if (!this.expandedFolders.has(parentId)) {
+                    this.expandedFolders.add(parentId);
                     changed = true;
                 }
-                currentId = node.parentId;
+                currentId = parentId;
             }
             else {
                 break;
@@ -1266,6 +1356,10 @@ class App {
             menu.appendChild(el);
         };
         addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
+        if (this.selectedRootId) {
+            const isHidden = this.hiddenIds.has(p.id);
+            addItem(isHidden ? 'Unhide Photo (h)' : 'Hide Photo (h)', () => this.toggleHide(p.id));
+        }
         // REQ-WFE-00023
         if (this.filterType === 'search' && p.rootPathId) {
             addItem('Reveal in Folders', () => {
@@ -1361,13 +1455,9 @@ class App {
         }
         try {
             // 1. Get token
-            const prep = await fetch('/api/export/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fileIds, type, name: exportName })
-            });
-            if (prep.ok) {
-                const { token } = await prep.json();
+            const res = await Api.api_export_prepare({ fileIds, type, name: exportName });
+            if (res && res.token) {
+                const token = res.token;
                 // 2. Trigger native browser download stream
                 window.location.href = `/api/export/download?token=${token}`;
                 hub.pub(ps.UI_NOTIFICATION, { message: 'Download started', type: 'success' });
@@ -1454,7 +1544,7 @@ class App {
             headerText = "Collection: " + (c?.name || "");
         }
         else if (this.selectedRootId) {
-            const root = this.roots.find(r => r.id === this.selectedRootId);
+            const root = this.folderNodeMap.get(this.selectedRootId);
             headerText = root ? `Folder: ${root.name}` : "Folder";
         }
         if (this.$gridHeader) {
@@ -1870,6 +1960,11 @@ class App {
         if (key === 'f') {
             e.preventDefault();
             this.toggleFullscreen();
+        }
+        if (key === 'h') {
+            if (this.selectedId) {
+                this.toggleHide(this.selectedId);
+            }
         }
         if (key === 'm') {
             e.preventDefault();

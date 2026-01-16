@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-15T16:59:34.1397112-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-15T18:21:23.4163731-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -17,8 +17,8 @@ export async function api_metadata(data: any): Promise<Res.MetadataItemResponse[
     return await post<Res.MetadataItemResponse[]>('/api/metadata', data);
 }
 
-export async function api_directories(data: any): Promise<Res.RootPathResponse[]> {
-    return await post<Res.RootPathResponse[]>('/api/directories', data);
+export async function api_directories(data: any): Promise<Res.DirectoryNodeResponse[]> {
+    return await post<Res.DirectoryNodeResponse[]>('/api/directories', data);
 }
 
 export async function api_library_info(data: any): Promise<any> {
@@ -69,43 +69,43 @@ export async function api_stats(data: any): Promise<Res.StatsResponse> {
     return await post<Res.StatsResponse>('/api/stats', data);
 }
 
-export async function api_fs_list(data: any): Promise<any> {
+export async function api_fs_list(data: Req.NameRequest): Promise<any> {
     return await post<any>('/api/fs/list', data);
 }
 
-export async function api_library_find_new_files(data: any): Promise<any> {
+export async function api_library_find_new_files(data: Req.NameRequest): Promise<any> {
     return await post<any>('/api/library/find-new-files', data);
 }
 
-export async function api_library_import_batch(data: any): Promise<any> {
+export async function api_library_import_batch(data: Req.ImportBatchRequest): Promise<any> {
     return await post<any>('/api/library/import-batch', data);
 }
 
-export async function api_library_generate_thumbnails(data: any): Promise<any> {
+export async function api_library_generate_thumbnails(data: Req.GenerateThumbnailsRequest): Promise<any> {
     return await post<any>('/api/library/generate-thumbnails', data);
 }
 
-export async function api_library_set_annotation(data: any): Promise<any> {
+export async function api_library_set_annotation(data: Req.FolderAnnotationRequest): Promise<any> {
     return await post<any>('/api/library/set-annotation', data);
 }
 
-export async function api_library_force_update_preview(data: any): Promise<any> {
+export async function api_library_force_update_preview(data: Req.ForceUpdatePreviewRequest): Promise<any> {
     return await post<any>('/api/library/force-update-preview', data);
 }
 
-export async function api_library_cancel_task(data: any): Promise<any> {
+export async function api_library_cancel_task(data: Req.IdRequest): Promise<any> {
     return await post<any>('/api/library/cancel-task', data);
 }
 
-export async function api_settings_get(data: any): Promise<any> {
+export async function api_settings_get(data: Req.NameRequest): Promise<any> {
     return await post<any>('/api/settings/get', data);
 }
 
-export async function api_settings_set(data: any): Promise<any> {
+export async function api_settings_set(data: Req.SettingRequest): Promise<any> {
     return await post<any>('/api/settings/set', data);
 }
 
-export async function api_export_prepare(data: any): Promise<any> {
+export async function api_export_prepare(data: Req.ZipRequest): Promise<any> {
     return await post<any>('/api/export/prepare', data);
 }
 

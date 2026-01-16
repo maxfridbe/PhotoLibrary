@@ -13,6 +13,7 @@
 - REQ-ARCH-00010: The system shall support multiple concurrent frontend instances by tracking client identifiers to route private responses while broadcasting global library events.
 - REQ-ARCH-00011: The system shall utilize the WebP format for all thumbnails and previews to optimize storage and transfer efficiency.
 - REQ-ARCH-00012: ANY and all DOM references in typescript must have a $prefix ie, $loupe to denote a dom reference.
+- REQ-ARCH-00013: All HTTP communications (excluding WebSockets) shall be conducted through the generated TypeScript API wrappers in 'Functions.generated.ts' to ensure type safety and consistent endpoint usage.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.

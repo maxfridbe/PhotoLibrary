@@ -129,7 +129,7 @@ namespace PhotoLibrary
 
             app.MapPost("/api/directories", (DatabaseManager db) =>
             {
-                return Results.Ok(db.GetAllRootPaths());
+                return Results.Ok(db.GetDirectoryTree());
             });
 
             app.MapPost("/api/library/info", (DatabaseManager db, PreviewManager pm) =>
@@ -221,9 +221,8 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
-            app.MapPost("/api/fs/list", async (HttpContext context) =>
+            app.MapPost("/api/fs/list", (NameRequest req) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
                 string path = req?.name ?? "";
                 
                 try 
@@ -249,17 +248,16 @@ namespace PhotoLibrary
                     });
                     return Results.Ok(result);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     // Access denied or other errors
                     return Results.Ok(Array.Empty<DirectoryResponse>());
                 }
             });
 
-            app.MapPost("/api/library/find-new-files", async (HttpContext context, DatabaseManager db) =>
+            app.MapPost("/api/library/find-new-files", (NameRequest req, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
-                if (req == null || string.IsNullOrEmpty(req.name)) return Results.BadRequest();
+                if (string.IsNullOrEmpty(req.name)) return Results.BadRequest();
 
                 int limit = 1000;
                 string path = req.name;
@@ -303,10 +301,9 @@ namespace PhotoLibrary
                 }
             });
 
-            app.MapPost("/api/library/import-batch", async (HttpContext context, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
+            app.MapPost("/api/library/import-batch", (ImportBatchRequest req, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<ImportBatchRequest>();
-                if (req == null || req.relativePaths == null) return Results.BadRequest();
+                if (req.relativePaths == null) return Results.BadRequest();
 
                 string taskId = "import-batch";
                 var cts = new CancellationTokenSource();
@@ -385,11 +382,8 @@ namespace PhotoLibrary
                 return Results.Ok();
             });
 
-            app.MapPost("/api/library/generate-thumbnails", async (HttpContext context, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
+            app.MapPost("/api/library/generate-thumbnails", (GenerateThumbnailsRequest req, DatabaseManager db, PreviewManager pm, ILoggerFactory logFact) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<GenerateThumbnailsRequest>();
-                if (req == null) return Results.BadRequest();
-
                 Console.WriteLine($"[API] Generate Thumbnails requested for root {req.rootId} (Recursive: {req.recursive})");
 
                 string taskId = $"thumbnails-{req.rootId}";
@@ -463,19 +457,14 @@ namespace PhotoLibrary
                 return Results.Ok();
             });
 
-            app.MapPost("/api/library/set-annotation", async (HttpContext context, DatabaseManager db) =>
+            app.MapPost("/api/library/set-annotation", (FolderAnnotationRequest req, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<FolderAnnotationRequest>();
-                if (req == null) return Results.BadRequest();
                 db.SetFolderAnnotation(req.folderId, req.annotation, req.color);
                 return Results.Ok(new { });
             });
 
-            app.MapPost("/api/library/force-update-preview", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
+            app.MapPost("/api/library/force-update-preview", (ForceUpdatePreviewRequest req, DatabaseManager db, PreviewManager pm) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<ForceUpdatePreviewRequest>();
-                if (req == null) return Results.BadRequest();
-                
                 string? hash = db.GetFileHash(req.id);
                 if (hash != null)
                 {
@@ -492,10 +481,8 @@ namespace PhotoLibrary
                 return Results.Ok(new { });
             });
 
-            app.MapPost("/api/library/cancel-task", async (HttpContext context) =>
+            app.MapPost("/api/library/cancel-task", (IdRequest req) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<IdRequest>();
-                if (req == null) return Results.BadRequest();
                 if (_activeTasks.TryRemove(req.id, out var cts))
                 {
                     cts.Cancel();
@@ -504,25 +491,19 @@ namespace PhotoLibrary
                 return Results.NotFound();
             });
 
-            app.MapPost("/api/settings/get", async (HttpContext context, DatabaseManager db) =>
+            app.MapPost("/api/settings/get", (NameRequest req, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<NameRequest>();
-                if (req == null) return Results.BadRequest();
                 return Results.Ok(new { value = db.GetSetting(req.name) });
             });
 
-            app.MapPost("/api/settings/set", async (HttpContext context, DatabaseManager db) =>
+            app.MapPost("/api/settings/set", (SettingRequest req, DatabaseManager db) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<SettingRequest>();
-                if (req == null) return Results.BadRequest();
                 db.SetSetting(req.key, req.value);
                 return Results.Ok(new { });
             });
 
-            app.MapPost("/api/export/prepare", async (HttpContext context) =>
+            app.MapPost("/api/export/prepare", (ZipRequest req) =>
             {
-                var req = await context.Request.ReadFromJsonAsync<ZipRequest>();
-                if (req == null) return Results.BadRequest();
                 string token = Guid.NewGuid().ToString();
                 _exportCache[token] = req;
                 _ = Task.Run(async () => { await Task.Delay(TimeSpan.FromMinutes(5)); _exportCache.TryRemove(token, out _); });

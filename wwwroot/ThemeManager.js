@@ -1,5 +1,5 @@
 import { themes } from './themes.js';
-import { post } from './CommunicationManager.js';
+import * as Api from './Functions.generated.js';
 export class ThemeManager {
     constructor() {
         this.currentTheme = 'dark';
@@ -8,13 +8,13 @@ export class ThemeManager {
     }
     async loadSettings() {
         try {
-            const resTheme = await post('/api/settings/get', { key: 'ui-theme' });
+            const resTheme = await Api.api_settings_get({ name: 'ui-theme' });
             if (resTheme && resTheme.value && themes[resTheme.value]) {
                 this.currentTheme = resTheme.value;
                 this.applyTheme();
                 this.populateThemesDropdown();
             }
-            const resOverlay = await post('/api/settings/get', { key: 'loupe-overlay-format' });
+            const resOverlay = await Api.api_settings_get({ name: 'loupe-overlay-format' });
             if (resOverlay && resOverlay.value) {
                 this.overlayFormat = resOverlay.value;
                 const input = document.getElementById('overlay-format-input');
@@ -33,7 +33,7 @@ export class ThemeManager {
         this.currentTheme = themeName;
         this.applyTheme();
         try {
-            await post('/api/settings/set', { key: 'ui-theme', value: themeName });
+            await Api.api_settings_set({ key: 'ui-theme', value: themeName });
         }
         catch (e) {
             console.error("Failed to save theme setting", e);
@@ -42,7 +42,7 @@ export class ThemeManager {
     async setOverlayFormat(format) {
         this.overlayFormat = format;
         try {
-            await post('/api/settings/set', { key: 'loupe-overlay-format', value: format });
+            await Api.api_settings_set({ key: 'loupe-overlay-format', value: format });
         }
         catch (e) {
             console.error("Failed to save overlay format", e);

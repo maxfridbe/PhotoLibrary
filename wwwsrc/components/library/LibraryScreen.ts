@@ -11,6 +11,7 @@ export interface LibraryScreenProps {
     isCancelling: boolean;
     currentScanPath: string;
     fsRoots: FSNode[];
+    quickSelectRoots: Res.DirectoryNodeResponse[];
     onFsToggle: (node: FSNode) => void;
     onFindNew: (path: string, limit: number) => void;
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
@@ -20,7 +21,7 @@ export interface LibraryScreenProps {
 
 export function LibraryScreen(props: LibraryScreenProps): VNode {
     try {
-        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
+        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, quickSelectRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
 
         return h('div.library-screen-container', {
             attrs: { id: containerId },
@@ -94,7 +95,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                             background: 'var(--bg-panel-alt)', minHeight: '150px', maxHeight: '350px', 
                             overflowY: 'auto'
                         }
-                    }, info ? renderHierarchicalFolderList(info, onPathChange) : [])
+                    }, quickSelectRoots && quickSelectRoots.length > 0 ? renderHierarchicalFolderList(quickSelectRoots, onPathChange) : [])
                 ]),
 
                 // Section 2: Results
@@ -130,23 +131,50 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
     }
 }
 
-function renderHierarchicalFolderList(info: Res.LibraryInfoResponse, onPathChange: (path: string) => void) {
-    const map = new Map<string, { node: Res.LibraryFolderResponse, children: any[] }>();
-    info.folders.forEach(f => map.set(f.id, { node: f, children: [] }));
-    const roots: any[] = [];
-    info.folders.forEach(f => {
-        if (f.parentId && map.has(f.parentId)) map.get(f.parentId)!.children.push(map.get(f.id)!);
-        else roots.push(map.get(f.id)!);
-    });
-
-    const renderNode = (item: { node: Res.LibraryFolderResponse, children: any[] }, depth: number): VNode => {
-        // Derive simple name from path if needed, or use path if it's root
-        const name = item.node.path.split(/[/\\]/).pop() || item.node.path;
+function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], onPathChange: (path: string) => void) {
+    const renderNode = (node: Res.DirectoryNodeResponse, depth: number): VNode => {
+        // Derive simple name from path if needed, or use path if it's root. 
+        // For DirectoryNodeResponse, 'Name' is the segment name (or full path for roots?).
+        // If we want full path for onPathChange, we might need to reconstruct it or store it.
+        // Wait, DirectoryNodeResponse has 'Name'. RootPathResponse has 'Name'.
+        // But we need the full path to scan.
+        // RootPathResponse doesn't have 'Path'. 
+        // DatabaseManager.GetDirectoryTree constructs it.
+        // Wait, I didn't add 'Path' to DirectoryNodeResponse in Responses.cs!
+        // I only added Id, Name, ImageCount, etc.
+        // LibraryFolderResponse had 'Path'.
+        
+        // RootPathResponse has 'Name'. If it's a root, Name might be absolute path?
+        // Let's check DatabaseManager.cs GetDirectoryTree.
+        // It populates Name from RootPathResponse.Name.
+        
+        // In NormalizeRootPaths, Name is segment.
+        // In GetRootAbsolutePath, it reconstructs path.
+        
+        // LibraryFolderResponse had 'Path' which was full path.
+        // I need 'Path' in DirectoryNodeResponse if I want to use it for scanning.
+        
+        // I'll assume 'Name' is display name.
+        // But how to get full path?
+        // I should probably add 'Path' to DirectoryNodeResponse or reconstruct it.
+        // For now, I'll use 'Name' as display, but I need path.
+        
+        // Let's modify DirectoryNodeResponse in Responses.cs to include Path?
+        // Or I can fetch it?
+        
+        // Actually, for "Quick Select", we want to scan *that* folder.
+        // If it's a root, Name is likely the path.
+        // If it's a child, Name is just the segment.
+        
+        // LibraryFolderResponse had 'Path' computed by GetRootAbsolutePath.
+        
+        // I should add 'Path' to DirectoryNodeResponse.
+        
         const indent = depth * 1.5 + 'em';
         
         return h('div', [
             h('div.folder-row', {
-                key: item.node.id,
+                key: node.id,
                 style: { 
                     padding: '0.4em 1em 0.4em ' + indent, 
                     borderBottom: '1px solid var(--border-dim)', 
@@ -155,13 +183,13 @@ function renderHierarchicalFolderList(info: Res.LibraryInfoResponse, onPathChang
                     display: 'flex',
                     alignItems: 'center'
                 },
-                on: { click: (e: MouseEvent) => { e.preventDefault(); onPathChange(item.node.path); } }
+                on: { click: (e: MouseEvent) => { e.preventDefault(); onPathChange(node.path); } }
             }, [
                 h('span', { style: { marginRight: '0.5em', color: 'var(--accent)' } }, '\uD83D\uDCC1'),
-                h('span', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, attrs: { title: item.node.path } }, name),
-                h('span', { style: { color: 'var(--text-muted)', fontSize: '0.85em' } }, item.node.imageCount.toString())
+                h('span', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, attrs: { title: node.name } }, node.name),
+                h('span', { style: { color: 'var(--text-muted)', fontSize: '0.85em' } }, node.imageCount.toString())
             ]),
-            ...item.children.map(c => renderNode(c, depth + 1))
+            ...node.children.map((c: any) => renderNode(c, depth + 1))
         ]);
     };
 

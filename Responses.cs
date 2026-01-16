@@ -33,15 +33,16 @@ namespace PhotoLibrary
         public string? Value { get; set; }
     }
 
-    public class RootPathResponse
+    public class DirectoryNodeResponse
     {
         public string Id { get; set; } = "";
-        public string? ParentId { get; set; }
-        public string? Name { get; set; }
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "";
         public int ImageCount { get; set; }
         public int ThumbnailedCount { get; set; }
         public string? Annotation { get; set; }
         public string? Color { get; set; }
+        public List<DirectoryNodeResponse> Children { get; set; } = new();
     }
 
     public class CollectionResponse
@@ -58,17 +59,6 @@ namespace PhotoLibrary
         public int[] RatingCounts { get; set; } = new int[5];
     }
 
-    public class LibraryFolderResponse
-    {
-        public string Id { get; set; } = "";
-        public string Path { get; set; } = "";
-        public string? ParentId { get; set; }
-        public int ImageCount { get; set; }
-        public int ThumbnailedCount { get; set; }
-        public string? Annotation { get; set; }
-        public string? Color { get; set; }
-    }
-
     public class LibraryInfoResponse
     {
         public int TotalImages { get; set; }
@@ -81,7 +71,6 @@ namespace PhotoLibrary
         public int IndexedCount { get; set; }
         public int TotalToIndex { get; set; }
         public int TotalThumbnailedImages { get; set; }
-        public List<LibraryFolderResponse> Folders { get; set; } = new();
     }
 
     public class DirectoryResponse

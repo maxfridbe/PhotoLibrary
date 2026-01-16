@@ -426,48 +426,6 @@ namespace PhotoLibrary
             info.PreviewDbSize = File.Exists(previewDbPath) ? new FileInfo(previewDbPath).Length : 0;
             info.ConfigPath = configPath;
             
-            // Folders
-            var folderRecords = new List<(string id, string name, string? parentId, int count, string? annotation, string? color, int thumbCount)>();
-            using (var cmd = connection.CreateCommand())
-            {
-                string thumbSubquery = $"(SELECT COUNT(*) FROM {TableName.FileEntry} f2 WHERE f2.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id} AND f2.{Column.FileEntry.Hash} IS NOT NULL)";
-
-                cmd.CommandText = $@"
-                    SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.Name}, r.{Column.RootPaths.ParentId},
-                           (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}) as Count,
-                           r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color},
-                           {thumbSubquery}
-                    FROM {TableName.RootPaths} r";
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read())
-                {
-                    folderRecords.Add((
-                        reader.GetString(0),
-                        reader.GetString(1),
-                        reader.IsDBNull(2) ? null : reader.GetString(2),
-                        reader.GetInt32(3),
-                        reader.IsDBNull(4) ? null : reader.GetString(4),
-                        reader.IsDBNull(5) ? null : reader.GetString(5),
-                        reader.GetInt32(6)
-                    ));
-                }
-            }
-
-            foreach (var rec in folderRecords)
-            {
-                string? fullPath = GetRootAbsolutePath(connection, rec.id);
-                info.Folders.Add(new LibraryFolderResponse
-                {
-                    Id = rec.id,
-                    Path = fullPath ?? rec.name,
-                    ParentId = rec.parentId,
-                    ImageCount = rec.count,
-                    ThumbnailedCount = rec.thumbCount,
-                    Annotation = rec.annotation,
-                    Color = rec.color
-                });
-            }
-
             return info;
         }
 
@@ -1204,15 +1162,14 @@ namespace PhotoLibrary
             }
         }
 
-        public IEnumerable<RootPathResponse> GetAllRootPaths()
+        public IEnumerable<DirectoryNodeResponse> GetDirectoryTree()
         {
-            var items = new List<RootPathResponse>();
+            var allPaths = new List<(string Id, string? ParentId, string? Name, int ImageCount, int ThumbnailedCount, string? Annotation, string? Color)>();
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
             using (var command = connection.CreateCommand())
             {
-                // Proxy for "has thumbnails" is having a Hash, since they are generated together
                 string thumbSubquery = $"(SELECT COUNT(*) FROM {TableName.FileEntry} f2 WHERE f2.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id} AND f2.{Column.FileEntry.Hash} IS NOT NULL)";
 
                 command.CommandText = $@"
@@ -1222,17 +1179,56 @@ namespace PhotoLibrary
                            {thumbSubquery}
                     FROM {TableName.RootPaths} r";
                 using var reader = command.ExecuteReader();
-                while (reader.Read()) items.Add(new RootPathResponse { 
-                    Id = reader.GetString(0), 
-                    ParentId = reader.IsDBNull(1) ? null : reader.GetString(1), 
-                    Name = reader.GetString(2),
-                    ImageCount = reader.GetInt32(3),
-                    Annotation = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    Color = reader.IsDBNull(5) ? null : reader.GetString(5),
-                    ThumbnailedCount = reader.GetInt32(6)
-                });
+                while (reader.Read()) allPaths.Add((
+                    reader.GetString(0), 
+                    reader.IsDBNull(1) ? null : reader.GetString(1), 
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetInt32(6),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)
+                ));
             }
-            return items;
+
+            var lookup = new Dictionary<string, DirectoryNodeResponse>();
+            var roots = new List<DirectoryNodeResponse>();
+
+            foreach (var path in allPaths)
+            {
+                lookup[path.Id] = new DirectoryNodeResponse {
+                    Id = path.Id,
+                    Name = path.Name ?? "",
+                    ImageCount = path.ImageCount,
+                    ThumbnailedCount = path.ThumbnailedCount,
+                    Annotation = path.Annotation,
+                    Color = path.Color
+                };
+            }
+
+            foreach (var path in allPaths)
+            {
+                var node = lookup[path.Id];
+                if (path.ParentId != null && lookup.TryGetValue(path.ParentId, out var parent))
+                {
+                    parent.Children.Add(node);
+                }
+                else
+                {
+                    roots.Add(node);
+                }
+            }
+
+            void SetPaths(DirectoryNodeResponse node, string parentPath)
+            {
+                if (string.IsNullOrEmpty(parentPath)) node.Path = node.Name;
+                else node.Path = Path.Combine(parentPath, node.Name);
+                
+                foreach (var child in node.Children) SetPaths(child, node.Path);
+            }
+
+            foreach (var root in roots) SetPaths(root, "");
+
+            return roots;
         }
 
         public void SetFolderAnnotation(string folderId, string annotation, string? color = null)

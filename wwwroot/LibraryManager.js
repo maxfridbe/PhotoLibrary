@@ -1,6 +1,5 @@
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
-import { post } from './CommunicationManager.js';
 import { constants } from './constants.js';
 import { patch } from './snabbdom-setup.js';
 import { LibraryScreen } from './components/library/LibraryScreen.js';
@@ -17,6 +16,7 @@ export class LibraryManager {
         this.currentScanPath = '';
         this.renderPending = false;
         this.fsRoots = [];
+        this.quickSelectRoots = [];
         this.fsInitialized = false;
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
@@ -62,6 +62,7 @@ export class LibraryManager {
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
             fsRoots: this.fsRoots,
+            quickSelectRoots: this.quickSelectRoots,
             onFsToggle: (node) => this.toggleFsNode(node),
             onFindNew: (path, limit) => this.findNewFiles(path, limit),
             onIndexFiles: (path, low, med) => this.triggerScan(path, low, med),
@@ -83,13 +84,21 @@ export class LibraryManager {
     }
     async loadLibraryInfo() {
         try {
-            const info = await post('/api/library/info', {});
+            const info = await Api.api_library_info({});
             if (!info)
                 return;
             this.infoCache = info;
             this.isIndexing = info.isIndexing;
-            if (this.currentScanPath === '' && info.folders.length > 0) {
-                this.currentScanPath = info.folders[0].path;
+            // Fetch quick select roots (registered folders)
+            try {
+                const roots = await Api.api_directories({});
+                this.quickSelectRoots = roots || [];
+                if (this.currentScanPath === '' && this.quickSelectRoots.length > 0) {
+                    this.currentScanPath = this.quickSelectRoots[0].name || '';
+                }
+            }
+            catch (e) {
+                console.error("Failed to fetch directories", e);
             }
             if (this.isIndexing && this.scanResults.length === 0) {
                 this.scanResults = Array(info.totalToIndex).fill(null).map((_, i) => ({
@@ -109,7 +118,7 @@ export class LibraryManager {
             return;
         this.fsInitialized = true;
         try {
-            const res = await post('/api/fs/list', { name: "" });
+            const res = await Api.api_fs_list({ name: "" });
             if (Array.isArray(res)) {
                 this.fsRoots = res.map((d) => ({
                     path: d.path,
@@ -130,7 +139,7 @@ export class LibraryManager {
             node.isLoading = true;
             this.render();
             try {
-                const res = await post('/api/fs/list', { name: node.path });
+                const res = await Api.api_fs_list({ name: node.path });
                 if (Array.isArray(res)) {
                     node.children = res.map((d) => ({
                         path: d.path,
@@ -162,7 +171,7 @@ export class LibraryManager {
         try {
             this.isScanning = true;
             this.render();
-            const res = await post('/api/library/find-new-files', { name: `${path}|${limit}` });
+            const res = await Api.api_library_find_new_files({ name: `${path}|${limit}` });
             if (res && res.files) {
                 this.scanResults = res.files.map((f) => ({ path: f, status: 'pending' }));
             }
@@ -180,7 +189,7 @@ export class LibraryManager {
             return;
         this.isIndexing = true;
         this.render();
-        const res = await post('/api/library/import-batch', {
+        const res = await Api.api_library_import_batch({
             rootPath: path,
             relativePaths: this.scanResults.map(r => r.path),
             generateLow: low,

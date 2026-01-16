@@ -27,7 +27,7 @@ type Photo = Res.PhotoResponse;
 import { visualizeLensData } from './aperatureVis.js';
 
 type MetadataItem = Res.MetadataItemResponse;
-type RootPath = Res.RootPathResponse;
+type RootPath = Res.DirectoryNodeResponse;
 type Collection = Res.CollectionResponse;
 type Stats = Res.StatsResponse;
 
@@ -55,7 +55,7 @@ class App {
     public photos: Photo[] = []; // Processed list
     
     private photoMap: Map<string, Photo> = new Map();
-    private roots: RootPath[] = [];
+    private roots: Res.DirectoryNodeResponse[] = [];
     public userCollections: Collection[] = [];
     public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0,0,0,0,0] };
     public totalPhotos = 0;
@@ -79,6 +79,9 @@ class App {
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
     public collectionFiles: string[] = [];
+
+    private hiddenIds: Set<string> = new Set();
+    public showHidden: boolean = false;
 
     private gridScale = 1.0;
     private isLoadingChunk = new Set<number>();
@@ -423,6 +426,31 @@ class App {
         this.syncUrl();
     }
 
+    public async toggleHide(id: string) {
+        if (!this.selectedRootId) return; // Only allow hiding in folder view for now
+        
+        const photo = this.photoMap.get(id);
+        if (!photo) return;
+
+        const targetIds = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [id];
+        let changed = false;
+
+        targetIds.forEach(tid => {
+            if (this.hiddenIds.has(tid)) {
+                this.hiddenIds.delete(tid);
+                changed = true;
+            } else {
+                this.hiddenIds.add(tid);
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            await this.saveHiddenSettings();
+            this.refreshPhotos(true); // Re-run filter
+        }
+    }
+
     private savePhotoPreferences(id: string, rotation: number) {
         const photo = this.photoMap.get(id);
         if (!photo || !photo.hash) return;
@@ -472,7 +500,7 @@ class App {
         // Immediate UI updates for counts
         this.stats.totalCount++;
         if (data.rootId) {
-            const root = this.roots.find(r => r.id === data.rootId);
+            const root = this.folderNodeMap.get(data.rootId);
             if (root) {
                 root.imageCount++;
                 const el = document.getElementById(`folder-item-${data.rootId}`);
@@ -655,24 +683,29 @@ class App {
         this.renderLibrary();
     }
 
+    private parentMap: Map<string, string> = new Map();
+    private folderNodeMap: Map<string, Res.DirectoryNodeResponse> = new Map();
+
     private updateFlatFolderList() {
         this.flatFolderList = [];
-        const map = new Map<string, Res.RootPathResponse[]>();
-        this.roots.forEach(r => {
-            const children = map.get(r.parentId || '') || [];
-            children.push(r);
-            map.set(r.parentId || '', children);
-        });
-
-        const walk = (parentId: string | null) => {
-            const children = map.get(parentId || '') || [];
-            children.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            children.forEach(c => {
-                this.flatFolderList.push(c.id);
-                walk(c.id);
+        this.parentMap.clear();
+        this.folderNodeMap.clear();
+        
+        const walk = (nodes: Res.DirectoryNodeResponse[], parentId: string | null) => {
+            const sorted = [...nodes].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            
+            sorted.forEach(node => {
+                this.flatFolderList.push(node.id);
+                this.folderNodeMap.set(node.id, node);
+                if (parentId) this.parentMap.set(node.id, parentId);
+                
+                if (node.children && node.children.length > 0) {
+                    walk(node.children, node.id);
+                }
             });
         };
-        walk(null);
+        
+        walk(this.roots, null);
     }
 
     private updateSidebarCountsOnly() {
@@ -708,6 +741,7 @@ class App {
         params.set('sort', this.sortBy);
         params.set('size', this.gridScale.toString());
         params.set('stacked', this.stackingEnabled.toString());
+        params.set('hidden', this.showHidden.toString());
 
         const newHash = `#!/${mode}/${filterPart}${photoPart}?${params.toString()}`;
         if (window.location.hash !== newHash) {
@@ -754,6 +788,10 @@ class App {
                     const newStack = params.get('stacked') === 'true';
                     if (newStack !== this.stackingEnabled) { this.stackingEnabled = newStack; stackChanged = true; }
                 }
+                if (params.has('hidden')) {
+                    const newHidden = params.get('hidden') === 'true';
+                    if (newHidden !== this.showHidden) { this.showHidden = newHidden; stackChanged = true; }
+                }
             }
             
             let newFilterType = this.filterType;
@@ -796,6 +834,13 @@ class App {
                 } else if (this.filterType === 'search') {
                     this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
                 }
+
+                if (this.selectedRootId) {
+                    await this.loadHiddenSettings(this.selectedRootId);
+                } else {
+                    this.hiddenIds.clear();
+                }
+
                 await this.refreshPhotos(true);
             } else if (sortChanged || stackChanged) {
                 this.processUIStacks();
@@ -831,12 +876,36 @@ class App {
         }
     }
 
+    private async loadHiddenSettings(rootId: string) {
+        this.hiddenIds.clear();
+        try {
+            const res = await Api.api_settings_get({ name: `settings.${rootId}` });
+            if (res && res.value) {
+                const data = JSON.parse(res.value);
+                if (data.hidden && Array.isArray(data.hidden)) {
+                    this.hiddenIds = new Set(data.hidden);
+                }
+            }
+        } catch (e) { console.error("Failed to load hidden settings", e); }
+    }
+
+    private async saveHiddenSettings() {
+        if (!this.selectedRootId) return;
+        try {
+            const data = { hidden: Array.from(this.hiddenIds) };
+            await Api.api_settings_set({ key: `settings.${this.selectedRootId}`, value: JSON.stringify(data) });
+        } catch (e) { console.error("Failed to save hidden settings", e); }
+    }
+
     private updateHeaderUI() {
         const sortSelect = document.getElementById('grid-sort-select') as HTMLSelectElement;
         if (sortSelect) sortSelect.value = this.sortBy;
 
         const stackCheck = document.getElementById('grid-stack-check') as HTMLInputElement;
         if (stackCheck) stackCheck.checked = this.stackingEnabled;
+
+        const hiddenCheck = document.getElementById('grid-hidden-check') as HTMLInputElement;
+        if (hiddenCheck) hiddenCheck.checked = this.showHidden;
 
         const scaleSlider = document.getElementById('grid-scale-slider') as HTMLInputElement;
         if (scaleSlider) scaleSlider.value = this.gridScale.toString();
@@ -893,6 +962,12 @@ class App {
         });
         
         this.stats = stats;
+        
+        // Filter hidden items
+        if (!this.showHidden && this.hiddenIds.size > 0) {
+            this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
+        }
+
         this.photos = this.allPhotosFlat;
 
         // Initialize folder progress counts from current state
@@ -1084,6 +1159,22 @@ class App {
             stackLabel.appendChild(stackCheck);
             stackLabel.appendChild(stackSpan);
 
+            const hiddenLabel = document.createElement('label');
+            hiddenLabel.className = 'control-item';
+            hiddenLabel.title = 'Show hidden photos';
+            const hiddenCheck = document.createElement('input');
+            hiddenCheck.id = 'grid-hidden-check';
+            hiddenCheck.type = 'checkbox';
+            hiddenCheck.checked = self.showHidden;
+            hiddenCheck.onchange = (e) => {
+                self.showHidden = (e.target as HTMLInputElement).checked;
+                self.refreshPhotos(true);
+            };
+            const hiddenSpan = document.createElement('span');
+            hiddenSpan.textContent = 'Hidden';
+            hiddenLabel.appendChild(hiddenCheck);
+            hiddenLabel.appendChild(hiddenSpan);
+
             const headerCount = document.createElement('span');
             headerCount.id = 'header-count';
             headerCount.textContent = '0 items';
@@ -1091,6 +1182,7 @@ class App {
             headerRight.appendChild(scaleLabel);
             headerRight.appendChild(sortLabel);
             headerRight.appendChild(stackLabel);
+            headerRight.appendChild(hiddenLabel);
             headerRight.appendChild(headerCount);
 
             header.appendChild(headerLeft);
@@ -1221,13 +1313,13 @@ class App {
 
         // Trace up and expand ancestors
         while (currentId) {
-            const node = this.roots.find(r => r.id === currentId);
-            if (node && node.parentId) {
-                if (!this.expandedFolders.has(node.parentId)) {
-                    this.expandedFolders.add(node.parentId);
+            const parentId = this.parentMap.get(currentId);
+            if (parentId) {
+                if (!this.expandedFolders.has(parentId)) {
+                    this.expandedFolders.add(parentId);
                     changed = true;
                 }
-                currentId = node.parentId;
+                currentId = parentId;
             } else {
                 break;
             }
@@ -1378,6 +1470,11 @@ class App {
 
         addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
         
+        if (this.selectedRootId) {
+            const isHidden = this.hiddenIds.has(p.id);
+            addItem(isHidden ? 'Unhide Photo (h)' : 'Hide Photo (h)', () => this.toggleHide(p.id));
+        }
+
         // REQ-WFE-00023
         if (this.filterType === 'search' && p.rootPathId) {
             addItem('Reveal in Folders', () => {
@@ -1463,14 +1560,10 @@ class App {
 
         try {
             // 1. Get token
-            const prep = await fetch('/api/export/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fileIds, type, name: exportName })
-            });
+            const res = await Api.api_export_prepare({ fileIds, type, name: exportName });
 
-            if (prep.ok) {
-                const { token } = await prep.json();
+            if (res && res.token) {
+                const token = res.token;
                 // 2. Trigger native browser download stream
                 window.location.href = `/api/export/download?token=${token}`;
                 hub.pub(ps.UI_NOTIFICATION, { message: 'Download started', type: 'success' });
@@ -1547,7 +1640,7 @@ class App {
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
         else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
         else if (this.filterType === 'collection') { const c = this.userCollections.find(x => x.id === this.selectedCollectionId); headerText = "Collection: " + (c?.name || ""); }
-        else if (this.selectedRootId) { const root = this.roots.find(r => r.id === this.selectedRootId); headerText = root ? `Folder: ${root.name}` : "Folder"; }
+        else if (this.selectedRootId) { const root = this.folderNodeMap.get(this.selectedRootId); headerText = root ? `Folder: ${root.name}` : "Folder"; }
         if (this.$gridHeader) {
             const headerTextEl = this.$gridHeader.querySelector('#header-text');
             if (headerTextEl) {
@@ -1971,6 +2064,11 @@ class App {
         if (key === 'f') {
             e.preventDefault();
             this.toggleFullscreen();
+        }
+        if (key === 'h') {
+            if (this.selectedId) {
+                this.toggleHide(this.selectedId);
+            }
         }
         if (key === 'm') {
             e.preventDefault();

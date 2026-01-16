@@ -6,7 +6,7 @@ import { FolderTree } from './FolderTree.js';
 
 export interface LibrarySidebarProps {
     stats: Res.StatsResponse;
-    roots: Res.RootPathResponse[];
+    roots: Res.DirectoryNodeResponse[];
     userCollections: Res.CollectionResponse[];
     
     filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection';

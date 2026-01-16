@@ -135,7 +135,7 @@ namespace TypeGen
 
                 if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
                 else if (route.Contains("metadata")) resType = "Res.MetadataItemResponse[]";
-                else if (route.Contains("directories")) resType = "Res.RootPathResponse[]";
+                else if (route.Contains("directories")) resType = "Res.DirectoryNodeResponse[]";
                 else if (route.Contains("collections/list")) resType = "Res.CollectionResponse[]";
                 else if (route.Contains("stats")) resType = "Res.StatsResponse";
                 else if (route.Contains("picked/ids") || route.Contains("get-files") || route.Contains("search")) resType = "string[]";
