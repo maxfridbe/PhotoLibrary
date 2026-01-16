@@ -29,7 +29,7 @@
     <Exec Command="tsc" />
     <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
     <ItemGroup>
-      <LibFiles Include="wwwsrc/lib/**/*" />
+      <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
     </ItemGroup>
     <Copy SourceFiles="@(LibFiles)" DestinationFolder="wwwroot/lib/%(RecursiveDir)" />
   </Target>

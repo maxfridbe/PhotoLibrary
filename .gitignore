@@ -36,3 +36,4 @@ test_images/
 *.TIF
 *.TIFF
 dist/
+PhotoLibrary/wwwroot/
