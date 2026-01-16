@@ -1942,20 +1942,35 @@ class App {
         if (e.target.isContentEditable)
             return;
         const key = e.key.toLowerCase();
-        if (key === 'escape') {
-            if (this.isFullscreen)
-                this.toggleFullscreen();
-        }
+        // Mode-switching and help should always work
         if (key === 'g') {
             if (this.isFullscreen)
                 this.toggleFullscreen();
             hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'grid' });
+            return;
         }
         if (key === 'l' || key === 'enter' || e.key === ' ') {
+            if (this.isLibraryMode && (key === 'enter' || key === ' '))
+                return; // Don't switch from library on space/enter
             e.preventDefault();
             if (this.isFullscreen)
                 this.toggleFullscreen();
             hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id: this.selectedId || undefined });
+            return;
+        }
+        if (key === '?' || key === '/') {
+            if (key === '?' || (key === '/' && e.shiftKey)) {
+                e.preventDefault();
+                hub.pub(ps.SHORTCUTS_SHOW, {});
+                return;
+            }
+        }
+        // If in Library mode, disable all other hotkeys
+        if (this.isLibraryMode)
+            return;
+        if (key === 'escape') {
+            if (this.isFullscreen)
+                this.toggleFullscreen();
         }
         if (key === 'f') {
             e.preventDefault();
@@ -1986,12 +2001,6 @@ class App {
                 const p = this.photos.find(x => x.id === this.selectedId);
                 if (p)
                     server.setRating(p, parseInt(key));
-            }
-        }
-        if (key === '?' || key === '/') {
-            if (key === '?' || (key === '/' && e.shiftKey)) {
-                e.preventDefault();
-                hub.pub(ps.SHORTCUTS_SHOW, {});
             }
         }
         if (key === '[') {

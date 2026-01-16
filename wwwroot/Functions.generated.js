@@ -53,6 +53,9 @@ export async function api_stats(data) {
 export async function api_fs_list(data) {
     return await post('/api/fs/list', data);
 }
+export async function api_fs_find_files(data) {
+    return await post('/api/fs/find-files', data);
+}
 export async function api_library_find_new_files(data) {
     return await post('/api/library/find-new-files', data);
 }

@@ -64,9 +64,12 @@ export function PhotoCard(props) {
             ]),
             h('div.info-mid', new Date(photo.createdAt).toISOString().split('T')[0]),
             h('div.info-bottom', [
-                h('span.stars', {
+                h('div.stars-interactive', {
                     class: { 'has-rating': photo.rating > 0 }
-                }, photo.rating > 0 ? '\u2605'.repeat(photo.rating) : '\u2606\u2606\u2606\u2606\u2606')
+                }, [5, 4, 3, 2, 1].map(star => h('span.star', {
+                    class: { active: star <= photo.rating },
+                    on: { click: (e) => { e.stopPropagation(); props.onRate(photo, star); } }
+                }, '\u2605')))
             ])
         ])
     ]);

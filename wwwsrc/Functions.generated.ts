@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-15T18:21:23.4163731-06:00
+// Generated from WebServer.cs via Roslyn at 2026-01-15T19:35:17.8164380-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -71,6 +71,10 @@ export async function api_stats(data: any): Promise<Res.StatsResponse> {
 
 export async function api_fs_list(data: Req.NameRequest): Promise<any> {
     return await post<any>('/api/fs/list', data);
+}
+
+export async function api_fs_find_files(data: Req.NameRequest): Promise<any> {
+    return await post<any>('/api/fs/find-files', data);
 }
 
 export async function api_library_find_new_files(data: Req.NameRequest): Promise<any> {

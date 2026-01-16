@@ -130,7 +130,8 @@ export class GridView {
                     onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
                     onDoubleClick: (id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id }),
                     onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
-                    onTogglePick: (p) => server.togglePick(p)
+                    onTogglePick: (p) => server.togglePick(p),
+                    onRate: (p, r) => server.setRating(p, r)
                 }));
             }
         }
@@ -158,7 +159,8 @@ export class GridView {
             onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
             onDoubleClick: () => { },
             onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
-            onTogglePick: (p) => server.togglePick(p)
+            onTogglePick: (p) => server.togglePick(p),
+            onRate: (p, r) => server.setRating(p, r)
         }));
         const newVNode = h('div#filmstrip-content', {
             style: {

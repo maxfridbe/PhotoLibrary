@@ -17,28 +17,34 @@ export interface FileSystemBrowserProps {
 
 export function FileSystemBrowser(props: FileSystemBrowserProps): VNode {
     const renderNode = (node: FSNode, depth: number): VNode => {
-        const indent = (depth * 1.2) + 'em';
+        const indent = (depth * 1.5) + 'em';
         const isSelected = props.selectedPath === node.path;
         
+        // Match the look of LibraryLocations.ts
         return h('div', [
             h('div.fs-row', {
                 style: { 
-                    padding: `0.2em 0.5em 0.2em ${indent}`, 
+                    padding: `0.4em 1em 0.4em ${indent}`, 
+                    borderBottom: '1px solid var(--border-dim)', 
                     cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    background: isSelected ? 'var(--accent)' : 'transparent', 
-                    color: isSelected ? 'var(--text-bright)' : 'var(--text-main)' 
+                    fontSize: '0.9em',
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: isSelected ? 'var(--highlight-color)' : 'transparent',
+                    color: isSelected ? 'var(--text-bright)' : 'var(--text-main)'
                 },
                 on: { 
                     click: (e: MouseEvent) => { e.stopPropagation(); props.onSelect(node.path); }
                 }
             }, [
                 h('span', {
-                    style: { width: '1.2em', textAlign: 'center', cursor: 'pointer', userSelect: 'none', marginRight: '0.2em' },
+                    style: { width: '1em', textAlign: 'center', cursor: 'pointer', userSelect: 'none', marginRight: '0.5em', color: 'var(--text-muted)' },
                     on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onToggle(node); } }
-                }, node.isLoading ? '\u231B' : (node.children ? (node.isExpanded ? '\u25BE' : '\u25B8') : '\u2022')), // Hourglass, Down, Right, Bullet
-                h('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, node.name)
+                }, node.isLoading ? '\u231B' : (node.children !== null ? (node.isExpanded ? '\u25BE' : '\u25B8') : '')),
+                
+                h('span', { style: { marginRight: '0.5em', color: isSelected ? 'var(--text-bright)' : 'var(--accent)' } }, '\uD83D\uDCC1'), // Folder Icon
+                
+                h('span', { style: { flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, node.name)
             ]),
             (node.isExpanded && node.children) ? h('div', node.children.map(c => renderNode(c, depth + 1))) : null
         ]);
@@ -47,13 +53,11 @@ export function FileSystemBrowser(props: FileSystemBrowserProps): VNode {
     return h('div.fs-browser', { 
         style: { 
             overflowY: 'auto', 
-            height: '300px', 
+            height: '350px', 
             border: '1px solid var(--border-main)', 
             background: 'var(--bg-panel-alt)',
             borderRadius: '4px',
-            padding: '0.5em',
-            fontFamily: 'Segoe UI, sans-serif',
-            fontSize: '0.9em'
+            fontFamily: 'Segoe UI, sans-serif'
         } 
-    }, props.roots.map(r => renderNode(r, 0)));
+    }, props.roots.map(r => renderNode(r, 1)));
 }

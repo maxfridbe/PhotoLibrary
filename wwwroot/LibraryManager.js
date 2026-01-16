@@ -2,7 +2,9 @@ import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
 import { constants } from './constants.js';
 import { patch } from './snabbdom-setup.js';
-import { LibraryScreen } from './components/library/LibraryScreen.js';
+import { LibraryStatistics } from './components/library/LibraryStatistics.js';
+import { LibraryLocations } from './components/library/LibraryLocations.js';
+import { LibraryImport } from './components/library/LibraryImport.js';
 const ps = constants.pubsub;
 export class LibraryManager {
     constructor() {
@@ -11,12 +13,19 @@ export class LibraryManager {
         this.isIndexing = false;
         this.isScanning = false;
         this.isCancelling = false;
-        this.libraryVNode = null;
         this.containerId = null;
+        this.layout = null;
+        this.statsVNode = null;
+        this.locationsVNode = null;
+        this.importVNode = null;
+        this.localScanResults = [];
+        this.selectedLocalFiles = new Set();
+        this.isLocalScanning = false;
         this.currentScanPath = '';
         this.renderPending = false;
         this.fsRoots = [];
         this.quickSelectRoots = [];
+        this.locationsExpanded = new Set();
         this.fsInitialized = false;
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
@@ -36,6 +45,54 @@ export class LibraryManager {
     }
     initLayout(containerId, triggerScanCallback) {
         this.containerId = containerId;
+        const container = document.getElementById(containerId);
+        if (!container)
+            return;
+        container.innerHTML = ''; // Clear previous
+        const config = {
+            settings: { showPopoutIcon: false },
+            content: [{
+                    type: 'row',
+                    content: [
+                        { type: 'component', componentName: 'statistics', title: 'Statistics', width: 30 },
+                        {
+                            type: 'stack',
+                            width: 70,
+                            content: [
+                                { type: 'component', componentName: 'locations', title: 'Index Locations' },
+                                { type: 'component', componentName: 'import', title: 'Import and Index' }
+                            ]
+                        }
+                    ]
+                }]
+        };
+        this.layout = new GoldenLayout(config, container);
+        const self = this;
+        this.layout.registerComponent('statistics', function (container) {
+            const el = document.createElement('div');
+            el.className = 'gl-component';
+            container.getElement().append(el);
+            self.statsVNode = el;
+            self._renderStats();
+        });
+        this.layout.registerComponent('locations', function (container) {
+            const el = document.createElement('div');
+            el.className = 'gl-component';
+            container.getElement().append(el);
+            self.locationsVNode = el;
+            self._renderLocations();
+        });
+        this.layout.registerComponent('import', function (container) {
+            const el = document.createElement('div');
+            el.className = 'gl-component';
+            container.getElement().append(el);
+            self.importVNode = el;
+            self._renderImport();
+        });
+        this.layout.init();
+        window.addEventListener('resize', () => {
+            this.layout.updateSize();
+        });
         this.loadLibraryInfo();
     }
     render() {
@@ -48,22 +105,51 @@ export class LibraryManager {
         });
     }
     _renderNow() {
-        if (!this.containerId)
+        this._renderStats();
+        this._renderLocations();
+        this._renderImport();
+    }
+    _renderStats() {
+        if (!this.statsVNode)
             return;
-        const $el = document.getElementById(this.containerId);
-        if (!$el)
+        this.statsVNode = patch(this.statsVNode, LibraryStatistics(this.infoCache));
+    }
+    _renderLocations() {
+        if (!this.locationsVNode)
             return;
         const props = {
-            containerId: this.containerId,
-            info: this.infoCache,
+            roots: this.quickSelectRoots,
+            expandedFolders: this.locationsExpanded,
+            onPathChange: (path) => {
+                console.log(`[LibraryManager] Path changed to: ${path}`);
+                this.currentScanPath = path;
+                this.render();
+            },
+            onToggle: (id) => this.toggleLocationExpanded(id),
+            onFolderContextMenu: (e, id) => {
+                // We'll need a reference to the main app to show the context menu
+                // or just handle it here if possible. 
+                // For now, let's assume we can use hub or global app reference.
+                window.app.showFolderContextMenu(e, id);
+            },
+            onAnnotationSave: async (id, annotation, color) => {
+                const node = this.quickSelectRoots.find(r => r.id === id);
+                if (!node)
+                    return;
+                const targetColor = color || node.color;
+                await Api.api_library_set_annotation({ folderId: id, annotation, color: targetColor || undefined });
+                node.annotation = annotation;
+                if (targetColor)
+                    node.color = targetColor;
+                this.render();
+            },
+            onCancelTask: (id) => Api.api_library_cancel_task({ id: `thumbnails-${id}` }),
+            // Find & Index Props
             scanResults: this.scanResults,
             isIndexing: this.isIndexing,
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
-            fsRoots: this.fsRoots,
-            quickSelectRoots: this.quickSelectRoots,
-            onFsToggle: (node) => this.toggleFsNode(node),
             onFindNew: (path, limit) => this.findNewFiles(path, limit),
             onIndexFiles: (path, low, med) => this.triggerScan(path, low, med),
             onCancelImport: () => {
@@ -74,13 +160,32 @@ export class LibraryManager {
                     this.render();
                 });
             },
-            onPathChange: (path) => {
-                console.log(`[LibraryManager] Path changed to: ${path}`);
+            onScanPathChange: (path) => {
                 this.currentScanPath = path;
                 this.render();
             }
         };
-        this.libraryVNode = patch(this.libraryVNode || $el, LibraryScreen(props));
+        this.locationsVNode = patch(this.locationsVNode, LibraryLocations(props));
+    }
+    _renderImport() {
+        if (!this.importVNode)
+            return;
+        const props = {
+            fsRoots: this.fsRoots,
+            onFsToggle: (node) => this.toggleFsNode(node),
+            onSelect: (path) => {
+                this.currentScanPath = path;
+                this.render();
+            },
+            currentScanPath: this.currentScanPath,
+            onFindLocal: (path) => this.findLocalFiles(path),
+            isScanning: this.isLocalScanning,
+            scanResults: this.localScanResults,
+            selectedFiles: this.selectedLocalFiles,
+            onToggleFile: (path) => this.toggleLocalFileSelection(path),
+            onSelectAll: () => this.selectAllLocalFiles()
+        };
+        this.importVNode = patch(this.importVNode, LibraryImport(props));
     }
     async loadLibraryInfo() {
         try {
@@ -162,6 +267,53 @@ export class LibraryManager {
             }
         }
         else {
+            this.render();
+        }
+    }
+    toggleLocationExpanded(id) {
+        if (this.locationsExpanded.has(id)) {
+            this.locationsExpanded.delete(id);
+        }
+        else {
+            this.locationsExpanded.add(id);
+        }
+        this.render();
+    }
+    toggleLocalFileSelection(path) {
+        if (this.selectedLocalFiles.has(path)) {
+            this.selectedLocalFiles.delete(path);
+        }
+        else {
+            this.selectedLocalFiles.add(path);
+        }
+        this.render();
+    }
+    selectAllLocalFiles() {
+        if (this.selectedLocalFiles.size === this.localScanResults.length) {
+            this.selectedLocalFiles.clear();
+        }
+        else {
+            this.selectedLocalFiles = new Set(this.localScanResults);
+        }
+        this.render();
+    }
+    async findLocalFiles(path) {
+        if (!path)
+            return;
+        this.isLocalScanning = true;
+        this.selectedLocalFiles.clear();
+        this.render();
+        try {
+            const res = await Api.api_fs_find_files({ name: path });
+            if (res && res.files) {
+                this.localScanResults = res.files;
+            }
+        }
+        catch (e) {
+            console.error("Failed to find local files", e);
+        }
+        finally {
+            this.isLocalScanning = false;
             this.render();
         }
     }

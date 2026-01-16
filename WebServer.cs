@@ -221,8 +221,9 @@ namespace PhotoLibrary
                 return Results.Ok(db.GetGlobalStats());
             });
 
-            app.MapPost("/api/fs/list", (NameRequest req) =>
+            app.MapPost("/api/fs/list", (NameRequest req, ILoggerFactory logFact) =>
             {
+                var logger = logFact.CreateLogger("FSList");
                 string path = req?.name ?? "";
                 
                 try 
@@ -239,19 +240,85 @@ namespace PhotoLibrary
                     {
                         string abs = PathUtils.ResolvePath(path);
                         if (!Directory.Exists(abs)) return Results.NotFound();
-                        dirs = Directory.GetDirectories(abs);
+                        dirs = Directory.GetDirectories(abs).Where(d => 
+                        {
+                            try {
+                                var name = Path.GetFileName(d);
+                                if (string.IsNullOrEmpty(name) || name.StartsWith(".")) return false;
+                                var attr = File.GetAttributes(d);
+                                return !attr.HasFlag(FileAttributes.ReparsePoint);
+                            } catch { return false; }
+                        });
                     }
                     
-                    var result = dirs.OrderBy(d => d).Select(d => new DirectoryResponse { 
-                        Path = d, 
-                        Name = string.IsNullOrEmpty(Path.GetFileName(d)) ? d : Path.GetFileName(d)
+                    var result = dirs.OrderBy(d => d).Select(d => {
+                        string name = Path.GetFileName(d);
+                        if (string.IsNullOrEmpty(name)) name = d; 
+                        return new DirectoryResponse { 
+                            Path = d, 
+                            Name = name
+                        };
                     });
-                    return Results.Ok(result);
+                    
+                    return Results.Ok(result.ToList());
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Access denied or other errors
+                    logger.LogError(ex, "[FS] Error listing directory: {Path}", path);
                     return Results.Ok(Array.Empty<DirectoryResponse>());
+                }
+            });
+
+            app.MapPost("/api/fs/find-files", (NameRequest req, ILoggerFactory logFact) =>
+            {
+                var logger = logFact.CreateLogger("FSFind");
+                if (string.IsNullOrEmpty(req.name)) return Results.BadRequest();
+                try
+                {
+                    string absPath = PathUtils.ResolvePath(req.name);
+                    logger.LogInformation("[FSFind] Scanning path: {AbsPath}", absPath);
+                    
+                    if (!Directory.Exists(absPath)) 
+                    {
+                        logger.LogWarning("[FSFind] Directory does not exist: {AbsPath}", absPath);
+                        return Results.NotFound();
+                    }
+
+                    var foundFiles = new List<string>();
+                    var stack = new Stack<string>();
+                    stack.Push(absPath);
+
+                    while (stack.Count > 0 && foundFiles.Count < 1000)
+                    {
+                        string currentDir = stack.Pop();
+                        try
+                        {
+                            foreach (string dir in Directory.EnumerateDirectories(currentDir))
+                            {
+                                var name = Path.GetFileName(dir);
+                                if (!name.StartsWith(".")) stack.Push(dir);
+                            }
+
+                            foreach (string file in Directory.EnumerateFiles(currentDir))
+                            {
+                                if (TableConstants.SupportedExtensions.Contains(Path.GetExtension(file)))
+                                {
+                                    foundFiles.Add(Path.GetRelativePath(absPath, file));
+                                }
+                                if (foundFiles.Count >= 1000) break;
+                            }
+                        }
+                        catch (UnauthorizedAccessException) { /* Skip restricted dirs */ }
+                        catch (Exception ex) { logger.LogDebug("[FSFind] Error in {Dir}: {Msg}", currentDir, ex.Message); }
+                    }
+
+                    logger.LogInformation("[FSFind] Found {Count} supported files in {AbsPath}", foundFiles.Count, absPath);
+                    return Results.Ok(new { files = foundFiles });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "[FSFind] Error scanning directory: {Path}", req.name);
+                    return Results.BadRequest(new { error = ex.Message });
                 }
             });
 

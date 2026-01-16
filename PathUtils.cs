@@ -9,11 +9,22 @@ namespace PhotoLibrary
         {
             if (string.IsNullOrEmpty(path)) return path;
             
+            string resolved = path;
             if (path.StartsWith("~"))
             {
-                return Path.GetFullPath(path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+                resolved = path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
             }
-            return Path.GetFullPath(path);
+
+            // Resilience for Linux /home -> /var/home symlinks
+            if (resolved.StartsWith("/home/") && !Directory.Exists("/home"))
+            {
+                if (Directory.Exists("/var/home"))
+                {
+                    resolved = "/var/home/" + resolved.Substring(6);
+                }
+            }
+
+            return Path.GetFullPath(resolved);
         }
     }
 }
