@@ -7,7 +7,7 @@ dotnet build -c Release
 
 # Linux x64
 echo "Publishing for Linux (x64)..."
-dotnet publish PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/linux
+dotnet publish PhotoLibrary/PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/linux
 
 # Windows x64
 # echo "Publishing for Windows (x64)..."

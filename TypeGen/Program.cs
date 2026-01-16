@@ -15,9 +15,9 @@ namespace TypeGen
         {
             var mappings = new List<(string From, string To)>();
             
-            if (GenerateTypes("Requests.cs", "wwwsrc/Requests.generated.ts")) mappings.Add(("Requests.cs", "wwwsrc/Requests.generated.ts"));
-            if (GenerateTypes("Responses.cs", "wwwsrc/Responses.generated.ts")) mappings.Add(("Responses.cs", "wwwsrc/Responses.generated.ts"));
-            if (GenerateFunctions("WebServer.cs", "wwwsrc/Functions.generated.ts")) mappings.Add(("WebServer.cs", "wwwsrc/Functions.generated.ts"));
+            if (GenerateTypes("PhotoLibrary/Requests.cs", "PhotoLibrary/wwwsrc/Requests.generated.ts")) mappings.Add(("PhotoLibrary/Requests.cs", "PhotoLibrary/wwwsrc/Requests.generated.ts"));
+            if (GenerateTypes("PhotoLibrary/Responses.cs", "PhotoLibrary/wwwsrc/Responses.generated.ts")) mappings.Add(("PhotoLibrary/Responses.cs", "PhotoLibrary/wwwsrc/Responses.generated.ts"));
+            if (GenerateFunctions("PhotoLibrary/WebServer.cs", "PhotoLibrary/wwwsrc/Functions.generated.ts")) mappings.Add(("PhotoLibrary/WebServer.cs", "PhotoLibrary/wwwsrc/Functions.generated.ts"));
             
             foreach (var mapping in mappings)
             {

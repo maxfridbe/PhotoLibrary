@@ -1,2 +1,2 @@
 #!/bin/bash
-dotnet run -- "$@"
+dotnet run --project PhotoLibrary -- "$@"
