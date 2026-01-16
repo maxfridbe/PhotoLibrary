@@ -16,6 +16,7 @@
 - REQ-ARCH-00013: All HTTP communications (excluding WebSockets) shall be conducted through the generated TypeScript API wrappers in 'Functions.generated.ts' to ensure type safety and consistent endpoint usage.
 - REQ-ARCH-00014: Rotation and view settings (zoom, pan) shall be persisted in the 'Settings' table, keyed by the image's SHA-256 or xxHash64 hash to ensure consistency even if files are moved or renamed.
 - REQ-ARCH-00015: The system shall not use magic strings for database table or column names; all references must use centralized constants (e.g., TableConstants) to ensure schema consistency and prevent runtime errors.
+- REQ-ARCH-00016: The '/wwwroot' directory shall be treated as a transient, build-generated artifact; all web source files, assets, and original templates must reside in '/wwwsrc', which serves as the authoritative source of truth for the frontend.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.
