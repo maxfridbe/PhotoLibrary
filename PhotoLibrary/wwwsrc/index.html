@@ -183,9 +183,9 @@
         .info-mid { font-size: 0.85em; color: var(--text-muted); margin-top: 1px; }
         .info-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 0.2em; }
         
-        .pick-btn { color: var(--pick-btn-color, #444); cursor: pointer; font-size: 1.1em; transition: color 0.2s; text-shadow: 0 0 1px rgba(255,255,255,0.2); }
-        .pick-btn:hover { color: var(--text-bright); }
-        .pick-btn.picked { color: var(--text-bright); text-shadow: none; }
+        .pick-btn { color: var(--text-muted); cursor: pointer; font-size: 1.1em; transition: all 0.2s; text-shadow: 0 0 1px rgba(255,255,255,0.1); opacity: 0.6; }
+        .pick-btn:hover { color: var(--text-bright); opacity: 1; }
+        .pick-btn.picked { color: var(--accent); text-shadow: 0 0 5px var(--accent); opacity: 1; }
         
         .stars-interactive { 
             display: flex; 

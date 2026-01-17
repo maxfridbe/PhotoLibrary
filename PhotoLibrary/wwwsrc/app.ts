@@ -484,19 +484,26 @@ class App {
 
         hub.sub(ps.PHOTO_UPDATED, (data) => {
             // Update local map
-            this.photoMap.set(data.id, data.photo);
+            const updatedPhoto = { ...this.photoMap.get(data.id), ...data.photo };
+            this.photoMap.set(data.id, updatedPhoto);
             
-            // If it's in our current list, update it there too
-            const idx = this.photos.findIndex(p => p.id === data.id);
-            if (idx !== -1) this.photos[idx] = data.photo;
-
+            // Update flat list
             const flatIdx = this.allPhotosFlat.findIndex(p => p.id === data.id);
-            if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = data.photo;
+            if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = updatedPhoto;
 
-            if (this.sortBy === 'rating-desc') {
+            // If stacking is enabled, re-evaluate everything as this photo might change a stack representative's state
+            if (this.stackingEnabled || this.sortBy === 'rating-desc') {
                 this.processUIStacks();
             } else {
-                this.gridViewManager.refreshStats(data.id, this.photos);
+                // If not stacking, we can try to update in place
+                const idx = this.photos.findIndex(p => p.id === data.id);
+                if (idx !== -1) {
+                    this.photos[idx] = updatedPhoto;
+                    this.gridViewManager.refreshStats(data.id, this.photos);
+                } else {
+                    // Not in current list (maybe filtered out), but let's refresh just in case
+                    this.gridViewManager.update(true);
+                }
             }
 
             if (this.selectedId === data.id) {
