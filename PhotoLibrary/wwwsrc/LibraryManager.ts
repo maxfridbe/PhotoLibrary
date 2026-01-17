@@ -189,7 +189,18 @@ export class LibraryManager {
                 (window as any).app.showFolderContextMenu(e, id);
             },
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
-                const node = this.quickSelectRoots.find(r => r.id === id);
+                const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
+                    for (const node of nodes) {
+                        if (node.id === targetId) return node;
+                        if (node.children) {
+                            const found = findNodeById(node.children, targetId);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+
+                const node = findNodeById(this.quickSelectRoots, id);
                 if (!node) return;
                 const targetColor = color || node.color;
                 await Api.api_library_set_annotation({ folderId: id, annotation, color: targetColor || undefined });

@@ -1624,7 +1624,18 @@ class App {
             onCollectionContextMenu: (e: MouseEvent, c: Collection) => this.showCollectionContextMenu(e, c),
             onSavedSearchContextMenu: (e: MouseEvent, s: SavedSearch) => this.showSavedSearchContextMenu(e, s),
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
-                const node = this.roots.find(r => r.id === id);
+                const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
+                    for (const node of nodes) {
+                        if (node.id === targetId) return node;
+                        if (node.children) {
+                            const found = findNodeById(node.children, targetId);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+
+                const node = findNodeById(this.roots, id);
                 if (!node) return;
                 const targetColor = color || node.color;
                 if (annotation !== (node.annotation || '') || color) {
