@@ -5,10 +5,11 @@ A high-performance C# application designed to scan photo directories, index meta
 ![Grid View](gridview.png)
 ![Loupe View](loupview.png)
 ![Library Maintenance](library.png)
+![Collections](collections.png)
 
 ## Features
 
--   **Efficient Network Scanning**: Reads only the first 1MB of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
+-   **Efficient Network Scanning**: Reads only the first 256KB (1MB for .cr3) of each file to extract headers/metadata, significantly improving performance on high-latency mounts.
 -   **Smart Stacking (UI-Driven)**: 
     *   Automatically groups JPG + RAW (ARW/NEF/CR2/DNG/etc.) pairs with identical names in the same folder.
     *   **Prioritized Display**: RAW files are shown as the stack representative by default.

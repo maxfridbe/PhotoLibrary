@@ -21,7 +21,6 @@ namespace PhotoLibrary.Backend.ProcessingLayer
         private readonly PreviewManager? _previewManager;
         private readonly int[] _longEdges;
         private readonly ILogger<ImageIndexer> _logger;
-        private const int MaxHeaderBytes = 1024 * 1024; // 1MB
         private readonly Dictionary<string, string> _pathCache = new Dictionary<string, string>();
         private static readonly Process _currentProcess = Process.GetCurrentProcess();
         
@@ -242,7 +241,7 @@ namespace PhotoLibrary.Backend.ProcessingLayer
 
                 if (fileId != null)
                 {
-                    var metadata = ExtractMetadata(stream);
+                    var metadata = ExtractMetadata(stream, file.Extension);
                     _db.InsertMetadataWithConnection(_sharedConnection!, null, fileId, metadata);
 
                     if (_previewManager != null && _longEdges.Length > 0)
@@ -429,12 +428,13 @@ namespace PhotoLibrary.Backend.ProcessingLayer
             }
         }
 
-        private IEnumerable<MetadataItem> ExtractMetadata(Stream stream)
+        private IEnumerable<MetadataItem> ExtractMetadata(Stream stream, string extension)
         {
             var items = new List<MetadataItem>();
             try
             {
-                byte[] buffer = new byte[Math.Min(stream.Length, MaxHeaderBytes)];
+                int maxHeaderBytes = extension.Equals(".cr3", StringComparison.OrdinalIgnoreCase) ? 1024 * 1024 : 256 * 1024;
+                byte[] buffer = new byte[Math.Min(stream.Length, maxHeaderBytes)];
                 int read = stream.Read(buffer, 0, buffer.Length);
 
                 using (var ms = new MemoryStream(buffer, 0, read))

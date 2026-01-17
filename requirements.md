@@ -20,7 +20,7 @@
 - REQ-ARCH-00017: The system shall enforce a strict multi-project architecture to ensure layer separation: core business logic and image processing (Backend) must remain decoupled from the web server/API surface (Presentation), and data access (DataLayer) must be abstracted from processing logic.
 
 ## Service (SVC) Requirements
-- REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via 1MB header-only metadata extraction.
+- REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via header-only metadata extraction (256KB default, 1MB for .cr3).
 - REQ-SVC-00002: [Functionality] Hierarchical root path management with recursive normalization and proactive parenting.
 - REQ-SVC-00003: [Performance] High-speed binary WebSocket protocol for image delivery to minimize serialization latency.
 - REQ-SVC-00004: [Performance] Optimized preview generation using automatic sidecar JPG detection for RAW files.
