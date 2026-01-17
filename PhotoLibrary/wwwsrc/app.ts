@@ -145,8 +145,34 @@ class App {
     private importedQueue: { id: string, path: string, rootId?: string }[] = [];
     private importProcessTimer: any = null;
     private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
+    private loadStartTime: number = Date.now();
+
+    private updateSplash(status: string, percent: number) {
+        const $status = document.getElementById('splash-status');
+        const $progress = document.getElementById('splash-progress');
+        if ($status) $status.textContent = status;
+        if ($progress) $progress.style.width = percent + '%';
+    }
+
+    private hideSplash() {
+        const $splash = document.getElementById('splash-screen');
+        if ($splash) {
+            $splash.style.opacity = '0';
+            $splash.style.pointerEvents = 'none';
+            setTimeout(() => {
+                $splash.style.display = 'none';
+            }, 500);
+        }
+        
+        if (this.layout) {
+            this.layout.updateSize();
+        }
+        hub.pub(ps.UI_LAYOUT_CHANGED, {});
+    }
 
     constructor() {
+        this.loadStartTime = Date.now();
+        this.updateSplash('Loading Theme...', 10);
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
         this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap, (id) => {
@@ -178,8 +204,10 @@ class App {
         });
 
         this.themeManager.loadSettings().then(() => {
+            this.updateSplash('Applying Styles...', 30);
             this.themeManager.populateThemesDropdown();
             this.themeManager.applyTheme();
+            this.updateSplash('Initializing Layout...', 50);
             this.initLayout();
             this.loadData();
             this.setupGlobalKeyboard();
@@ -217,9 +245,11 @@ class App {
             isVisible: this.isSettingsVisible,
             currentTheme: this.themeManager.getCurrentTheme(),
             overlayFormat: this.themeManager.getOverlayFormat(),
+            appName: this.themeManager.getAppName(),
             onClose: () => { this.isSettingsVisible = false; this.renderModals(); },
             onThemeChange: (t) => { this.setTheme(t); this.renderModals(); },
             onOverlayFormatChange: (f) => { this.setOverlayFormat(f); this.renderModals(); },
+            onAppNameChange: (n) => { this.themeManager.setAppName(n); this.renderModals(); },
             onResetLayout: () => { this.resetLayout(); this.isSettingsVisible = false; this.renderModals(); }
         });
 
@@ -916,6 +946,7 @@ class App {
 
     async loadData() {
         try {
+            this.updateSplash('Fetching Library Data...', 60);
             const [roots, colls, stats, expState] = await Promise.all([
                 Api.api_directories({}),
                 Api.api_collections_list({}),
@@ -934,12 +965,22 @@ class App {
                 } catch (e) { console.error("Failed to parse expanded folders", e); }
             }
             
+            this.updateSplash('Synchronizing View State...', 80);
             if (window.location.hash.startsWith('#!/')) {
                 await this.applyUrlState();
             } else {
                 await this.refreshPhotos();
             }
-        } catch (e) { console.error("Load failed", e); }
+            this.updateSplash('Ready', 100);
+            const elapsed = Date.now() - this.loadStartTime;
+            const minDelay = 2000;
+            const remaining = Math.max(0, minDelay - elapsed);
+            setTimeout(() => this.hideSplash(), remaining);
+        } catch (e) { 
+            console.error("Load failed", e); 
+            this.updateSplash('Load Failed', 100);
+            setTimeout(() => this.hideSplash(), 1000);
+        }
     }
 
     async refreshPhotos(keepSelection: boolean = false) {
@@ -967,6 +1008,11 @@ class App {
         this.stats = stats;
         
         // Filter hidden items
+        if (this.selectedRootId && this.hiddenIds.size === 0) {
+            // Lazy load if not already loaded
+            await this.loadHiddenSettings(this.selectedRootId);
+        }
+
         if (!this.showHidden && this.hiddenIds.size > 0) {
             this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
         }
@@ -1279,10 +1325,19 @@ class App {
             container.getElement().append(self.$metadataEl);
             if (self.selectedId) self.renderMetadata();
         });
+        
         this.layout.init();
+        
+        // REQ-WFE-00011: Initial renders to ensure content is attached
+        this.renderLibrary();
+        this.renderGrid();
+        this.renderMetadata();
+
         window.addEventListener('resize', () => { 
-            this.layout.updateSize(); 
-            hub.pub(ps.UI_LAYOUT_CHANGED, {}); 
+            if (this.layout && (this.layout as any).isInitialised) {
+                this.layout.updateSize(); 
+                hub.pub(ps.UI_LAYOUT_CHANGED, {}); 
+            }
         });
         this.layout.on('stateChanged', () => hub.pub(ps.UI_LAYOUT_CHANGED, {}));
     }
@@ -1303,7 +1358,13 @@ class App {
         
         // Only auto-expand if the selection has actually changed
         // This allows users to manually collapse the currently selected folder
-        if (this.selectedRootId === this.lastSelectedRootId) return;
+        if (this.selectedRootId === this.lastSelectedRootId) {
+            setTimeout(() => {
+                const el = this.$libraryEl?.querySelector(`.tree-item[data-id="${this.selectedRootId}"]`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+            return;
+        }
         
         let changed = false;
         let currentId: string | undefined = this.selectedRootId;
@@ -1336,6 +1397,11 @@ class App {
         }
 
         this.lastSelectedRootId = this.selectedRootId;
+
+        setTimeout(() => {
+            const el = this.$libraryEl?.querySelector(`.tree-item[data-id="${this.selectedRootId}"]`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
     }
 
     // REQ-WFE-00022

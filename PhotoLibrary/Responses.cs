@@ -77,6 +77,14 @@ namespace PhotoLibrary
         public int IndexedCount { get; set; }
         public int TotalToIndex { get; set; }
         public int TotalThumbnailedImages { get; set; }
+        public List<BackupFileResponse> Backups { get; set; } = new();
+    }
+
+    public class BackupFileResponse
+    {
+        public string Name { get; set; } = "";
+        public DateTime Date { get; set; }
+        public long Size { get; set; }
     }
 
     public class DirectoryResponse

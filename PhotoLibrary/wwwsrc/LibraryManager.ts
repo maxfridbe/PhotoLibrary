@@ -7,6 +7,7 @@ import { LibraryStatistics } from './components/library/LibraryStatistics.js';
 import { LibraryLocations } from './components/library/LibraryLocations.js';
 import { LibraryImport } from './components/library/LibraryImport.js';
 import { FSNode } from './components/import/FileSystemBrowser.js';
+import { post } from './CommunicationManager.js';
 
 declare var GoldenLayout: any;
 
@@ -42,6 +43,8 @@ export class LibraryManager {
     private quickSelectRoots: Res.DirectoryNodeResponse[] = [];
     private locationsExpanded: Set<string> = new Set();
     private fsInitialized = false;
+
+    private isBackingUp = false;
 
     constructor() {
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
@@ -140,7 +143,30 @@ export class LibraryManager {
 
     private _renderStats() {
         if (!this.statsVNode) return;
-        this.statsVNode = patch(this.statsVNode, LibraryStatistics(this.infoCache));
+        this.statsVNode = patch(this.statsVNode, LibraryStatistics(
+            this.infoCache, 
+            this.isBackingUp,
+            async () => {
+                if (this.isBackingUp) return;
+                this.isBackingUp = true;
+                this.render();
+                
+                try {
+                    const res = await post('/api/library/backup', {});
+                    if (res && res.success) {
+                        hub.pub(constants.pubsub.UI_NOTIFICATION, { message: `Backup created at ${res.path}`, type: 'success' });
+                        await this.loadLibraryInfo();
+                    } else {
+                        hub.pub(constants.pubsub.UI_NOTIFICATION, { message: `Backup failed: ${res?.error || 'Unknown error'}`, type: 'error' });
+                    }
+                } catch (e) {
+                    hub.pub(constants.pubsub.UI_NOTIFICATION, { message: 'Backup request failed', type: 'error' });
+                } finally {
+                    this.isBackingUp = false;
+                    this.render();
+                }
+            }
+        ));
     }
 
     private _renderLocations() {

@@ -5,14 +5,16 @@ export interface SettingsModalProps {
     isVisible: boolean;
     currentTheme: string;
     overlayFormat: string;
+    appName: string;
     onClose: () => void;
     onThemeChange: (theme: string) => void;
     onOverlayFormatChange: (format: string) => void;
+    onAppNameChange: (name: string) => void;
     onResetLayout: () => void;
 }
 
 export function SettingsModal(props: SettingsModalProps): VNode {
-    const { isVisible, currentTheme, overlayFormat, onClose, onThemeChange, onOverlayFormatChange, onResetLayout } = props;
+    const { isVisible, currentTheme, overlayFormat, appName, onClose, onThemeChange, onOverlayFormatChange, onAppNameChange, onResetLayout } = props;
 
     return h('div.modal-overlay', {
         class: { active: isVisible },
@@ -22,6 +24,14 @@ export function SettingsModal(props: SettingsModalProps): VNode {
             on: { click: (e: MouseEvent) => e.stopPropagation() }
         }, [
             h('h2', 'Application Settings'),
+            h('div.shortcut-row', [
+                h('span.shortcut-desc', 'Application Name'),
+                h('input', {
+                    attrs: { type: 'text', value: appName },
+                    style: { background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.2em 0.5em', borderRadius: '4px', flex: '1', marginLeft: '1em' },
+                    on: { change: (e: Event) => onAppNameChange((e.target as HTMLInputElement).value) }
+                })
+            ]),
             h('div.shortcut-row', [
                 h('span.shortcut-desc', 'UI Theme'),
                 h('select', {

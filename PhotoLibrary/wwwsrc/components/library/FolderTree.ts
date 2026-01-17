@@ -96,7 +96,7 @@ export function FolderTree(props: FolderTreeProps): VNode {
                                 const val = e.target.textContent.trim().split(/\s+/).slice(0, 3).join(' ');
                                 props.onAnnotationSave(node.id, val);
                             },
-                            keydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); } },
+                            keydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } },
                             click: (e: MouseEvent) => e.stopPropagation(),
                             contextmenu: (e: MouseEvent) => {
                                 e.preventDefault(); e.stopPropagation();
@@ -109,11 +109,11 @@ export function FolderTree(props: FolderTreeProps): VNode {
                         }
                     }),
                     h('span', {
-                        style: { width: '1.2em', display: 'inline-block', textAlign: 'center', cursor: 'pointer' },
+                        style: { width: '1.2em', display: 'inline-block', textAlign: 'center', cursor: 'pointer', fontSize: '1.3em' },
                         on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onFolderToggle(node.id, !isExpanded); } }
                     }, node.children && node.children.length > 0 ? (isExpanded ? '\u25BE' : '\u25B8') : '\u00A0'),
                 ]),
-                h('span.tree-name', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis' } }, node.name!),
+                h('span.tree-name', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis' }, attrs: { title: node.path } }, node.name!),
                 renderProgress(),
                 h('span.count', node.imageCount > 0 ? node.imageCount.toString() : '')
             ]),

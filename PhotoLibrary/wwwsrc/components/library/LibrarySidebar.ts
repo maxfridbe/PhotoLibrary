@@ -3,6 +3,7 @@ import * as Res from '../../Responses.generated.js';
 import { SearchBox } from './SearchBox.js';
 import { TreeItem } from '../common/TreeItem.js';
 import { FolderTree } from './FolderTree.js';
+import { CollectionIcon } from '../../icons.js';
 
 export interface LibrarySidebarProps {
     stats: Res.StatsResponse;
@@ -44,7 +45,7 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
         typeAttr: 'collection-' + c.id,
         onClick: () => props.onCollectionFilterChange(c),
         onContextMenu: (e) => props.onCollectionContextMenu(e, c),
-        icon: '\uD83D\uDCC1'
+        icon: CollectionIcon
     }));
 
     const ratingItems = [];

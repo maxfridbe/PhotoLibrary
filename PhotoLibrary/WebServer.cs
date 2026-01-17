@@ -146,7 +146,63 @@ namespace PhotoLibrary
                 info.IndexedCount = ImageIndexer.IndexedCount;
                 info.TotalToIndex = ImageIndexer.TotalToIndex;
                 info.TotalThumbnailedImages = pm.GetTotalUniqueHashes();
+
+                try
+                {
+                    string backupDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PhotoLibrary", "backup");
+                    if (Directory.Exists(backupDir))
+                    {
+                        info.Backups = new DirectoryInfo(backupDir).GetFiles("*.zip")
+                            .OrderByDescending(f => f.CreationTime)
+                            .Take(20)
+                            .Select(f => new BackupFileResponse { Name = f.Name, Date = f.CreationTime, Size = f.Length })
+                            .ToList();
+                    }
+                }
+                catch { }
+
                 return Results.Ok(info);
+            });
+
+            app.MapPost("/api/library/backup", (DatabaseManager db, PreviewManager pm) =>
+            {
+                try
+                {
+                    string backupDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PhotoLibrary", "backup");
+                    Directory.CreateDirectory(backupDir);
+                    
+                    string fileName = $"backup-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+                    string fullPath = Path.Combine(backupDir, fileName);
+
+                    using var archive = ZipFile.Open(fullPath, ZipArchiveMode.Create);
+
+                    void AddFile(string path, string name)
+                    {
+                        if (!File.Exists(path)) return;
+                        try
+                        {
+                            // We can use the file directly since we are on the same FS
+                            // But we need to handle potential locks by opening with ReadWrite share
+                            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            var entry = archive.CreateEntry(name, CompressionLevel.Fastest);
+                            using var entryStream = entry.Open();
+                            fs.CopyTo(entryStream);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to backup {name}: {ex.Message}");
+                        }
+                    }
+
+                    AddFile(db.DbPath, "cameras.db");
+                    AddFile(pm.DbPath, "previews.db");
+
+                    return Results.Json(new { success = true, path = fullPath });
+                }
+                catch (Exception ex)
+                {
+                    return Results.Json(new { success = false, error = ex.Message });
+                }
             });
 
             app.MapPost("/api/pick", async (HttpContext context, DatabaseManager db) =>
@@ -587,38 +643,54 @@ namespace PhotoLibrary
             app.MapGet("/api/export/download", async (string token, HttpContext context, DatabaseManager db) =>
             {
                 if (!_exportCache.TryRemove(token, out var req)) return Results.NotFound();
+                
+                var syncIoFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpBodyControlFeature>();
+                if (syncIoFeature != null) syncIoFeature.AllowSynchronousIO = true;
+
                 string zipFileName = $"{SanitizeFilename(req.name ?? "export")}_{req.type}.zip";
                 context.Response.ContentType = "application/zip";
                 context.Response.Headers.ContentDisposition = $"attachment; filename={zipFileName}";
+                
+                _logger?.LogInformation("[EXPORT] Starting export for {Count} files", req.fileIds?.Length ?? 0);
+
                 using (var archive = new ZipArchive(context.Response.BodyWriter.AsStream(), ZipArchiveMode.Create))
                 {
                     var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var id in req.fileIds)
                     {
-                        string? fullPath = db.GetFullFilePath(id);
-                        if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath)) continue;
-                        string entryName = (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) ? Path.GetFileNameWithoutExtension(fullPath) + ".jpg" : Path.GetFileName(fullPath);
-                        string uniqueName = entryName;
-                        int counter = 1;
-                        while (usedNames.Contains(uniqueName)) { string ext = Path.GetExtension(entryName); string nameNoExt = Path.GetFileNameWithoutExtension(entryName); uniqueName = $"{nameNoExt}-{counter}{ext}"; counter++; }
-                        usedNames.Add(uniqueName);
-                        var entry = archive.CreateEntry(uniqueName, CompressionLevel.NoCompression);
-                        using (var entryStream = entry.Open())
-                        {
-                            if (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) 
-                            { 
-                                _logger?.LogDebug("[EXPORT] Processing {Path}", fullPath);
-                                using var image = new MagickImage(fullPath); 
-                                image.AutoOrient(); 
-                                image.Format = MagickFormat.Jpg; 
-                                image.Quality = 85; 
-                                image.Write(entryStream); 
-                                _currentProcess.Refresh();
-                                if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
+                        try {
+                            var (fullPath, rotation, isHidden) = db.GetExportInfo(id);
+                            if (isHidden) { _logger?.LogInformation("[EXPORT] Skipping hidden file {Id}", id); continue; }
+                            if (string.IsNullOrEmpty(fullPath)) { _logger?.LogWarning("[EXPORT] Path not found for {Id}", id); continue; }
+                            if (!File.Exists(fullPath)) { _logger?.LogWarning("[EXPORT] File does not exist on disk: {Path}", fullPath); continue; }
+
+                            string entryName = (req.type == "previews" || TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath))) ? Path.GetFileNameWithoutExtension(fullPath) + ".jpg" : Path.GetFileName(fullPath);
+                            string uniqueName = entryName;
+                            int counter = 1;
+                            while (usedNames.Contains(uniqueName)) { string ext = Path.GetExtension(entryName); string nameNoExt = Path.GetFileNameWithoutExtension(entryName); uniqueName = $"{nameNoExt}-{counter}{ext}"; counter++; }
+                            usedNames.Add(uniqueName);
+                            var entry = archive.CreateEntry(uniqueName, CompressionLevel.NoCompression);
+                            using (var entryStream = entry.Open())
+                            {
+                                bool isRaw = TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath));
+                                if (req.type == "previews" || isRaw || rotation != 0) 
+                                { 
+                                    _logger?.LogDebug("[EXPORT] Processing {Path} (Rot: {Rotation})", fullPath, rotation);
+                                    using var image = new MagickImage(fullPath); 
+                                    image.AutoOrient(); 
+                                    if (rotation != 0) image.Rotate(rotation);
+                                    image.Format = MagickFormat.Jpg; 
+                                    image.Quality = 85; 
+                                    image.Write(entryStream); 
+                                    _currentProcess.Refresh();
+                                    if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
+                                }
+                                else { using var fs = File.OpenRead(fullPath); await fs.CopyToAsync(entryStream); }
                             }
-                            else { using var fs = File.OpenRead(fullPath); await fs.CopyToAsync(entryStream); }
+                            await context.Response.Body.FlushAsync();
+                        } catch (Exception ex) {
+                            _logger?.LogError(ex, "[EXPORT] Failed to process file {Id}", id);
                         }
-                        await context.Response.Body.FlushAsync();
                     }
                 }
                 return Results.Empty;

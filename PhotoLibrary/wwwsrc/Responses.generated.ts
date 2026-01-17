@@ -68,6 +68,13 @@ export interface LibraryInfoResponse {
     indexedCount: number;
     totalToIndex: number;
     totalThumbnailedImages: number;
+    backups: BackupFileResponse[];
+}
+
+export interface BackupFileResponse {
+    name: string;
+    date: string;
+    size: number;
 }
 
 export interface DirectoryResponse {

@@ -7,7 +7,7 @@ export interface TreeItemProps {
     typeAttr: string;
     onClick: () => void;
     onContextMenu?: (e: MouseEvent) => void;
-    icon?: string;
+    icon?: string | VNode;
 }
 
 export function TreeItem(props: TreeItemProps): VNode {
@@ -23,7 +23,7 @@ export function TreeItem(props: TreeItemProps): VNode {
             }
         }
     }, [
-        h('span', props.icon ? [h('span', props.icon + ' '), props.text] : props.text),
+        h('span', props.icon ? [typeof props.icon === 'string' ? h('span', props.icon + ' ') : props.icon, props.text] : props.text),
         props.count !== undefined && props.count > 0 
             ? h('span.count', props.count.toString()) 
             : null

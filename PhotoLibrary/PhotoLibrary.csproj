@@ -28,6 +28,7 @@
   <Target Name="CompileTypeScript" BeforeTargets="Build">
     <Exec Command="tsc" />
     <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
+    <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="wwwroot" />
     <ItemGroup>
       <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
     </ItemGroup>

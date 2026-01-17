@@ -905,20 +905,41 @@ namespace PhotoLibrary
             return hash;
         }
 
-        public string? GetFullFilePath(string fileId)
+        public (string? fullPath, int rotation, bool isHidden) GetExportInfo(string fileId)
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = $"SELECT {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
-            command.Parameters.AddWithValue("$Id", fileId);
-            
-            using var reader = command.ExecuteReader();
-            if (reader.Read())
+            try 
             {
-                string rootId = reader.GetString(0);
-                string fileName = reader.GetString(1);
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
                 
+                string? rootId = null;
+                string? fileName = null;
+                int rotation = 0;
+                bool isHidden = false;
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = $@"
+                        SELECT f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, 
+                            COALESCE(json_extract(s.Value, '$.rotation'), 0) as Rotation,
+                            EXISTS (SELECT 1 FROM {TableName.Settings} h WHERE h.Key = 'settings.' || f.{Column.FileEntry.RootPathId} AND EXISTS (SELECT 1 FROM json_each(json_extract(h.Value, '$.hidden')) WHERE value = f.{Column.FileEntry.Id})) as IsHidden
+                        FROM {TableName.FileEntry} f
+                        LEFT JOIN {TableName.Settings} s ON s.Key = f.{Column.FileEntry.Hash} || '-pref-img'
+                        WHERE f.{Column.FileEntry.Id} = $Id";
+                    command.Parameters.AddWithValue("$Id", fileId);
+                    
+                    using var reader = command.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        rootId = reader.GetString(0);
+                        fileName = reader.GetString(1);
+                        rotation = reader.GetInt32(2);
+                        isHidden = reader.GetBoolean(3);
+                    }
+                }
+
+                if (rootId == null || fileName == null) return (null, 0, false);
+
                 var parts = new List<string>();
                 string currentId = rootId;
                 while (true)
@@ -935,9 +956,6 @@ namespace PhotoLibrary
                 }
 
                 parts.Reverse();
-                // Manual join to avoid weirdness with Path.Combine and absolute segments
-                // Resilience: some parts might be absolute paths if they were imported poorly
-                // We take only the directory name if it's an absolute path but not the FIRST part. 
                 var cleanParts = new List<string>();
                 for (int i = 0; i < parts.Count; i++)
                 {
@@ -951,9 +969,18 @@ namespace PhotoLibrary
                 
                 string fullPath = fullDir + "/" + fileName;
                 
-                return fullPath;
+                return (fullPath, rotation, isHidden);
             }
-            return null;
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error getting export info for {FileId}", fileId);
+                return (null, 0, false);
+            }
+        }
+
+        public string? GetFullFilePath(string fileId)
+        {
+            return GetExportInfo(fileId).fullPath;
         }
 
         public string? GetFileRootId(string fileId)
