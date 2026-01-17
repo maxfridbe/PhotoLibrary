@@ -51,7 +51,26 @@ The project follows a decoupled architecture, separating the core backend logic 
 
 ## Usage
 
-### Quick Start (Zero Config)
+### Installation Packages
+Download the latest version from the [Releases](https://github.com/maxfridbe/PhotoLibrary/releases) page.
+
+- **AppImage**: Portable, runs on most Linux distributions.
+  ```bash
+  chmod +x PhotoLibrary-x86_64.AppImage
+  ./PhotoLibrary-x86_64.AppImage
+  ```
+- **DEB (Debian/Ubuntu)**:
+  ```bash
+  sudo dpkg -i photolibrary_1.0.0_amd64.deb
+  # Run via 'photolibrary' command or application launcher
+  ```
+- **RPM (Fedora/RHEL)**:
+  ```bash
+  sudo rpm -i photolibrary-1.0.0-1.x86_64.rpm
+  # Run via 'photolibrary' command or application launcher
+  ```
+
+### Quick Start (Manual Build)
 The simplest way to use PhotoLibrary is to build the self-contained executable and run it. By default, it will store all its data and configuration in `~/.config/PhotoLibrary/`.
 
 1.  **Build**: `./build.sh`
