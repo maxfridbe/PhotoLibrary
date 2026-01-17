@@ -12,6 +12,37 @@ namespace PhotoLibrary
         private readonly string _connectionString;
         private readonly ILogger<CameraManager> _logger;
 
+        private static readonly Dictionary<string, string> _modelAliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "ILCE-7", "Sony a7" },
+            { "ILCE-7M2", "Sony a7 II" },
+            { "ILCE-7M3", "Sony a7 III" },
+            { "ILCE-7M4", "Sony a7 IV" },
+            { "ILCE-7R", "Sony a7R" },
+            { "ILCE-7RM2", "Sony a7R II" },
+            { "ILCE-7RM3", "Sony a7R III" },
+            { "ILCE-7RM4", "Sony a7R IV" },
+            { "ILCE-7S", "Sony a7S" },
+            { "ILCE-7SM2", "Sony a7S II" },
+            { "ILCE-7SM3", "Sony a7S III" },
+            { "ILCE-7C", "Sony a7C" },
+            { "ILCE-7CM2", "Sony a7C II" },
+            { "ILCE-7CR", "Sony a7CR" },
+            { "ILCE-9", "Sony a9" },
+            { "ILCE-9M2", "Sony a9 II" },
+            { "ILCE-9M3", "Sony a9 III" },
+            { "ILCE-1", "Sony a1" },
+            { "ILCE-5000", "Sony a5000" },
+            { "ILCE-5100", "Sony a5100" },
+            { "ILCE-6000", "Sony a6000" },
+            { "ILCE-6100", "Sony a6100" },
+            { "ILCE-6300", "Sony a6300" },
+            { "ILCE-6400", "Sony a6400" },
+            { "ILCE-6500", "Sony a6500" },
+            { "ILCE-6600", "Sony a6600" },
+            { "ILCE-6700", "Sony a6700" }
+        };
+
         public CameraManager(string configDir, ILogger<CameraManager> logger)
         {
             _logger = logger;
@@ -51,6 +82,13 @@ namespace PhotoLibrary
             if (!File.Exists(_dbPath)) return null;
 
             string search = CleanModelName(model).ToLowerInvariant();
+            
+            // Try alias lookup
+            string lookup = model.ToUpperInvariant().Replace("SONY", "").Trim();
+            if (_modelAliases.TryGetValue(lookup, out var alias))
+            {
+                search = CleanModelName(alias).ToLowerInvariant();
+            }
 
             try
             {
