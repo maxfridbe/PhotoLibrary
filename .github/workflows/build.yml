@@ -37,22 +37,35 @@ jobs:
 
     - name: Package for Release
       run: |
-        cd dist/linux
-        zip -r ../../PhotoLibrary-linux-x64.zip .
-        cd ../..
+        mkdir -p PhotoLibrary-linux-x64
+        cp dist/linux/PhotoLibrary PhotoLibrary-linux-x64/
+        zip -r PhotoLibrary-linux-x64.zip PhotoLibrary-linux-x64/
 
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
         name: PhotoLibrary-linux-x64
-        path: dist/linux/
+        path: PhotoLibrary-linux-x64/
+
+    - name: Set release info
+      id: release_info
+      run: |
+        DATE=$(date +'%Y%m%d')
+        IS_FUNCTIONAL=$(git tag --points-at HEAD | grep -q "functional" && echo "true" || echo "false")
+        if [ "$IS_FUNCTIONAL" = "true" ]; then
+          echo "release_name=Functional-$DATE" >> $GITHUB_OUTPUT
+          echo "release_tag=functional-$DATE" >> $GITHUB_OUTPUT
+        else
+          echo "release_name=$DATE" >> $GITHUB_OUTPUT
+          echo "release_tag=build-$DATE" >> $GITHUB_OUTPUT
+        fi
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: latest
-        name: Latest Build
+        tag_name: ${{ steps.release_info.outputs.release_tag }}
+        name: ${{ steps.release_info.outputs.release_name }}
         files: PhotoLibrary-linux-x64.zip
         draft: false
         prerelease: false

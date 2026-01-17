@@ -5,26 +5,28 @@ set -e
 echo "Cleaning up..."
 rm -rf dist
 rm -rf PhotoLibrary/wwwroot
+rm -f PhotoLibrary/wwwroot.zip
 mkdir -p PhotoLibrary/wwwroot
 
 # Ensure we are in the project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
-# Install dependencies if needed (for CI environments)
-# npm install -g typescript
+# Build the project to generate wwwroot and wwwroot.zip
+echo "Generating frontend assets..."
+dotnet build PhotoLibrary/PhotoLibrary.csproj -c Release
 
-# Build and Publish
+# Build and Publish (this will embed the wwwroot.zip created above)
 echo "Building and publishing project..."
 dotnet publish PhotoLibrary/PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o dist/linux
 
-# Zip wwwroot and cleanup dist
-echo "Packaging frontend assets..."
+# Cleanup dist - we ONLY want the executable
+echo "Cleaning up distribution folder..."
 cd dist/linux
-zip -r wwwroot.zip wwwroot
 rm -rf wwwroot
+rm -f wwwroot.zip
 rm -f *.pdb
 rm -f tsconfig.json
 cd ../..
 
-echo "Build complete. Output is in ./dist/linux"
+echo "Build complete. Output is in ./dist/linux/PhotoLibrary"

@@ -1051,18 +1051,35 @@ namespace PhotoLibrary
         private static void EnsureWwwRoot()
         {
             if (Directory.Exists("wwwroot") && Directory.GetFiles("wwwroot", "*", SearchOption.AllDirectories).Length > 0) return;
-            if (!File.Exists("wwwroot.zip")) return;
+
+            var assembly = Assembly.GetExecutingAssembly();
+            using var resourceStream = assembly.GetManifestResourceStream("wwwroot.zip");
+
+            if (resourceStream == null)
+            {
+                if (!File.Exists("wwwroot.zip")) return;
+                try
+                {
+                    _logger?.LogInformation("Extracting external wwwroot.zip...");
+                    if (Directory.Exists("wwwroot")) Directory.Delete("wwwroot", true);
+                    ZipFile.ExtractToDirectory("wwwroot.zip", ".");
+                    _logger?.LogInformation("Extraction complete.");
+                }
+                catch (Exception ex) { _logger?.LogError(ex, "Failed to extract external wwwroot.zip"); }
+                return;
+            }
 
             try
             {
-                _logger?.LogInformation("Extracting wwwroot.zip...");
+                _logger?.LogInformation("Extracting embedded wwwroot.zip...");
                 if (Directory.Exists("wwwroot")) Directory.Delete("wwwroot", true);
-                ZipFile.ExtractToDirectory("wwwroot.zip", "wwwroot");
+                using var archive = new ZipArchive(resourceStream);
+                archive.ExtractToDirectory(".", true);
                 _logger?.LogInformation("Extraction complete.");
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to extract wwwroot.zip");
+                _logger?.LogError(ex, "Failed to extract embedded wwwroot.zip");
             }
         }
 
@@ -1072,6 +1089,8 @@ namespace PhotoLibrary
             if (File.Exists(fullPath)) return Results.File(fullPath, contentType);
 
             string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
+            // This fallback might not work if we don't embed individual files, 
+            // but we are extracting the zip now, so File.Exists should usually catch it.
             return ServeEmbeddedFile(resourceName, contentType);
         }
 
