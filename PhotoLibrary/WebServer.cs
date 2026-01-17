@@ -59,6 +59,7 @@ namespace PhotoLibrary
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
+            EnsureWwwRoot();
 
             _logger.LogInformation("ImageMagick Resource Limits: Memory={Mem}MB, Area={Area}MB", 
                 ResourceLimits.Memory / 1024 / 1024,
@@ -705,12 +706,11 @@ namespace PhotoLibrary
                 return Results.File(fullPath, GetContentType(fullPath), Path.GetFileName(fullPath));
             });
 
-            app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
+            app.MapGet("/", () => ServeFile("index.html", "text/html"));
             app.MapGet("/{*path}", (string path) => {
                 if (string.IsNullOrEmpty(path)) return Results.NotFound();
-                string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
                 string contentType = GetContentType(path);
-                return ServeEmbeddedFile(resourceName, contentType);
+                return ServeFile(path, contentType);
             });
 
             app.MapGet("/ws", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
@@ -1046,6 +1046,33 @@ namespace PhotoLibrary
                 }
             }
             await Task.WhenAll(tasks);
+        }
+
+        private static void EnsureWwwRoot()
+        {
+            if (Directory.Exists("wwwroot") && Directory.GetFiles("wwwroot", "*", SearchOption.AllDirectories).Length > 0) return;
+            if (!File.Exists("wwwroot.zip")) return;
+
+            try
+            {
+                _logger?.LogInformation("Extracting wwwroot.zip...");
+                if (Directory.Exists("wwwroot")) Directory.Delete("wwwroot", true);
+                ZipFile.ExtractToDirectory("wwwroot.zip", "wwwroot");
+                _logger?.LogInformation("Extraction complete.");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to extract wwwroot.zip");
+            }
+        }
+
+        private static IResult ServeFile(string path, string contentType)
+        {
+            string fullPath = Path.Combine("wwwroot", path);
+            if (File.Exists(fullPath)) return Results.File(fullPath, contentType);
+
+            string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
+            return ServeEmbeddedFile(resourceName, contentType);
         }
 
         private static IResult ServeEmbeddedFile(string resourceName, string contentType)
