@@ -1,4 +1,4 @@
-# PhotoLibrary
+# ![Logo](PhotoLibrary/wwwsrc/favicon.svg) PhotoLibrary
 
 A high-performance C# application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. Specifically optimized for slow network drives (CIFS/SMB) and massive libraries.
 
@@ -54,7 +54,7 @@ The project follows a decoupled architecture, separating the core backend logic 
 ### Quick Start (Zero Config)
 The simplest way to use PhotoLibrary is to build the self-contained executable and run it. By default, it will store all its data and configuration in `~/.config/PhotoLibrary/`.
 
-1.  **Build**: `./publish.sh`
+1.  **Build**: `./build.sh`
 2.  **Run**: `./dist/linux/PhotoLibrary`
 3.  **Browse**: Open `http://localhost:8080` in your browser.
 4.  **Import**: Use the "Maintenance" tab in the UI to add your photo directories.
