@@ -1,0 +1,33 @@
+name: "photolibrary"
+arch: "amd64"
+platform: "linux"
+version: "1.0.0"
+section: "default"
+priority: "extra"
+maintainer: "Max Fridbe <maxfridbe@gmail.com>"
+description: "High-performance photo library manager optimized for network drives."
+homepage: "https://github.com/maxfridbe/PhotoLibrary"
+license: "MIT"
+contents:
+  - src: "dist/linux/PhotoLibrary"
+    dst: "/usr/bin/photolibrary"
+  - src: "PhotoLibrary/wwwsrc/favicon.svg"
+    dst: "/usr/share/icons/hicolor/scalable/apps/photolibrary.svg"
+  - src: "photolibrary.desktop"
+    dst: "/usr/share/applications/photolibrary.desktop"
+
+# Post-install logic if needed
+# scripts:
+#   postinstall: postinstall.sh
+
+overrides:
+  deb:
+    depends:
+      - libfuse2
+      - zlib1g
+      - libicu72
+  rpm:
+    depends:
+      - fuse-libs
+      - zlib
+      - libicu

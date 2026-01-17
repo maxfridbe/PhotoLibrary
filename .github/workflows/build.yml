@@ -60,13 +60,18 @@ jobs:
           echo "release_tag=build-$DATE" >> $GITHUB_OUTPUT
         fi
 
+    - name: Build Packages
+      run: ./make_appimage_rpm_deb.sh
+
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.release_info.outputs.release_tag }}
         name: ${{ steps.release_info.outputs.release_name }}
-        files: PhotoLibrary-linux-x64.zip
+        files: |
+          PhotoLibrary-linux-x64.zip
+          dist/packages/*
         draft: false
         prerelease: false
       env:

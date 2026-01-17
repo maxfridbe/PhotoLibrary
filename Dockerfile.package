@@ -1,0 +1,32 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+# Install Node.js and TypeScript
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g typescript
+
+# Install AppImageTool and Packaging dependencies
+RUN apt-get update && apt-get install -y \
+    libfuse2 \
+    file \
+    wget \
+    binutils \
+    zip \
+    rpm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download appimagetool
+RUN wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool && \
+    chmod +x /usr/local/bin/appimagetool
+
+# Install nfpm for DEB/RPM generation
+RUN wget https://github.com/goreleaser/nfpm/releases/download/v2.41.2/nfpm_2.41.2_amd64.deb && \
+    dpkg -i nfpm_2.41.2_amd64.deb && \
+    rm nfpm_2.41.2_amd64.deb
+
+WORKDIR /src
+
+COPY entrypoint-package.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint-package.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-package.sh"]

@@ -38,3 +38,9 @@ test_images/
 *.TIFF
 dist/
 PhotoLibrary/wwwroot/
+AppDir/
+*.AppImage
+*.deb
+*.rpm
+photolibrary.desktop
+wwwroot.zip
