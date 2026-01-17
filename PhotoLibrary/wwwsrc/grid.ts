@@ -156,11 +156,11 @@ export class GridView {
                     imageUrlCache: this.imageUrlCache,
                     onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
                     onDoubleClick: (id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id }),
-                                    onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
-                                    onTogglePick: (p) => server.togglePick(p),
-                                    onRate: (p, r) => server.setRating(p, r)
-                                })
-                            );
+                    onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
+                    onTogglePick: (p) => server.togglePick(p),
+                    onRate: (p, r) => server.setRating(p, r),
+                    onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { id: p.id, rotation: r })
+                }));
             }
         }
 
@@ -190,7 +190,8 @@ export class GridView {
             onDoubleClick: () => {},
             onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
             onTogglePick: (p) => server.togglePick(p),
-            onRate: (p, r) => server.setRating(p, r)
+            onRate: (p, r) => server.setRating(p, r),
+            onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { id: p.id, rotation: r })
         }));
 
         const newVNode = h('div#filmstrip-content', {

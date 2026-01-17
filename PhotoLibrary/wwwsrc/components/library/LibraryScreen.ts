@@ -31,7 +31,6 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
             h('div.lib-pane', { 
                 style: { flex: '0 0 300px', display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'auto', boxSizing: 'border-box', height: '100%' } 
             }, [
-                h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Library Statistics'),
                 info ? renderStats(info) : h('div', 'Loading statistics...')
             ]),
 

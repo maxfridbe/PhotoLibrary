@@ -5,7 +5,6 @@ export function LibraryStatistics(info: Res.LibraryInfoResponse | null, isBackin
     return h('div.lib-pane', { 
         style: { display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'auto', boxSizing: 'border-box', height: '100%', padding: '1em' } 
     }, [
-        h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Library Statistics'),
         info ? renderStats(info, isBackingUp, onBackup) : h('div', 'Loading statistics...')
     ]);
 }

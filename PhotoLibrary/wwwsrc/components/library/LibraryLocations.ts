@@ -29,7 +29,6 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
         style: { display: 'flex', flexDirection: 'column', gap: '2em', height: '100%', overflowY: 'auto', padding: '1em' } 
     }, [
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: '1em' } }, [
-            h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Index Locations'),
             h('div.folder-list-container', {
                 style: { 
                     border: '1px solid var(--border-main)', borderRadius: '4px', 
@@ -41,32 +40,26 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
 
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: '1em' } }, [
             h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Find New Images'),
-            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '1em' } }, [
-                h('div', { style: { display: 'flex', gap: '0.5em' } }, [
-                    h('input#scan-path-input', {
-                        key: 'scan-input',
-                        attrs: { type: 'text', placeholder: 'Path to scan...', value: currentScanPath },
-                        props: { value: currentScanPath },
-                        hook: {
-                            insert: (vnode) => { 
-                                (vnode.elm as HTMLInputElement).value = currentScanPath; 
-                            },
-                            update: (old, vnode) => { 
-                                const $el = vnode.elm as HTMLInputElement;
-                                if ($el.value !== currentScanPath) {
-                                    $el.value = currentScanPath;
-                                }
-                            }
+            h('div', { style: { display: 'flex', gap: '0.5em', alignItems: 'center' } }, [
+                h('input#scan-path-input', {
+                    key: 'scan-input',
+                    attrs: { type: 'text', placeholder: 'Path to scan...', value: currentScanPath },
+                    props: { value: currentScanPath },
+                    hook: {
+                        insert: (vnode) => { 
+                            (vnode.elm as HTMLInputElement).value = currentScanPath; 
                         },
-                        style: { flex: '1', background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.8em', borderRadius: '4px', minWidth: '0' },
-                        on: { input: (e: Event) => onScanPathChange((e.target as HTMLInputElement).value) }
-                    }),
-                    h('button', {
-                        style: { padding: '0 2.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-                        on: { click: () => onFindNew(currentScanPath, 1000) }
-                    }, 'FIND NEW')
-                ]),
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: '1em', fontSize: '0.95em', color: 'var(--text-muted)' } }, [
+                        update: (old, vnode) => { 
+                            const $el = vnode.elm as HTMLInputElement;
+                            if ($el.value !== currentScanPath) {
+                                $el.value = currentScanPath;
+                            }
+                        }
+                    },
+                    style: { flex: '1', background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.8em', borderRadius: '4px', minWidth: '0' },
+                    on: { input: (e: Event) => onScanPathChange((e.target as HTMLInputElement).value) }
+                }),
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5em', fontSize: '0.9em', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, [
                     h('span', 'Limit:'),
                     h('select#scan-limit-select', {
                         style: { background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '4px' }
@@ -76,7 +69,11 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                         h('option', { attrs: { value: '1000', selected: true } }, '1000'),
                         h('option', { attrs: { value: '5000' } }, '5000')
                     ])
-                ])
+                ]),
+                h('button', {
+                    style: { padding: '0 2.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
+                    on: { click: () => onFindNew(currentScanPath, 1000) }
+                }, 'FIND NEW')
             ])
         ]),
 

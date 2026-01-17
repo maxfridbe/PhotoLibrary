@@ -254,6 +254,7 @@
             border: 1px solid var(--border-light); border-radius: 3px; padding: 2px 5px;
             font-size: 0.9em;
         }
+        select:focus, input:focus { border-color: var(--accent) !important; outline: none !important; box-shadow: 0 0 3px var(--accent); }
         .query-row input { flex: 1; min-width: 0; }
         .query-add-btn { 
             cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1.2em; 
@@ -269,7 +270,7 @@
 
         /* Golden Layout Overrides */
         .lm_header { background: var(--bg-header) !important; }
-        .lm_header .lm_tab { background: var(--bg-header) !important; color: var(--text-muted) !important; border: none !important; margin-right: 2px !important; padding-top: 2px !important; }
+        .lm_header .lm_tab { background: var(--bg-header) !important; color: var(--text-muted) !important; border: none !important; margin-right: 2px !important; padding: 5px 15px !important; font-size: 1.5em !important; height: auto !important; line-height: 1.2 !important; }
         .lm_header .lm_tab.lm_active { background: var(--bg-panel) !important; color: var(--text-bright) !important; border-top: 2px solid var(--accent) !important; }
         .lm_header .lm_tab:hover { color: var(--text-bright) !important; }
         .lm_content { background: var(--bg-main) !important; border: 1px solid var(--border-dim) !important; }

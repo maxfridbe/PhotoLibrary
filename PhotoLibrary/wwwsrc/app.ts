@@ -341,7 +341,12 @@ class App {
             const flatIdx = this.allPhotosFlat.findIndex(p => p.id === data.id);
             if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = data.photo;
 
-            this.gridViewManager.refreshStats(data.id, this.photos);
+            if (this.sortBy === 'rating-desc') {
+                this.processUIStacks();
+            } else {
+                this.gridViewManager.refreshStats(data.id, this.photos);
+            }
+
             if (this.selectedId === data.id) {
                 this.updateSelectionUI(data.id);
                 if (this.isLoupeMode) this.updateLoupeOverlay(data.id);
@@ -1061,6 +1066,7 @@ class App {
     private initLayout() {
         const config = {
             settings: { showPopoutIcon: false },
+            dimensions: { headerHeight: 45 },
             content: [{
                 type: 'row',
                 content: [

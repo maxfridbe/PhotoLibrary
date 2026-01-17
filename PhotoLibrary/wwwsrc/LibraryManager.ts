@@ -75,10 +75,11 @@ export class LibraryManager {
 
         const config = {
             settings: { showPopoutIcon: false },
+            dimensions: { headerHeight: 45 },
             content: [{
                 type: 'row',
                 content: [
-                    { type: 'component', componentName: 'statistics', title: 'Statistics', width: 30 },
+                    { type: 'component', componentName: 'statistics', title: 'Library Statistics', width: 30 },
                     { 
                         type: 'stack', 
                         width: 70,
