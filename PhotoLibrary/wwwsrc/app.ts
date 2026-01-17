@@ -67,6 +67,8 @@ class App {
     private cameraThumbCache: Map<string, string> = new Map();
 
     public selectedId: string | null = null;
+    public anchorId: string | null = null;
+    public selectedIds: Set<string> = new Set();
     public selectedMetadata: MetadataGroup[] = [];
     public selectedRootId: string | null = null;
     private lastSelectedRootId: string | null = null;
@@ -101,6 +103,36 @@ class App {
     public rotateLeft?: () => void;
     public rotateRight?: () => void;
     public getPriority?: (id: string) => number;
+
+    private findDirectoryById(nodes: Res.DirectoryNodeResponse[], id: string): Res.DirectoryNodeResponse | null {
+        for (const n of nodes) {
+            if (n.id === id) return n;
+            const found = this.findDirectoryById(n.children, id);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    private updateWatermark() {
+        if (!this.$watermarkEl) return;
+        let name = '';
+        if (this.filterType === 'all' && this.selectedRootId) {
+            const node = this.findDirectoryById(this.roots, this.selectedRootId);
+            name = node ? node.name : '';
+        } else if (this.filterType === 'collection' && this.selectedCollectionId) {
+            const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
+            name = c ? c.name : '';
+        } else if (this.filterType === 'picked') {
+            name = 'Picked';
+        } else if (this.filterType === 'rating') {
+            name = 'Starred';
+        } else if (this.filterType === 'search') {
+            name = 'Search';
+        } else {
+            name = 'All Photos';
+        }
+        this.$watermarkEl.textContent = name;
+    }
     
     // Connection State
     private disconnectedAt: number | null = null;
@@ -124,6 +156,7 @@ class App {
     public $scrollSentinel: HTMLElement | null = null;
     public $loupeView: HTMLElement | null = null;
     public $filmstrip: HTMLElement | null = null;
+    private $watermarkEl: HTMLElement | null = null;
 
     private $metaTitleEl: HTMLElement | null = null;
     public $metaVisEl: HTMLElement | null = null;
@@ -296,22 +329,85 @@ class App {
 
     private initPubSub() {
         hub.sub(ps.PHOTO_SELECTED, (data) => {
-            this.selectedId = data.id;
-            this.updateSelectionUI(data.id);
-            this.gridViewManager.setSelected(data.id);
-            this.gridViewManager.scrollToPhoto(data.id);
-            this.loadMetadata(data.id);
-            
-            if (this.isFullscreen) {
-                this.updateFullscreenImage(data.id);
-                // Also update loupe in background if we are in that mode
-                if (this.isLoupeMode) {
-                    this.renderLoupe();
-                    this.updateLoupeOverlay(data.id);
+            const id = data.id;
+            const mods = this.isLoupeMode ? { shift: false, ctrl: false } : (data.modifiers || { shift: false, ctrl: false });
+
+            if (mods.shift) {
+                // Range select from anchor
+                const anchor = this.anchorId || this.selectedId || id;
+                const startIdx = this.photos.findIndex(p => p.id === anchor);
+                const endIdx = this.photos.findIndex(p => p.id === id);
+                
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const low = Math.min(startIdx, endIdx);
+                    const high = Math.max(startIdx, endIdx);
+                    
+                    if (!mods.ctrl) {
+                        this.selectedIds.clear();
+                    }
+                    
+                    for (let i = low; i <= high; i++) {
+                        this.selectedIds.add(this.photos[i].id);
+                    }
+                } else {
+                    // Fallback
+                    if (!mods.ctrl) this.selectedIds.clear();
+                    this.selectedIds.add(id);
+                    this.anchorId = id;
                 }
-            } else if (this.isLoupeMode) {
-                this.renderLoupe();
-                this.updateLoupeOverlay(data.id);
+            } else if (mods.ctrl) {
+                if (this.selectedIds.has(id)) {
+                    this.selectedIds.delete(id);
+                } else {
+                    this.selectedIds.add(id);
+                }
+                this.anchorId = id;
+            } else {
+                this.selectedIds.clear();
+                this.selectedIds.add(id);
+                this.anchorId = id;
+            }
+
+            // If we have selections, ensure active ID is valid or set to the clicked one
+            if (this.selectedIds.size > 0) {
+                // If we clicked something, it becomes active (anchor), even if we toggled it off?
+                // Standard: if we toggle off, anchor might move. But let's keep the clicked one as active/anchor.
+                this.selectedId = id;
+                
+                // If we toggled OFF the clicked one, selectedId refers to an unselected item.
+                // This is allowed in some apps (anchor is focus).
+                // But for metadata panel, we usually show the active item.
+            } else {
+                this.selectedId = null;
+            }
+
+            // Sync Grid
+            this.gridViewManager.setSelected(this.selectedId, this.selectedIds);
+            
+            // Sync selection UI (legacy/filmstrip scrolling)
+            // We only scroll to the active one
+            if (this.selectedId) {
+                this.gridViewManager.scrollToPhoto(this.selectedId);
+                this.loadMetadata(this.selectedId);
+                if (this.isLoupeMode && this.selectedIds.has(this.selectedId)) {
+                     // Ensure loupe matches active selection
+                }
+            } else {
+                this.clearMetadata();
+            }
+            
+            // Fullscreen & Loupe updates
+            if (this.selectedId) {
+                if (this.isFullscreen) {
+                    this.updateFullscreenImage(this.selectedId);
+                    if (this.isLoupeMode) {
+                        this.renderLoupe();
+                        this.updateLoupeOverlay(this.selectedId);
+                    }
+                } else if (this.isLoupeMode) {
+                    this.renderLoupe();
+                    this.updateLoupeOverlay(this.selectedId);
+                }
             }
             
             if (this.$workspaceEl) this.$workspaceEl.focus();
@@ -653,6 +749,7 @@ class App {
         this.totalPhotos = this.photos.length;
         this.gridViewManager.setPhotos(this.photos);
         
+        this.updateWatermark();
         this.renderGrid();
         if (this.isLoupeMode) this.renderFilmstrip();
     }
@@ -1126,6 +1223,12 @@ class App {
             self.$workspaceEl = document.createElement('div');
             self.$workspaceEl.className = 'gl-component';
             self.$workspaceEl.style.overflow = 'hidden';
+            self.$workspaceEl.style.position = 'relative'; // Ensure relative for watermark
+
+            const watermark = document.createElement('div');
+            watermark.className = 'grid-watermark';
+            self.$watermarkEl = watermark;
+            self.$workspaceEl.appendChild(watermark);
             
             const header = document.createElement('div');
             header.id = 'grid-header';
@@ -1349,10 +1452,12 @@ class App {
     }
 
     private updateSelectionUI(id: string) {
-        const oldSel = this.$workspaceEl?.querySelectorAll('.card.selected');
-        oldSel?.forEach(e => e.classList.remove('selected'));
-        const newSel = this.$workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
-        newSel?.forEach(e => e.classList.add('selected'));
+        // GridView handles selection classes via VDOM now.
+        // const oldSel = this.$workspaceEl?.querySelectorAll('.card.selected');
+        // oldSel?.forEach(e => e.classList.remove('selected'));
+        // const newSel = this.$workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
+        // newSel?.forEach(e => e.classList.add('selected'));
+        
         if (this.isLoupeMode) {
             const stripItem = this.$filmstrip?.querySelector(`.card[data-id="${id}"]`);
             if (stripItem) stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
@@ -2179,9 +2284,8 @@ class App {
             this.toggleFullscreen();
         }
         if (key === 'h') {
-            if (this.selectedId) {
-                this.toggleHide(this.selectedId);
-            }
+            const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
+            targets.forEach(id => this.toggleHide(id));
         }
         if (key === 'm') {
             e.preventDefault();
@@ -2192,40 +2296,35 @@ class App {
             this.toggleLibraryPanel();
         }
         if (key === 'p') {
-            if (this.selectedId) {
-                const p = this.photos.find(x => x.id === this.selectedId);
-                if (p) server.togglePick(p);
-            }
+            const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
+            const photos = this.photos.filter(p => targets.includes(p.id));
+            photos.forEach(p => server.togglePick(p));
         }
         if (key >= '0' && key <= '5') {
-            if (this.selectedId) {
-                const p = this.photos.find(x => x.id === this.selectedId);
-                if (p) server.setRating(p, parseInt(key));
-            }
+            const rating = parseInt(key);
+            const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
+            const photos = this.photos.filter(p => targets.includes(p.id));
+            photos.forEach(p => server.setRating(p, rating));
         }
-        
+
         if (key === '[') {
-            if (this.selectedId) {
-                if (this.isLoupeMode && this.rotateLeft) this.rotateLeft();
-                else {
-                    const current = this.rotationMap.get(this.selectedId) || 0;
-                    hub.pub(ps.PHOTO_ROTATED, { id: this.selectedId, rotation: current - 90 });
-                }
-            }
+            const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
+            targets.forEach(id => {
+                const current = this.rotationMap.get(id) || 0;
+                hub.pub(ps.PHOTO_ROTATED, { id, rotation: current - 90 });
+            });
         }
         if (key === ']') {
-            if (this.selectedId) {
-                if (this.isLoupeMode && this.rotateRight) this.rotateRight();
-                else {
-                    const current = this.rotationMap.get(this.selectedId) || 0;
-                    hub.pub(ps.PHOTO_ROTATED, { id: this.selectedId, rotation: current + 90 });
-                }
-            }
+            const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
+            targets.forEach(id => {
+                const current = this.rotationMap.get(id) || 0;
+                hub.pub(ps.PHOTO_ROTATED, { id, rotation: current + 90 });
+            });
         }
 
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(e.key.toLowerCase())) {
             e.preventDefault();
-            this.navigate(e.key);
+            this.navigate(e.key, e.shiftKey);
         }
 
         if (key === 'pageup' || key === 'pagedown') {
@@ -2251,7 +2350,7 @@ class App {
         }
     }
 
-    private navigate(key: string) {
+    private navigate(key: string, shift: boolean = false) {
         if (this.photos.length === 0) return;
         
         let index = this.selectedId ? this.photos.findIndex(p => p?.id === this.selectedId) : -1;
@@ -2269,7 +2368,10 @@ class App {
         index = Math.max(0, Math.min(this.photos.length - 1, index));
         const target = this.photos[index];
         if (target) {
-            hub.pub(ps.PHOTO_SELECTED, { id: target.id, photo: target });
+            // If shift is pressed, we treat it as standard range selection from anchor
+            // unless in Loupe mode where we enforce single selection.
+            const mods = { shift: shift, ctrl: false }; 
+            hub.pub(ps.PHOTO_SELECTED, { id: target.id, photo: target, modifiers: mods });
             // Always scroll to photo in background to keep grid in sync
             this.gridViewManager.scrollToPhoto(target.id);
         }

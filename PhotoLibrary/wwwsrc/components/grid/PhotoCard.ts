@@ -8,9 +8,9 @@ export interface PhotoCardProps {
     rotation: number;
     mode: 'grid' | 'filmstrip';
     imageUrlCache: Map<string, string>;
-    onSelect: (id: string, photo: Res.PhotoResponse) => void;
+    onSelect: (id: string, photo: Res.PhotoResponse, modifiers: { shift: boolean, ctrl: boolean }) => void;
     onDoubleClick: (id: string) => void;
-            onContextMenu: (e: MouseEvent, photo: Res.PhotoResponse) => void;
+    onContextMenu: (e: MouseEvent, photo: Res.PhotoResponse) => void;
             onTogglePick: (photo: Res.PhotoResponse) => void;
             onRate: (photo: Res.PhotoResponse, rating: number) => void;
             onRotate: (photo: Res.PhotoResponse, rotation: number) => void;
@@ -43,14 +43,16 @@ export interface PhotoCardProps {
                     'is-stacked': photo.stackCount > 1,
                     loading: !cachedUrl
                 },
-                dataset: { id: photo.id },
-                on: {
-                    click: () => props.onSelect(photo.id, photo),
-                    dblclick: () => { if (mode === 'grid') props.onDoubleClick(photo.id); },
-                    contextmenu: (e: MouseEvent) => { e.preventDefault(); props.onContextMenu(e, photo); }
-                }
-            }, [
-                h('div.img-container', {
+                        dataset: { id: photo.id },
+                        on: {
+                            click: (e: MouseEvent) => {
+                                e.stopPropagation(); // Prevent propagation if needed
+                                props.onSelect(photo.id, photo, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+                            },
+                            dblclick: () => { if (mode === 'grid') props.onDoubleClick(photo.id); },
+                            contextmenu: (e: MouseEvent) => { e.preventDefault(); props.onContextMenu(e, photo); }
+                        }
+                    }, [                h('div.img-container', {
                     class: { loaded: !!cachedUrl }
                 }, [
                     h('div.card-spinner'),
@@ -80,12 +82,12 @@ export interface PhotoCardProps {
                         h('div', { style: { display: 'flex', gap: '0.2em' } }, [
                             h('span.rotate-btn', {
                                 style: { cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1em', padding: '0 2px' },
-                                attrs: { title: 'Rotate Left' },
+                                attrs: { title: 'Rotate Left ([)' },
                                 on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onRotate(photo, rotation - 90); } }
                             }, '\u21BA'),
                             h('span.rotate-btn', {
                                 style: { cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1em', padding: '0 2px' },
-                                attrs: { title: 'Rotate Right' },
+                                attrs: { title: 'Rotate Right (])' },
                                 on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onRotate(photo, rotation + 90); } }
                             }, '\u21BB')
                         ])
@@ -94,6 +96,7 @@ export interface PhotoCardProps {
                     h('div.info-bottom', [
                         h('span.pick-btn', {
                             class: { picked: photo.isPicked },
+                            attrs: { title: photo.isPicked ? 'Unpick (P)' : 'Pick (P)' },
                             on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onTogglePick(photo); } }
                         }, '\u2691'),
                         h('div.stars-interactive', {
@@ -101,6 +104,7 @@ export interface PhotoCardProps {
                         }, [5, 4, 3, 2, 1].map(star => 
                             h('span.star', {
                                 class: { active: star <= photo.rating },
+                                attrs: { title: `Rate ${star} (${star})` },
                                 on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onRate(photo, star); } }
                             }, '\u2605')
                         ))

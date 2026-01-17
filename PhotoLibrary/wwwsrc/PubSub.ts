@@ -5,7 +5,7 @@ const ps = constants.pubsub;
 
 export interface EventMap {
     [ps.VIEW_MODE_CHANGED]: { mode: 'grid' | 'loupe' | 'library', id?: string };
-    [ps.PHOTO_SELECTED]: { id: string, photo: Res.PhotoResponse };
+    [ps.PHOTO_SELECTED]: { id: string, photo: Res.PhotoResponse, modifiers?: { shift: boolean, ctrl: boolean } };
     [ps.PHOTO_UPDATED]: { id: string, photo: Res.PhotoResponse };
     [ps.PHOTO_ROTATED]: { id: string, rotation: number };
     

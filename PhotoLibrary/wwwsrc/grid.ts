@@ -41,6 +41,7 @@ export class GridView {
     private filmstripVisibleRange = { start: 0, end: 20 };
     private photos: Photo[] = [];
     private selectedId: string | null = null;
+    private selectedIds: Set<string> = new Set();
     private generatingIds = new Set<string>();
     private priorityProvider: (id: string) => number;
 
@@ -94,8 +95,13 @@ export class GridView {
         this.update(true);
     }
 
-    public setSelected(id: string | null) {
+    public setSelected(id: string | null, ids?: Set<string>) {
         this.selectedId = id;
+        if (ids) this.selectedIds = ids;
+        else {
+            this.selectedIds.clear();
+            if (id) this.selectedIds.add(id);
+        }
         this.update(true);
     }
 
@@ -149,12 +155,12 @@ export class GridView {
             if (photo) {
                 cards.push(PhotoCard({
                     photo,
-                    isSelected: this.selectedId === photo.id,
+                    isSelected: this.selectedIds.has(photo.id),
                     isGenerating: this.generatingIds.has(photo.id),
                     rotation: this.rotationMap.get(photo.id) || 0,
                     mode: 'grid',
                     imageUrlCache: this.imageUrlCache,
-                    onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
+                    onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
                     onDoubleClick: (id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id }),
                     onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
                     onTogglePick: (p) => server.togglePick(p),
@@ -181,12 +187,12 @@ export class GridView {
 
         const cards = this.photos.map(photo => PhotoCard({
             photo,
-            isSelected: this.selectedId === photo.id,
+            isSelected: this.selectedIds.has(photo.id),
             isGenerating: this.generatingIds.has(photo.id),
             rotation: this.rotationMap.get(photo.id) || 0,
             mode: 'filmstrip',
             imageUrlCache: this.imageUrlCache,
-            onSelect: (id, p) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p }),
+            onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
             onDoubleClick: () => {},
             onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
             onTogglePick: (p) => server.togglePick(p),

@@ -294,7 +294,26 @@
                 transparent
             ) !important;
             background-size: 60px 60px !important;
-            animation: barber-pole 2s linear infinite !important;
+            background-size: 40px 40px !important;
+            animation: barber-pole 3s linear infinite !important;
+        }
+        .grid-watermark {
+            position: absolute;
+            bottom: -0.1em;
+            right: 0.1em;
+            font-size: 10em;
+            font-weight: 900;
+            color: var(--text-main);
+            opacity: 0.05;
+            pointer-events: none;
+            z-index: 0;
+            user-select: none;
+            white-space: nowrap;
+            line-height: 0.8;
+            text-transform: uppercase;
+            max-width: 90%;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
     </style>
 </head>

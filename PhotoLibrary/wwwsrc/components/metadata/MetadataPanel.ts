@@ -60,7 +60,7 @@ export function MetadataPanel(props: MetadataPanelProps): VNode {
     }, [
         h('h2', `${photo.fileName} ${pickText} ${starsText}`),
         (hasAperture && hasFocal) ? ApertureVisualizer({ 
-            metadata: metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ tag, value })) ) as any, 
+            metadata: metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ directory: g.name, tag, value })) ) as any, 
             cameraThumbUrl 
         }) : null,
         ...sortedGroups.map(group => {

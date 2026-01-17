@@ -65,7 +65,15 @@ export function ApertureVisualizer(data: ApertureData): VNode {
     }
 
     const fStop = parseNum(getVal("Exif SubIFD", "F-Number")) || 2.8;
-    const model = getVal("Exif IFD0", "Model") || "Unknown Camera";
+    
+    // Robust camera model detection
+    let model: any = getVal("Exif IFD0", "Model");
+    if (!model) {
+        // Fallback: look for 'Model' or 'Camera Model Name' in any directory
+        const modelItem = metadata.find(x => x.tag === "Model" || x.tag === "Camera Model Name");
+        model = modelItem ? modelItem.value : "Unknown Camera";
+    }
+
     const iso = getVal("Exif SubIFD", "ISO Speed Ratings") || "---";
     const shutterTime = getVal("Exif SubIFD", "Exposure Time") || "---";
 
