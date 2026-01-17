@@ -1,10 +1,12 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary", "PhotoLibrary\PhotoLibrary.csproj", "{B47C836A-19E7-52C3-D3CC-1C777FC7441B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TypeGen", "TypeGen\TypeGen.csproj", "{EC0DD202-FD91-B5D1-4786-29EFA16C10DB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.Backend", "PhotoLibrary.Backend\PhotoLibrary.Backend.csproj", "{D32BC802-338D-41C1-A598-D01AAA35AC94}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,6 +22,10 @@ Global
 		{EC0DD202-FD91-B5D1-4786-29EFA16C10DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EC0DD202-FD91-B5D1-4786-29EFA16C10DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EC0DD202-FD91-B5D1-4786-29EFA16C10DB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D32BC802-338D-41C1-A598-D01AAA35AC94}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D32BC802-338D-41C1-A598-D01AAA35AC94}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D32BC802-338D-41C1-A598-D01AAA35AC94}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D32BC802-338D-41C1-A598-D01AAA35AC94}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

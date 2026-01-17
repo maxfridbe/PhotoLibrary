@@ -1,4 +1,4 @@
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.DataLayer
 {
     public static class TableConstants
     {

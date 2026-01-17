@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.ProcessingLayer
 {
     public static class PathUtils
     {

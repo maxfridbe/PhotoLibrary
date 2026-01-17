@@ -1,10 +1,8 @@
-using System;
-using System.IO;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using static PhotoLibrary.TableConstants;
+using static PhotoLibrary.Backend.DataLayer.TableConstants;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.ProcessingLayer
 {
     public class PreviewManager
     {

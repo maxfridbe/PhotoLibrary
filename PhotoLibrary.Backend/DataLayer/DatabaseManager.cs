@@ -6,9 +6,10 @@ using System.IO.Hashing;
 using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using static PhotoLibrary.TableConstants;
+using PhotoLibrary.Backend.ProcessingLayer;
+using static PhotoLibrary.Backend.DataLayer.TableConstants;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.DataLayer
 {
     // REQ-ARCH-00005
     public class DatabaseManager

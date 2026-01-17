@@ -1,6 +1,6 @@
 using System;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.DataLayer
 {
     public record IdRequest(string id);
     public record NameRequest(string name);

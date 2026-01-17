@@ -7,8 +7,9 @@ using System.Diagnostics;
 using ImageMagick;
 using MetadataExtractor;
 using Microsoft.Extensions.Logging;
+using PhotoLibrary.Backend.DataLayer;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.ProcessingLayer
 {
     public class ImageIndexer
     {

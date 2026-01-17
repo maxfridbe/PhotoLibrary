@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.DataLayer
 {
     public class PhotoResponse
     {

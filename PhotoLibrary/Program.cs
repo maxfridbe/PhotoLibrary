@@ -6,6 +6,8 @@ using System.CommandLine.Invocation;
 using System.IO;
 using System.Threading.Tasks;
 using ImageMagick;
+using PhotoLibrary.Backend.DataLayer;
+using PhotoLibrary.Backend.ProcessingLayer;
 
 namespace PhotoLibrary
 {

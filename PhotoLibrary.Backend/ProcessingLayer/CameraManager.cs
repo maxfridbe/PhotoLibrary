@@ -4,7 +4,7 @@ using System.Reflection;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
-namespace PhotoLibrary
+namespace PhotoLibrary.Backend.ProcessingLayer
 {
     public class CameraManager
     {

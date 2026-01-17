@@ -14,6 +14,8 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Diagnostics;
 using ImageMagick;
+using PhotoLibrary.Backend.DataLayer;
+using PhotoLibrary.Backend.ProcessingLayer;
 
 namespace PhotoLibrary
 {

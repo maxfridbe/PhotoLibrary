@@ -36,6 +36,18 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Connection Tracking**: Status bar shows exact offline duration (e.g., `Disconnected (45s ago)`) during network interruptions.
     *   **Graceful Shutdown**: Responds instantly to `Ctrl+C` via integrated cancellation tokens.
 
+## Project Structure
+
+The project follows a decoupled architecture, separating the core backend logic from the web server and frontend.
+
+- **PhotoLibrary/**: The main executable and web server (ASP.NET Core).
+  - `wwwsrc/`: TypeScript/Snabbdom frontend source code.
+  - `wwwroot/`: Compiled frontend assets and static files.
+- **PhotoLibrary.Backend/**: Core domain logic and data management.
+  - `DataLayer/`: SQLite database management, models, and SQL constants.
+  - `ProcessingLayer/`: Image indexing, metadata extraction, preview generation, and camera database management.
+- **TypeGen/**: A utility project that generates TypeScript interfaces from C# request/response models to ensure type safety across the stack.
+
 ## Usage
 
 ### Quick Start (Zero Config)
