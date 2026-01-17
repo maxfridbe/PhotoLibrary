@@ -13,7 +13,7 @@ import { GridView } from './grid.js';
 import { constants } from './constants.js';
 import { patch, h, VNode } from './snabbdom-setup.js';
 import { PhotoCard } from './components/grid/PhotoCard.js';
-import { LibrarySidebar } from './components/library/LibrarySidebar.js';
+import { LibrarySidebar, LibrarySidebarProps } from './components/library/LibrarySidebar.js';
 import { LoupeView } from './components/loupe/LoupeView.js';
 import { ApertureVisualizer } from './components/aperature/ApertureVisualizer.js';
 import { MetadataPanel } from './components/metadata/MetadataPanel.js';
@@ -38,6 +38,14 @@ interface FolderTreeNode {
     children: FolderTreeNode[];
 }
 
+export interface SavedSearch {
+    id: string;
+    title: string;
+    tag?: string;
+    value?: string;
+    query?: string;
+}
+
 declare global {
     interface Window {
         app: App;
@@ -57,6 +65,7 @@ class App {
     private photoMap: Map<string, Photo> = new Map();
     private roots: Res.DirectoryNodeResponse[] = [];
     public userCollections: Collection[] = [];
+    public savedSearches: SavedSearch[] = [];
     public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0,0,0,0,0] };
     public totalPhotos = 0;
     
@@ -73,6 +82,7 @@ class App {
     public selectedRootId: string | null = null;
     private lastSelectedRootId: string | null = null;
     public selectedCollectionId: string | null = null;
+    public selectedSavedSearchId: string | null = null;
     public filterType: 'all' | 'picked' | 'rating' | 'search' | 'collection' = 'all';
     public filterRating: number = 0;
     public stackingEnabled: boolean = false;
@@ -80,6 +90,9 @@ class App {
     
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
+    public searchTag: string | null = null;
+    public searchValue: string | null = null;
+    public searchQuery: string | null = null;
     public collectionFiles: string[] = [];
 
     private hiddenIds: Set<string> = new Set();
@@ -132,6 +145,49 @@ class App {
             name = 'All Photos';
         }
         this.$watermarkEl.textContent = name;
+    }
+
+    public async togglePinSearch() {
+        if (this.filterType !== 'search') return;
+        
+        // Find if current search is already pinned
+        const existing = this.savedSearches.find(s => s.tag === this.searchTag && s.value === this.searchValue && s.query === this.searchQuery);
+        
+        if (existing) {
+            await this.removeSavedSearch(existing.id);
+        } else {
+            const title = prompt('Name for this saved search:', this.searchTitle) || this.searchTitle;
+            const newSearch: SavedSearch = {
+                id: Math.random().toString(36).substring(2, 9),
+                title,
+                tag: this.searchTag || undefined,
+                value: this.searchValue || undefined,
+                query: this.searchQuery || undefined
+            };
+            this.savedSearches.push(newSearch);
+            await this.saveSavedSearches();
+            this.selectedSavedSearchId = newSearch.id;
+            this.renderLibrary();
+        }
+    }
+
+    public async setSavedSearchFilter(s: SavedSearch) {
+        await this.searchPhotos(s.tag || null, s.value || null, s.query);
+        this.selectedSavedSearchId = s.id;
+        this.renderLibrary();
+    }
+
+    public async removeSavedSearch(id: string) {
+        this.savedSearches = this.savedSearches.filter(s => s.id !== id);
+        if (this.selectedSavedSearchId === id) this.selectedSavedSearchId = null;
+        await this.saveSavedSearches();
+        this.renderLibrary();
+    }
+
+    private async saveSavedSearches() {
+        try {
+            await Api.api_settings_set({ key: 'saved-searches', value: JSON.stringify(this.savedSearches) });
+        } catch (e) { console.error("Failed to save searches", e); }
     }
     
     // Connection State
@@ -1049,11 +1105,12 @@ class App {
     async loadData() {
         try {
             this.updateSplash('Fetching Library Data...', 60);
-            const [roots, colls, stats, expState] = await Promise.all([
+            const [roots, colls, stats, expState, searchesState] = await Promise.all([
                 Api.api_directories({}),
                 Api.api_collections_list({}),
                 Api.api_stats({}),
-                Api.api_settings_get({ name: 'folder-expanded-state' })
+                Api.api_settings_get({ name: 'folder-expanded-state' }),
+                Api.api_settings_get({ name: 'saved-searches' })
             ]);
             this.roots = roots;
             this.updateFlatFolderList();
@@ -1065,6 +1122,12 @@ class App {
                     const ids = JSON.parse(expState.value);
                     if (Array.isArray(ids)) this.expandedFolders = new Set(ids);
                 } catch (e) { console.error("Failed to parse expanded folders", e); }
+            }
+
+            if (searchesState && searchesState.value) {
+                try {
+                    this.savedSearches = JSON.parse(searchesState.value);
+                } catch (e) { console.error("Failed to parse saved searches", e); }
             }
             
             this.updateSplash('Synchronizing View State...', 80);
@@ -1520,23 +1583,27 @@ class App {
         if (!this.$libraryEl) return;
         this.ensureSelectedFolderVisible();
 
-        const props = {
+        const props: LibrarySidebarProps = {
             stats: this.stats,
             roots: this.roots,
             userCollections: this.userCollections,
+            savedSearches: this.savedSearches,
             filterType: this.filterType,
             filterRating: this.filterRating,
             selectedRootId: this.selectedRootId,
             selectedCollectionId: this.selectedCollectionId,
+            selectedSavedSearchId: this.selectedSavedSearchId,
             searchTitle: this.searchTitle,
-            searchResultCount: this.searchResultIds.length,
+            searchResultCount: this.totalPhotos,
             expandedFolders: this.expandedFolders,
             folderProgress: this.folderProgress,
             showQueryBuilder: this.showQueryBuilder,
-
+            isSearchPinned: !!this.savedSearches.find(s => s.tag === this.searchTag && s.value === this.searchValue && s.query === this.searchQuery),
             onFilterChange: (type: any, rating?: number, rootId?: string | null) => this.setFilter(type, rating, rootId),
             onCollectionFilterChange: (c: Collection) => this.setCollectionFilter(c),
+            onSavedSearchFilterChange: (s: SavedSearch) => this.setSavedSearchFilter(s),
             onSearch: (query: string) => hub.pub(ps.SEARCH_TRIGGERED, { query }),
+            onTogglePinSearch: () => this.togglePinSearch(),
             onInputClick: () => { this.showQueryBuilder = true; this.renderLibrary(); },
             onFolderToggle: (id: string, expanded: boolean) => {
                 if (expanded) this.expandedFolders.add(id);
@@ -1548,6 +1615,7 @@ class App {
             onPhotoContextMenu: (e: MouseEvent, p: Photo) => this.showPhotoContextMenu(e, p),
             onPickedContextMenu: (e: MouseEvent) => this.showPickedContextMenu(e),
             onCollectionContextMenu: (e: MouseEvent, c: Collection) => this.showCollectionContextMenu(e, c),
+            onSavedSearchContextMenu: (e: MouseEvent, s: SavedSearch) => this.showSavedSearchContextMenu(e, s),
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
                 const node = this.roots.find(r => r.id === id);
                 if (!node) return;
@@ -1587,6 +1655,7 @@ class App {
         this.filterRating = rating;
         this.selectedRootId = rootId;
         this.selectedCollectionId = null;
+        this.selectedSavedSearchId = null;
         this.refreshPhotos(keepSelection);
         this.syncUrl();
     }
@@ -1596,6 +1665,7 @@ class App {
         this.filterType = 'collection';
         this.selectedCollectionId = c.id;
         this.selectedRootId = null;
+        this.selectedSavedSearchId = null;
         this.collectionFiles = await Api.api_collections_get_files({ id: c.id });
         this.refreshPhotos();
         this.syncUrl();
@@ -1716,6 +1786,16 @@ class App {
         menu.style.display = 'block'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     }
 
+    showSavedSearchContextMenu(e: MouseEvent, s: SavedSearch) {
+        const menu = document.getElementById('context-menu')!;
+        menu.innerHTML = '';
+        const addItem = (text: string, cb: () => void) => {
+            const el = document.createElement('div'); el.className = 'context-menu-item'; el.textContent = text; el.onclick = cb; menu.appendChild(el);
+        };
+        addItem('Unpin Search', () => this.removeSavedSearch(s.id));
+        menu.style.display = 'block'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+    }
+
     // REQ-WFE-00018
     private async downloadZip(type: 'previews' | 'originals', collectionId?: string) {
         hub.pub(ps.UI_NOTIFICATION, { message: 'Preparing download...', type: 'info' });
@@ -1793,6 +1873,11 @@ class App {
     // REQ-WFE-00021
     async searchPhotos(tag: string | null, value: string | null, query?: string) {
         this.showQueryBuilder = false;
+        this.searchTag = tag;
+        this.searchValue = value;
+        this.searchQuery = query || null;
+        this.selectedSavedSearchId = null; 
+        
         if (!query && !tag) {
             this.searchResultIds = [];
             this.searchTitle = '';

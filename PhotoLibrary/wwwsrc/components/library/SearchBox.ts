@@ -2,7 +2,9 @@ import { h, VNode } from '../../snabbdom-setup.js';
 
 export interface SearchBoxProps {
     query: string;
+    isPinned: boolean;
     onSearch: (query: string) => void;
+    onTogglePin: () => void;
     onInputClick: () => void;
     showQueryBuilder: boolean;
 }
@@ -24,16 +26,27 @@ export function SearchBox(props: SearchBoxProps): VNode {
                 }
             }
         }),
-        props.query ? h('span.search-clear', {
-            style: {
-                position: 'absolute', right: '25px', top: '50%', transform: 'translateY(-50%)',
-                cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2em'
-            },
-            on: { click: (e: MouseEvent) => { 
-                e.stopPropagation(); 
-                props.onSearch(''); 
-            } }
-        }, '\u00D7') : null,
+        h('div', { style: { position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: '8px', alignItems: 'center' } }, [
+            props.query ? h('span.search-pin', {
+                style: {
+                    cursor: 'pointer', color: props.isPinned ? 'var(--accent)' : 'var(--text-muted)', fontSize: '1.1em'
+                },
+                attrs: { title: props.isPinned ? 'Unpin search' : 'Pin search' },
+                on: { click: (e: MouseEvent) => { 
+                    e.stopPropagation(); 
+                    props.onTogglePin(); 
+                } }
+            }, props.isPinned ? '\uD83D\uDCCC' : '\uD83D\uDCCD') : null,
+            props.query ? h('span.search-clear', {
+                style: {
+                    cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2em'
+                },
+                on: { click: (e: MouseEvent) => { 
+                    e.stopPropagation(); 
+                    props.onSearch(''); 
+                } }
+            }, '\u00D7') : null,
+        ]),
         h('div.search-loading'),
         h('div.query-builder', { class: { active: props.showQueryBuilder } }, [
             h('div.query-row', [
