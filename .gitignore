@@ -1,6 +1,7 @@
 bin/
 obj/
 *.db
+!PhotoLibrary.Backend/cameras.db
 *.db-wal
 *.db-shm
 *.sqlite
