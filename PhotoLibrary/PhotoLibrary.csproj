@@ -27,19 +27,16 @@
 
   <Target Name="CompileTypeScript" AfterTargets="Build">
     <Exec Command="tsc" />
-    <Exec Command="cp wwwsrc/index.html wwwroot/" />
-    <Exec Command="cp wwwsrc/favicon.svg wwwroot/" />
-    <Exec Command="mkdir -p wwwroot/lib &amp;&amp; cp -r wwwsrc/lib/* wwwroot/lib/" />
-  </Target>
-
-  <Target Name="ZipWwwRoot" AfterTargets="CompileTypeScript">
-    <ZipDirectory SourceDirectory="wwwroot" DestinationFile="wwwroot.zip" Overwrite="true" />
+    <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
+    <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="wwwroot" />
+    <ItemGroup>
+      <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LibFiles)" DestinationFolder="wwwroot/lib/%(RecursiveDir)" />
   </Target>
 
   <ItemGroup>
-    <EmbeddedResource Include="wwwroot.zip" Condition="Exists('wwwroot.zip')">
-      <LogicalName>wwwroot.zip</LogicalName>
-    </EmbeddedResource>
+    <EmbeddedResource Include="wwwroot\**\*" />
   </ItemGroup>
 
 </Project>

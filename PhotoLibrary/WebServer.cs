@@ -59,7 +59,6 @@ namespace PhotoLibrary
         public static void Start(int port, DatabaseManager dbManager, PreviewManager previewManager, CameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
         {
             _logger = loggerFactory.CreateLogger("WebServer");
-            EnsureWwwRoot();
 
             _logger.LogInformation("ImageMagick Resource Limits: Memory={Mem}MB, Area={Area}MB", 
                 ResourceLimits.Memory / 1024 / 1024,
@@ -706,11 +705,12 @@ namespace PhotoLibrary
                 return Results.File(fullPath, GetContentType(fullPath), Path.GetFileName(fullPath));
             });
 
-            app.MapGet("/", () => ServeFile("index.html", "text/html"));
+            app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
             app.MapGet("/{*path}", (string path) => {
                 if (string.IsNullOrEmpty(path)) return Results.NotFound();
+                string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
                 string contentType = GetContentType(path);
-                return ServeFile(path, contentType);
+                return ServeEmbeddedFile(resourceName, contentType);
             });
 
             app.MapGet("/ws", async (HttpContext context, DatabaseManager db, PreviewManager pm) =>
@@ -1046,52 +1046,6 @@ namespace PhotoLibrary
                 }
             }
             await Task.WhenAll(tasks);
-        }
-
-        private static void EnsureWwwRoot()
-        {
-            if (Directory.Exists("wwwroot") && Directory.GetFiles("wwwroot", "*", SearchOption.AllDirectories).Length > 0) return;
-
-            var assembly = Assembly.GetExecutingAssembly();
-            using var resourceStream = assembly.GetManifestResourceStream("wwwroot.zip");
-
-            if (resourceStream == null)
-            {
-                if (!File.Exists("wwwroot.zip")) return;
-                try
-                {
-                    _logger?.LogInformation("Extracting external wwwroot.zip...");
-                    if (Directory.Exists("wwwroot")) Directory.Delete("wwwroot", true);
-                    ZipFile.ExtractToDirectory("wwwroot.zip", ".");
-                    _logger?.LogInformation("Extraction complete.");
-                }
-                catch (Exception ex) { _logger?.LogError(ex, "Failed to extract external wwwroot.zip"); }
-                return;
-            }
-
-            try
-            {
-                _logger?.LogInformation("Extracting embedded wwwroot.zip...");
-                if (Directory.Exists("wwwroot")) Directory.Delete("wwwroot", true);
-                using var archive = new ZipArchive(resourceStream);
-                archive.ExtractToDirectory(".", true);
-                _logger?.LogInformation("Extraction complete.");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed to extract embedded wwwroot.zip");
-            }
-        }
-
-        private static IResult ServeFile(string path, string contentType)
-        {
-            string fullPath = Path.Combine("wwwroot", path);
-            if (File.Exists(fullPath)) return Results.File(fullPath, contentType);
-
-            string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
-            // This fallback might not work if we don't embed individual files, 
-            // but we are extracting the zip now, so File.Exists should usually catch it.
-            return ServeEmbeddedFile(resourceName, contentType);
         }
 
         private static IResult ServeEmbeddedFile(string resourceName, string contentType)

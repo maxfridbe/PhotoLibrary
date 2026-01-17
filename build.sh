@@ -12,11 +12,8 @@ mkdir -p PhotoLibrary/wwwroot
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
-# Build the project to generate wwwroot and wwwroot.zip
-echo "Generating frontend assets..."
-dotnet build PhotoLibrary/PhotoLibrary.csproj -c Release
-
-# Build and Publish (this will embed the wwwroot.zip created above)
+# Build and Publish
+# The .csproj handles running tsc and embedding files from wwwroot
 echo "Building and publishing project..."
 dotnet publish PhotoLibrary/PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o dist/linux
 
