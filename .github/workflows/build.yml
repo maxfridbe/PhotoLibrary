@@ -62,8 +62,16 @@ jobs:
         IS_FUNCTIONAL=$(git tag --points-at HEAD | grep -q "functional" && echo "true" || echo "false")
         echo "is_functional=$IS_FUNCTIONAL" >> $GITHUB_OUTPUT
         
-        BODY="Build Date: $BUILD_DATE"
-        echo "release_body=$BODY" >> $GITHUB_OUTPUT
+        COMMITS=$(git log -n 5 --pretty=format:"* %s")
+        
+        {
+          echo "release_body<<EOF"
+          echo "Build Date: $BUILD_DATE"
+          echo ""
+          echo "## Recent Changes"
+          echo "$COMMITS"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
 
         if [ "$IS_FUNCTIONAL" = "true" ]; then
           echo "release_name=PhotoLibrary-v$VERSION-functional" >> $GITHUB_OUTPUT
