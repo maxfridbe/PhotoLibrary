@@ -101,17 +101,6 @@ namespace PhotoLibrary
             RuntimeStatistics.Instance.OnBroadcast += msg => _ = Broadcast(msg);
             RuntimeStatistics.Instance.Start();
 
-            app.Use(async (context, next) => {
-                if (context.Request.ContentLength.HasValue) {
-                    RuntimeStatistics.Instance.RecordBytesReceived(context.Request.ContentLength.Value);
-                }
-                var originalBody = context.Response.Body;
-                using var tracker = new TrackingStream(originalBody, bytes => RuntimeStatistics.Instance.RecordBytesSent(bytes));
-                context.Response.Body = tracker;
-                try { await next(); }
-                finally { context.Response.Body = originalBody; } 
-            });
-
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
             app.UseWebSockets();
 
@@ -801,7 +790,9 @@ namespace PhotoLibrary
                                     {
                                         _currentProcess.Refresh();
                                         long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
-                                        using var image = new MagickImage(fullPath);
+                                        using var fs = File.OpenRead(fullPath);
+                                        using var tracker = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+                                        using var image = new MagickImage(tracker);
                                         image.AutoOrient();
                                         image.Format = MagickFormat.Jpg;
                                         image.Quality = 90;
@@ -823,6 +814,7 @@ namespace PhotoLibrary
                                 }
                                 else {
                                     data = await File.ReadAllBytesAsync(fullPath, item.ct);
+                                    RuntimeStatistics.Instance.RecordBytesReceived(data.Length);
                                     item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                                 }
                             }
@@ -847,7 +839,8 @@ namespace PhotoLibrary
                                             if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
                                         }
                                         
-                                        using (var stream = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                        using (var fs = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                        using (var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b)))
                                         {
                                             if (hash == null) {
                                                 var hasher = new System.IO.Hashing.XxHash64();

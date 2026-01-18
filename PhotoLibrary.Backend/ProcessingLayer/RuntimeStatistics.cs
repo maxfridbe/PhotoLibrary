@@ -25,12 +25,20 @@ namespace PhotoLibrary.Backend.ProcessingLayer
                 long lastSent = 0;
                 long lastRecv = 0;
                 while(true) {
-                     await Task.Delay(1000);
+                     await Task.Delay(500);
                      long currentSent = Interlocked.Read(ref _bytesSent);
                      long currentRecv = Interlocked.Read(ref _bytesReceived);
                      
-                     double sentRate = (currentSent - lastSent); // bytes per second
-                     double recvRate = (currentRecv - lastRecv);
+                     // sentRate is bytes per 500ms. To get per second, multiply by 2.
+                     // But the previous implementation calculated "bytes per second" based on the diff.
+                     // If I wait 500ms, the diff is bytes in 500ms.
+                     // So I should multiply by 2 to get bytes/sec rate.
+                     // Or, I can just send the diff and let the UI handle it? 
+                     // The previous implementation was:
+                     // double sentRate = (currentSent - lastSent); // bytes per second (because Delay(1000))
+                     
+                     double sentRate = (currentSent - lastSent) * 2.0; 
+                     double recvRate = (currentRecv - lastRecv) * 2.0;
 
                      lastSent = currentSent;
                      lastRecv = currentRecv;
@@ -64,7 +72,38 @@ namespace PhotoLibrary.Backend.ProcessingLayer
         public override long Length => _inner.Length;
         public override long Position { get => _inner.Position; set => _inner.Position = value; }
         public override void Flush() => _inner.Flush();
-        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int read = _inner.Read(buffer, offset, count);
+            if (read > 0) _onWrite(read); // Re-using _onWrite delegate for "activity", or should I separate?
+            // The prompt says "get data from the thumbnail generation...". This implies "reading from disk".
+            // RuntimeStatistics has RecordBytesReceived and RecordBytesSent.
+            // "Bandwidth" usually implies Network.
+            // But user said "get statistics for how much network bandwidth is being used...".
+            // Then "I want it to get data from the thumbnail generation...".
+            // Thumbnail generation is DISK I/O (Read) -> CPU (Process) -> DB (Write).
+            // It is NOT network.
+            // But the user calls it "bandwidth" in the first prompt ("network bandwidth").
+            // Maybe they mean "Disk Bandwidth" or "Throughput" of the image processing pipeline?
+            // "when that stream is handed to image conversion".
+            // If I use RecordBytesReceived, it will show up as "Received" in the stats.
+            // If I use RecordBytesSent, it shows as "Sent".
+            // The UI sums them up.
+            // So reusing _onWrite (which takes a delegate) is fine, I just pass the appropriate recording method.
+            return read;
+        }
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            int read = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
+            if (read > 0) _onWrite(read);
+            return read;
+        }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            int read = await _inner.ReadAsync(buffer, cancellationToken);
+            if (read > 0) _onWrite(read);
+            return read;
+        }
         public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
         public override void SetLength(long value) => _inner.SetLength(value);
         public override void Write(byte[] buffer, int offset, int count)

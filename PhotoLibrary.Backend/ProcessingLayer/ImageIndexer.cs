@@ -221,7 +221,8 @@ namespace PhotoLibrary.Backend.ProcessingLayer
 
             try
             {
-                using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
                 
                 string hash = CalculateHash(stream);
                 stream.Position = 0;
@@ -305,7 +306,8 @@ namespace PhotoLibrary.Backend.ProcessingLayer
             var file = new FileInfo(fullPath);
             try
             {
-                using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
                 bool wasHashed = false;
 
                 if (hash == null)
@@ -348,7 +350,8 @@ namespace PhotoLibrary.Backend.ProcessingLayer
 
         public void GeneratePreviews(FileInfo file, string fileId)
         {
-            using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
             GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
         }
 
@@ -383,7 +386,8 @@ namespace PhotoLibrary.Backend.ProcessingLayer
                 if (File.Exists(jpgPath)) 
                 {
                     _logger.LogDebug("Found sidecar JPG for {FileName}: {Sidecar}", fileName, jpgPath);
-                    sourceStream = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var fs = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    sourceStream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
                     ownStream = true;
                 }
             }

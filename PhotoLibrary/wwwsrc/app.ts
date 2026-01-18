@@ -192,6 +192,7 @@ class App {
     
     // Connection State
     private runtimeStats: any = null;
+    private statusVNode: VNode | HTMLElement | null = null;
     private disconnectedAt: number | null = null;
     private isConnected: boolean = false;
     private isConnecting: boolean = false;
@@ -856,51 +857,44 @@ class App {
         const el = document.getElementById('connection-status');
         if (!el) return;
 
-        if (this.isConnected) {
-            el.textContent = 'Connected';
-            el.style.color = '#0f0';
+        let content: any[] = [];
+        let color = '#f00';
 
+        if (this.isConnected) {
+            color = '#0f0';
             if (this.runtimeStats) {
                 const s = this.runtimeStats;
                 const mem = (s.memoryBytes / 1024 / 1024 / 1024).toFixed(2).replace(/^0+/, '') + 'g';
                 const bw = s.sentBytesPerSec + s.recvBytesPerSec;
-                // Convert bytes/sec to bits/sec for "bps" or just maintain bytes/sec as implied by "mbps" usually meaning megabits but often used loosely?
-                // The prompt asked for "1mbps" or "500kbps". Usually mbps = megabits per second.
-                // My stats are in bytes/sec. So * 8 for bits.
-                const bits = bw * 8;
-                let bwStr = '';
-                if (bits > 1024 * 1024) bwStr = (bits / 1024 / 1024).toFixed(1) + 'mbps';
-                else bwStr = (bits / 1024).toFixed(0) + 'kbps';
                 
-                const statsSpan = document.createElement('span');
-                statsSpan.style.color = '#888';
-                statsSpan.style.marginLeft = '10px';
-                statsSpan.textContent = `(${mem}) (${bwStr})`;
-                statsSpan.title = "Memory Usage / Network Bandwidth";
-                statsSpan.setAttribute('aria-label', 'Memory Usage');
-                el.appendChild(statsSpan);
+                let bwStr = '';
+                if (bw > 1024 * 1024) bwStr = (bw / 1024 / 1024).toFixed(1) + ' MB/s';
+                else bwStr = (bw / 1024).toFixed(0) + ' KB/s';
+                
+                content.push(h('span', { 
+                    style: { color: '#888', marginRight: '10px' },
+                    attrs: { title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' } 
+                }, `(${bwStr}) (${mem})`));
             }
-            return;
-        }
-
-        const secs = this.disconnectedAt ? Math.floor((Date.now() - this.disconnectedAt) / 1000) : 0;
-        let time = secs + 's';
-        if (secs > 60) time = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
-
-        if (this.isConnecting) {
-            el.innerHTML = '';
-            const s = document.createElement('span');
-            s.className = 'spinner';
-            s.style.display = 'inline-block';
-            s.style.width = '10px'; s.style.height = '10px';
-            s.style.verticalAlign = 'middle'; s.style.marginRight = '5px';
-            el.appendChild(s);
-            el.appendChild(document.createTextNode(`Connecting... (${time} offline)`));
-            el.style.color = '#aaa';
+            content.push('Connected');
         } else {
-            el.textContent = `Disconnected (${time} ago)`;
-            el.style.color = '#f00';
+            const secs = this.disconnectedAt ? Math.floor((Date.now() - this.disconnectedAt) / 1000) : 0;
+            let time = secs + 's';
+            if (secs > 60) time = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+
+            if (this.isConnecting) {
+                color = '#aaa';
+                content.push(h('span.spinner', { 
+                    style: { display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' } 
+                }));
+                content.push(`Connecting... (${time} offline)`);
+            } else {
+                content.push(`Disconnected (${time} ago)`);
+            }
         }
+
+        const vnode = h('div#connection-status', { style: { color } }, content);
+        this.statusVNode = patch(this.statusVNode || el, vnode);
     }
 
     async refreshStatsOnly() {

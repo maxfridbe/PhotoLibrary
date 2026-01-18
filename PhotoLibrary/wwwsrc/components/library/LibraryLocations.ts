@@ -13,17 +13,20 @@ export interface LibraryLocationsProps {
     // Find & Index Props
     scanResults: { path: string, status: 'pending' | 'indexed' }[];
     isIndexing: boolean;
+    lastItemDuration: number;
+    estimatedRemainingTime: number;
     isScanning: boolean;
     isCancelling: boolean;
     currentScanPath: string;
     onFindNew: (path: string, limit: number) => void;
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
+    onClearResults: () => void;
     onCancelImport: () => void;
     onScanPathChange: (path: string) => void;
 }
 
 export function LibraryLocations(props: LibraryLocationsProps): VNode {
-    const { roots, expandedFolders, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onCancelImport, onScanPathChange } = props;
+    const { roots, expandedFolders, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onClearResults, onCancelImport, onScanPathChange } = props;
 
     return h('div.lib-pane', { 
         style: { display: 'flex', flexDirection: 'column', gap: '2em', height: '100%', overflowY: 'auto', padding: '1em' } 
@@ -71,19 +74,33 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                     ])
                 ]),
                 h('button', {
-                    style: { padding: '0 2.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-                    on: { click: () => onFindNew(currentScanPath, 1000) }
-                }, 'FIND NEW')
+                    style: { padding: '0 2.5em', background: isScanning ? '#555' : 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: isScanning ? 'default' : 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
+                    attrs: { disabled: isScanning },
+                    on: { click: () => !isScanning && onFindNew(currentScanPath, 1000) }
+                }, [
+                    isScanning ? h('div.spinner', { style: { width: '1em', height: '1em', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' } }) : null,
+                    'FIND NEW'
+                ])
             ])
         ]),
 
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: '1em' } }, [
-            h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Found Unindexed Images'),
-            h('div', {
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+                h('h3', { style: { marginTop: '0', color: 'var(--text-bright)' } }, 'Found Unindexed Images'),
+                (scanResults.length > 0 && !isIndexing) ? h('button', {
+                    style: { padding: '4px 12px', fontSize: '0.85em', background: 'transparent', border: '1px solid var(--border-dim)', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' },
+                    on: { click: onClearResults }
+                }, 'Clear') : null
+            ]),
+            h('div.scan-results-scroll-container', {
+                key: 'scan-results-list',
                 style: { 
                     border: '1px solid var(--border-main)', borderRadius: '4px', 
-                    background: 'var(--bg-panel-alt)', minHeight: '100px', maxHeight: '10em', 
+                    background: 'var(--bg-panel-alt)', height: '10em', 
                     overflowY: 'auto', position: 'relative' 
+                },
+                hook: {
+                    insert: (vnode) => { (vnode.elm as any).lastScroll = 0; vnode.elm?.addEventListener('scroll', () => (vnode.elm as any).lastScroll = Date.now()); }
                 }
             }, [
                 isScanning ? h('div', { 
@@ -97,9 +114,9 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                 ]) : null,
                 scanResults.length === 0 
                     ? h('div', { style: { padding: '3em', color: 'var(--text-muted)', textAlign: 'center' } }, 'No new files found.')
-                    : renderScanTable(scanResults)
+                    : renderScanTable(scanResults, isIndexing)
             ]),
-            renderImportControls(isIndexing, isCancelling, scanResults, currentScanPath, onIndexFiles, onCancelImport)
+            renderImportControls(isIndexing, isCancelling, scanResults, currentScanPath, onIndexFiles, onCancelImport, lastItemDuration, estimatedRemainingTime)
         ])
     ]);
 }
@@ -189,7 +206,24 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
     return h('div', roots.map(r => renderNode(r, 1)));
 }
 
-function renderScanTable(results: { path: string, status: string }[]) {
+function renderScanTable(results: { path: string, status: string }[], isIndexing: boolean) {
+    let activeIndex = -1;
+    if (isIndexing) {
+        // Find the last indexed item, that's the one we just finished or are working on (roughly)
+        // Or find the first pending? 
+        // Let's highlight the one currently processing. The status update happens AFTER processing.
+        // So the first 'pending' is arguably the one being worked on.
+        // But user wants to see progress. Highlighting the one just finished is good feedback.
+        for (let i = results.length - 1; i >= 0; i--) {
+            if (results[i].status === 'indexed') {
+                activeIndex = i;
+                break;
+            }
+        }
+        // If nothing indexed yet, maybe highlight first?
+        if (activeIndex === -1 && results.length > 0) activeIndex = 0;
+    }
+
     return h('table', { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: '0.9em', fontFamily: 'monospace' } }, [
         h('thead', { style: { position: 'sticky', top: '0', background: 'var(--bg-input)', color: 'var(--text-bright)', zIndex: '1' } }, [
             h('tr', [
@@ -197,22 +231,65 @@ function renderScanTable(results: { path: string, status: string }[]) {
                 h('th', { style: { textAlign: 'right', padding: '1em', width: '100px' } }, 'Status')
             ])
         ]),
-        h('tbody', results.map((r, i) => h('tr', { key: 'scan-' + i, style: { borderBottom: '1px solid var(--border-dim)' } }, [
-            h('td', { style: { padding: '0.5em 1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, attrs: { title: r.path } }, r.path),
-            h('td', { style: { padding: '0.5em 1em', textAlign: 'right', color: r.status === 'indexed' ? 'var(--accent)' : 'var(--text-muted)' } }, r.status.toUpperCase())
-        ])))
+        h('tbody', results.map((r, i) => {
+            const isActive = i === activeIndex;
+            return h('tr', { 
+                key: 'scan-' + i, 
+                style: { 
+                    borderBottom: '1px solid var(--border-dim)',
+                    background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent' 
+                },
+                hook: isActive ? {
+                    insert: (vnode) => {
+                        const el = vnode.elm as HTMLElement;
+                        const container = el.closest('.scan-results-scroll-container');
+                        if (container) {
+                            const lastScroll = (container as any).lastScroll || 0;
+                            if (Date.now() - lastScroll > 5000) {
+                                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                (el as any)._lastAutoScroll = Date.now();
+                            }
+                        }
+                    },
+                    update: (old, vnode) => {
+                        const el = vnode.elm as HTMLElement;
+                        const container = el.closest('.scan-results-scroll-container');
+                        if (container) {
+                            const lastScroll = (container as any).lastScroll || 0;
+                            const lastAuto = (el as any)._lastAutoScroll || 0;
+                            if (Date.now() - lastScroll > 5000 && Date.now() - lastAuto > 1000) {
+                                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                (el as any)._lastAutoScroll = Date.now();
+                            }
+                        }
+                    }
+                } : undefined
+            }, [
+                h('td', { style: { padding: '0.5em 1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 'bold' : 'normal' }, attrs: { title: r.path } }, r.path),
+                h('td', { style: { padding: '0.5em 1em', textAlign: 'right', color: r.status === 'indexed' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: isActive ? 'bold' : 'normal' } }, r.status.toUpperCase())
+            ]);
+        }))
     ]);
 }
 
-function renderImportControls(isIndexing: boolean, isCancelling: boolean, results: any[], currentPath: string, onIndex: (p: string, l: boolean, m: boolean) => void, onCancel: () => void) {
+function renderImportControls(isIndexing: boolean, isCancelling: boolean, results: any[], currentPath: string, onIndex: (p: string, l: boolean, m: boolean) => void, onCancel: () => void, lastDuration: number = 0, estimatedTime: number = 0) {
     if (isIndexing) {
         const indexed = results.filter((r: any) => r.status === 'indexed').length;
         const total = results.length;
         const percent = total > 0 ? (indexed / total) * 100 : 0;
+        
+        const nextItem = results.find((r: any) => r.status === 'pending');
+        const nextPath = nextItem ? nextItem.path : '';
+        const durText = lastDuration > 0 ? ` (${(lastDuration / 1000).toFixed(1)}s)` : '';
+        const estText = estimatedTime > 0 
+            ? (estimatedTime > 60000 
+                ? ` (${Math.ceil(estimatedTime / 60000)}m est remaining)` 
+                : ` (${Math.ceil(estimatedTime / 1000)}s est remaining)`)
+            : '';
 
         return h('div', { style: { paddingTop: '2em', borderTop: '1px solid var(--border-main)' } }, [
             h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1em' } }, [
-                h('span', isCancelling ? 'Cancelling...' : 'Indexing Photos...'),
+                h('span', isCancelling ? 'Cancelling...' : `Indexing Photos...${durText}${estText}`),
                 h('div', [
                     h('span', `${indexed} / ${total}`),
                     h('button', {
@@ -225,8 +302,16 @@ function renderImportControls(isIndexing: boolean, isCancelling: boolean, result
                     ])
                 ])
             ]),
-            h('div', { style: { width: '100%', height: '1.5em', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-light)' } }, [
-                h('div.barber-pole', { style: { width: `${percent}%`, height: '100%', backgroundColor: 'var(--accent)', transition: 'width 0.3s ease' } })
+            h('div', { style: { width: '100%', height: '1.5em', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-light)', position: 'relative' } }, [
+                h('div.barber-pole', { style: { width: `${percent}%`, height: '100%', backgroundColor: 'var(--accent)', transition: 'width 0.3s ease' } }),
+                nextPath ? h('div', { 
+                    style: { 
+                        position: 'absolute', top: '0', left: '0', right: '0', bottom: '0', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                        color: '#fff', fontSize: '0.85em', textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 5px'
+                    } 
+                }, `Indexing ${nextPath}`) : null
             ])
         ]);
     }

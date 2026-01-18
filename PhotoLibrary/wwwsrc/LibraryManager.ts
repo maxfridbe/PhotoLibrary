@@ -45,9 +45,37 @@ export class LibraryManager {
     private fsInitialized = false;
 
     private isBackingUp = false;
+    private lastImportTime = 0;
+    private lastItemDuration = 0;
+    private importDurations: number[] = [];
+    private averageDuration = 0;
+    private readonly MAX_N = 100;
 
     constructor() {
         hub.sub(ps.PHOTO_IMPORTED, (data) => {
+            const now = Date.now();
+            if (this.lastImportTime > 0) {
+                const duration = now - this.lastImportTime;
+                this.lastItemDuration = duration;
+                
+                this.importDurations.push(duration);
+                if (this.importDurations.length > this.MAX_N) this.importDurations.shift();
+                
+                // For accuracy, use a trimmed mean: remove top and bottom 10% to eliminate outliers
+                const sorted = [...this.importDurations].sort((a, b) => a - b);
+                const trimCount = Math.floor(sorted.length * 0.1);
+                const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+                
+                if (trimmed.length > 0) {
+                    const sum = trimmed.reduce((a, b) => a + b, 0);
+                    this.averageDuration = sum / trimmed.length;
+                } else if (sorted.length > 0) {
+                    // Fallback to simple average if not enough items to trim
+                    this.averageDuration = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+                }
+            }
+            this.lastImportTime = now;
+
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
                 item.status = 'indexed';
@@ -57,6 +85,7 @@ export class LibraryManager {
 
         hub.sub(ps.LIBRARY_UPDATED, () => {
             this.isIndexing = false;
+            this.lastImportTime = 0;
             this.loadLibraryInfo();
             document.title = 'Photo Library';
         });
@@ -173,6 +202,9 @@ export class LibraryManager {
     private _renderLocations() {
         if (!this.locationsVNode) return;
         
+        const pendingCount = this.scanResults.filter(r => r.status === 'pending').length;
+        const estimatedRemainingTime = this.averageDuration * pendingCount;
+
         const props = {
             roots: this.quickSelectRoots,
             expandedFolders: this.locationsExpanded,
@@ -213,11 +245,17 @@ export class LibraryManager {
             // Find & Index Props
             scanResults: this.scanResults,
             isIndexing: this.isIndexing,
+            lastItemDuration: this.lastItemDuration,
+            estimatedRemainingTime: estimatedRemainingTime,
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
+            onClearResults: () => {
+                this.scanResults = [];
+                this.render();
+            },
             onCancelImport: () => {
                 this.isCancelling = true;
                 this.render();
@@ -399,6 +437,10 @@ export class LibraryManager {
         if (!path || this.scanResults.length === 0) return;
 
         this.isIndexing = true;
+        this.lastImportTime = Date.now();
+        this.lastItemDuration = 0;
+        this.importDurations = [];
+        this.averageDuration = 0;
         this.render();
 
         const res = await Api.api_library_import_batch({ 
