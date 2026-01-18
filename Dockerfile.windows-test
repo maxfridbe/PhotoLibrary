@@ -1,0 +1,27 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Wine from WineHQ for newer version
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        software-properties-common \
+        gnupg2 \
+        wget \
+        && mkdir -p /etc/apt/keyrings \
+        && wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
+        && wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources \
+        && apt-get update && \
+        apt-get install -y --install-recommends winehq-stable && \
+        rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /src
+
+# The script will be mounted or copied. 
+# We assume the whole project root is mounted to /src
+CMD ["./test-windows.sh"]
+

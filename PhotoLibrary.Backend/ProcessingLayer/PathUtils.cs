@@ -15,6 +15,7 @@ namespace PhotoLibrary.Backend.ProcessingLayer
                 resolved = path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
             }
 
+#if !WINDOWS
             // Resilience for Linux /home -> /var/home symlinks
             if (resolved.StartsWith("/home/") && !Directory.Exists("/home"))
             {
@@ -23,6 +24,7 @@ namespace PhotoLibrary.Backend.ProcessingLayer
                     resolved = "/var/home/" + resolved.Substring(6);
                 }
             }
+#endif
 
             return Path.GetFullPath(resolved);
         }

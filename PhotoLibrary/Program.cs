@@ -67,10 +67,6 @@ namespace PhotoLibrary
                 name: "--host",
                 description: "Port to host the web viewer on (e.g., 8080)");
 
-            var versionOption = new Option<bool>(
-                name: "--version",
-                description: "Show version information");
-
             rootCommand.AddOption(libraryOption);
             rootCommand.AddOption(updateMdOption);
             rootCommand.AddOption(testOneOption);
@@ -78,18 +74,11 @@ namespace PhotoLibrary
             rootCommand.AddOption(previewDbOption);
             rootCommand.AddOption(longEdgeOption);
             rootCommand.AddOption(hostOption);
-            rootCommand.AddOption(versionOption);
 
-            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, showVersion) =>
+            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
             {
-                if (showVersion)
-                {
-                    var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
-                    Console.WriteLine($"PhotoLibrary v{version}");
-                    return;
-                }
                 Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
-            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption, versionOption);
+            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption);
 
             return await rootCommand.InvokeAsync(args);
         }
@@ -101,7 +90,11 @@ namespace PhotoLibrary
 
             try
             {
+#if WINDOWS
+                string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PhotoLibrary");
+#else
                 string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "PhotoLibrary");
+#endif
                 string configPath = Path.Combine(configDir, "config.json");
                 
                 if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);

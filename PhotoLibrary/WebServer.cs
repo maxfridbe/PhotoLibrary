@@ -301,10 +301,11 @@ namespace PhotoLibrary
                     IEnumerable<string> dirs;
                     if (string.IsNullOrEmpty(path))
                     {
-                        if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-                            dirs = DriveInfo.GetDrives().Select(d => d.Name);
-                        else
-                            dirs = new[] { "/" };
+#if WINDOWS
+                        dirs = DriveInfo.GetDrives().Select(d => d.Name);
+#else
+                        dirs = new[] { "/" };
+#endif
                     }
                     else
                     {

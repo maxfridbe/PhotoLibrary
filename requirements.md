@@ -67,4 +67,5 @@
 - REQ-INFRA-00003: The system shall provide a containerized packaging pipeline (`make_appimage_rpm_deb.sh`) that generates AppImage, RPM, and DEB packages from the publish artifacts.
 - REQ-INFRA-00004: The system shall provide a `run.sh` helper script to execute the locally built binary for testing purposes.
 - REQ-INFRA-00005: The system shall provide an `updateVersion.sh` utility to automate version incrementing while maintaining the 1.2.YY.MMDD format.
+- REQ-INFRA-00006: The system shall support building a self-contained Windows executable (`PhotoLibrary.exe`) via `build-windows.sh` and validating it via `test-windows.sh`.
 
