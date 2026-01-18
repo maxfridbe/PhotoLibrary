@@ -44,12 +44,14 @@ chmod +x AppDir/AppRun
 echo "Generating AppImage..."
 VERSION=$(cat version.txt)
 # Use correct architecture and silence some noisy warnings
-GENERIC_APPIMAGE="PhotoLibrary-x86_64.AppImage"
-ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run AppDir "$GENERIC_APPIMAGE"
+APPIMAGE_FILENAME="PhotoLibrary-${VERSION}-x86_64.AppImage"
+ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run AppDir "$APPIMAGE_FILENAME"
 
 echo "Zipping AppImage..."
-ZIP_NAME="photolibrary_${VERSION}_amd64.AppImage.zip"
-zip "$ZIP_NAME" "$GENERIC_APPIMAGE"
+# Use standard AppImage naming convention for the zip as well, or keep deb style if preferred. 
+# Switching to AppImage convention for consistency with the file inside.
+ZIP_NAME="PhotoLibrary-${VERSION}-x86_64.AppImage.zip"
+zip "$ZIP_NAME" "$APPIMAGE_FILENAME"
 
 # 4. Generate DEB and RPM using nfpm
 echo "Generating DEB package..."
