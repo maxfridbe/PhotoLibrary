@@ -54,6 +54,9 @@ The project follows a decoupled architecture, separating the core backend logic 
 ### Installation Packages
 Download the latest version from the [Releases](https://github.com/maxfridbe/PhotoLibrary/releases) page.
 
+- **Windows Installer**: Easy-to-use setup wizard with desktop and start menu shortcuts.
+  1. Download `PhotoLibrary-Setup-vX.X.X.exe`.
+  2. Run the installer and follow the prompts.
 - **AppImage**: Portable, runs on most Linux distributions.
   ```bash
   chmod +x PhotoLibrary-x86_64.AppImage

@@ -63,6 +63,11 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 - **Type Generation (`TypeGen/`)**: Roslyn-based tool for keeping C# and TS in sync.
 - **Frontend Source (`PhotoLibrary/wwwsrc/`)**: Modularized TypeScript source.
 - **Build Output (`PhotoLibrary/wwwroot/`)**: Transient artifacts embedded into the assembly.
+- **Build & Packaging**:
+  - `./build.sh` / `./publish.sh`: Linux build scripts.
+  - `./buildAndPublish.sh`: Core build orchestration used by CI.
+  - `./publish-windows-installer.sh`: Windows build script using Inno Setup via Podman.
+  - `./make_appimage_rpm_deb.sh`: Linux packaging script.
 - **Orchestration (Root)**: Solution file, build/test scripts, and global documentation.
 
 ## 6. Development Standards
