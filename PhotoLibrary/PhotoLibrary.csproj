@@ -25,7 +25,7 @@
     <Exec Command="dotnet run --project ../TypeGen/TypeGen.csproj" ContinueOnError="true" />
   </Target>
 
-  <Target Name="CompileTypeScript" AfterTargets="Build">
+  <Target Name="CompileTypeScript" BeforeTargets="Build;BeforeBuild;CoreCompile">
     <Exec Command="tsc" />
     <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
     <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="wwwroot" />
@@ -36,7 +36,7 @@
   </Target>
 
   <ItemGroup>
-    <EmbeddedResource Include="wwwroot\**\*" />
+    <EmbeddedResource Include="wwwroot/**/*" />
   </ItemGroup>
 
 </Project>

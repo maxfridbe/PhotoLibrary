@@ -1061,6 +1061,7 @@ namespace PhotoLibrary
             if (path.EndsWith(".js")) return "application/javascript";
             if (path.EndsWith(".css")) return "text/css";
             if (path.EndsWith(".html")) return "text/html";
+            if (path.EndsWith(".svg")) return "image/svg+xml";
             if (path.EndsWith(".png")) return "image/png";
             if (path.EndsWith(".jpg") || path.EndsWith(".jpeg")) return "image/jpeg";
             return "application/octet-stream";
