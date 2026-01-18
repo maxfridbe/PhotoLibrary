@@ -11,7 +11,7 @@
       <Version>$(VersionFromFile.Trim())</Version>
       <AssemblyVersion>$(Version)</AssemblyVersion>
       <FileVersion>$(Version)</FileVersion>
-      <InformationalVersion>$(Version)</InformationalVersion>
+      <InformationalVersion>$(Version)$(BuildMetadata)</InformationalVersion>
     </PropertyGroup>
   </Target>
 </Project>

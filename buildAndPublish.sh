@@ -6,10 +6,12 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
 VERSION=$(cat version.txt)
-echo "Building Version: $VERSION"
+BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "Building Version: $VERSION ($BUILD_DATE)"
 
 # Generate frontend version file
 echo "export const APP_VERSION = '$VERSION';" > PhotoLibrary/wwwsrc/version.ts
+echo "export const BUILD_DATE = '$BUILD_DATE';" >> PhotoLibrary/wwwsrc/version.ts
 
 # Update nfpm.yaml version
 sed -i "s/version: \".*\"/version: \"$VERSION\"/" nfpm.yaml
@@ -32,7 +34,7 @@ cd ..
 
 # Build and Publish
 echo "Building and publishing project..."
-dotnet publish PhotoLibrary/PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o dist/linux
+dotnet publish PhotoLibrary/PhotoLibrary.csproj -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -p:BuildMetadata="+$BUILD_DATE" -o dist/linux
 
 # Cleanup dist - we ONLY want the executable
 echo "Cleaning up distribution folder..."

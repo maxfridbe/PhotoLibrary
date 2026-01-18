@@ -1,6 +1,6 @@
 import { h, VNode } from '../../snabbdom-setup.js';
 import { themes } from '../../themes.js';
-import { APP_VERSION } from '../../version.js';
+import { APP_VERSION, BUILD_DATE } from '../../version.js';
 
 export interface SettingsModalProps {
     isVisible: boolean;
@@ -28,6 +28,10 @@ export function SettingsModal(props: SettingsModalProps): VNode {
             h('div.shortcut-row', [
                 h('span.shortcut-desc', 'Version'),
                 h('span', { style: { marginLeft: '1em', color: 'var(--text-muted)' } }, APP_VERSION)
+            ]),
+            h('div.shortcut-row', [
+                h('span.shortcut-desc', 'Build Date'),
+                h('span', { style: { marginLeft: '1em', color: 'var(--text-muted)' } }, BUILD_DATE)
             ]),
             h('div.shortcut-row', [
                 h('span.shortcut-desc', 'Application Name'),

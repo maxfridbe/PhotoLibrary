@@ -58,8 +58,13 @@ jobs:
       id: release_info
       run: |
         VERSION=$(cat version.txt)
+        BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
         IS_FUNCTIONAL=$(git tag --points-at HEAD | grep -q "functional" && echo "true" || echo "false")
         echo "is_functional=$IS_FUNCTIONAL" >> $GITHUB_OUTPUT
+        
+        BODY="Build Date: $BUILD_DATE"
+        echo "release_body=$BODY" >> $GITHUB_OUTPUT
+
         if [ "$IS_FUNCTIONAL" = "true" ]; then
           echo "release_name=Functional-v$VERSION" >> $GITHUB_OUTPUT
           echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
@@ -77,6 +82,7 @@ jobs:
       with:
         tag_name: ${{ steps.release_info.outputs.release_tag }}
         name: ${{ steps.release_info.outputs.release_name }}
+        body: ${{ steps.release_info.outputs.release_body }}
         files: |
           PhotoLibrary-linux-x64-*.zip
           dist/packages/*
