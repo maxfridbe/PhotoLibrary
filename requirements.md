@@ -18,6 +18,7 @@
 - REQ-ARCH-00015: The system shall not use magic strings for database table or column names; all references must use centralized constants (e.g., TableConstants) to ensure schema consistency and prevent runtime errors.
 - REQ-ARCH-00016: The '/wwwroot' directory shall be treated as a transient, build-generated artifact; all web source files, assets, and original templates must reside in '/wwwsrc', which serves as the authoritative source of truth for the frontend.
 - REQ-ARCH-00017: The system shall enforce a strict multi-project architecture to ensure layer separation: core business logic and image processing (Backend) must remain decoupled from the web server/API surface (Presentation), and data access (DataLayer) must be abstracted from processing logic.
+- REQ-ARCH-00018: The application version shall be maintained in a single 'version.txt' file (format 1.2.YY.MMDD) and propagated to the UI, binary assembly metadata, and package manifests during the build process to ensure consistency.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via header-only metadata extraction (256KB default, 1MB for .cr3).
@@ -59,3 +60,11 @@
 - REQ-WFE-00022: User should be able to build complex search queries using an interactive query builder overlay.
 - REQ-WFE-00023: User should be able to reveal a photo in its containing folder from search results.
 - REQ-WFE-00024: User should be able to view real-time system statistics (memory usage, network bandwidth) in the top-right corner of the interface.
+
+## Infrastructure (INFRA) Requirements
+- REQ-INFRA-00001: The system shall provide a `build.sh` script for fast local development that reads the version from `version.txt`, updates the frontend version file, and runs a standard dotnet build.
+- REQ-INFRA-00002: The system shall provide a `buildAndPublish.sh` script for release builds that updates package manifests, generates frontend assets, and produces a self-contained single-file Linux executable.
+- REQ-INFRA-00003: The system shall provide a containerized packaging pipeline (`make_appimage_rpm_deb.sh`) that generates AppImage, RPM, and DEB packages from the publish artifacts.
+- REQ-INFRA-00004: The system shall provide a `run.sh` helper script to execute the locally built binary for testing purposes.
+- REQ-INFRA-00005: The system shall provide an `updateVersion.sh` utility to automate version incrementing while maintaining the 1.2.YY.MMDD format.
+

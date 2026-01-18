@@ -5,6 +5,15 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
+VERSION=$(cat version.txt)
+echo "Building Version: $VERSION"
+
+# Generate frontend version file
+echo "export const APP_VERSION = '$VERSION';" > PhotoLibrary/wwwsrc/version.ts
+
+# Update nfpm.yaml version
+sed -i "s/version: \".*\"/version: \"$VERSION\"/" nfpm.yaml
+
 # Clean up
 echo "Cleaning up..."
 rm -rf dist

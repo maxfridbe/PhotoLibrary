@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <VersionFile>$(MSBuildThisFileDirectory)version.txt</VersionFile>
+  </PropertyGroup>
+
+  <Target Name="ReadVersionFromFile" BeforeTargets="InitializeControlProperties;BeforeBuild;GetAssemblyVersion">
+    <ReadLinesFromFile File="$(VersionFile)">
+      <Output TaskParameter="Lines" PropertyName="VersionFromFile" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <Version>$(VersionFromFile.Trim())</Version>
+      <AssemblyVersion>$(Version)</AssemblyVersion>
+      <FileVersion>$(Version)</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+</Project>

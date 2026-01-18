@@ -6,7 +6,7 @@ set -e
 
 # 1. Build the project
 echo "Building PhotoLibrary binary..."
-./build.sh
+./buildAndPublish.sh
 
 # Create a common desktop file for all packages
 echo "Creating desktop file..."

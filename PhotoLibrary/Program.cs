@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using ImageMagick;
 using PhotoLibrary.Backend.DataLayer;
@@ -66,6 +67,10 @@ namespace PhotoLibrary
                 name: "--host",
                 description: "Port to host the web viewer on (e.g., 8080)");
 
+            var versionOption = new Option<bool>(
+                name: "--version",
+                description: "Show version information");
+
             rootCommand.AddOption(libraryOption);
             rootCommand.AddOption(updateMdOption);
             rootCommand.AddOption(testOneOption);
@@ -73,17 +78,27 @@ namespace PhotoLibrary
             rootCommand.AddOption(previewDbOption);
             rootCommand.AddOption(longEdgeOption);
             rootCommand.AddOption(hostOption);
+            rootCommand.AddOption(versionOption);
 
-            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
+            rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, showVersion) =>
             {
+                if (showVersion)
+                {
+                    var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
+                    Console.WriteLine($"PhotoLibrary v{version}");
+                    return;
+                }
                 Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
-            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption);
+            }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption, versionOption);
 
             return await rootCommand.InvokeAsync(args);
         }
 
         static void Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
         {
+            var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
+            _logger.LogInformation("PhotoLibrary v{Version} Starting...", version);
+
             try
             {
                 string configDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "PhotoLibrary");
