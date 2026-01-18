@@ -33,7 +33,7 @@ jobs:
         npm install -g typescript
 
     - name: Run build script
-      run: ./build.sh
+      run: ./buildAndPublish.sh
 
     - name: Package for Release
       run: |
