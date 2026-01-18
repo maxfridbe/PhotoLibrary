@@ -50,21 +50,22 @@ jobs:
     - name: Set release info
       id: release_info
       run: |
-        DATE=$(date +'%Y%m%d')
+        VERSION=$(cat version.txt)
         IS_FUNCTIONAL=$(git tag --points-at HEAD | grep -q "functional" && echo "true" || echo "false")
+        echo "is_functional=$IS_FUNCTIONAL" >> $GITHUB_OUTPUT
         if [ "$IS_FUNCTIONAL" = "true" ]; then
-          echo "release_name=Functional-$DATE" >> $GITHUB_OUTPUT
-          echo "release_tag=functional-$DATE" >> $GITHUB_OUTPUT
+          echo "release_name=Functional-v$VERSION" >> $GITHUB_OUTPUT
+          echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
         else
-          echo "release_name=$DATE" >> $GITHUB_OUTPUT
-          echo "release_tag=build-$DATE" >> $GITHUB_OUTPUT
+          echo "release_name=v$VERSION" >> $GITHUB_OUTPUT
+          echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
         fi
 
     - name: Build Packages
       run: ./make_appimage_rpm_deb.sh
 
     - name: Create Release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.release_info.outputs.is_functional == 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.release_info.outputs.release_tag }}
