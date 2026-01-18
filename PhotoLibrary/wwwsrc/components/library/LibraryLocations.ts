@@ -11,7 +11,7 @@ export interface LibraryLocationsProps {
     onCancelTask: (id: string) => void;
     
     // Find & Index Props
-    scanResults: { path: string, status: 'pending' | 'indexed' }[];
+    scanResults: { path: string, status: 'pending' | 'indexed', duration?: number }[];
     isIndexing: boolean;
     lastItemDuration: number;
     estimatedRemainingTime: number;
@@ -96,11 +96,8 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                 key: 'scan-results-list',
                 style: { 
                     border: '1px solid var(--border-main)', borderRadius: '4px', 
-                    background: 'var(--bg-panel-alt)', height: '10em', 
+                    background: 'var(--bg-panel-alt)', height: '15em', 
                     overflowY: 'auto', position: 'relative' 
-                },
-                hook: {
-                    insert: (vnode) => { (vnode.elm as any).lastScroll = 0; vnode.elm?.addEventListener('scroll', () => (vnode.elm as any).lastScroll = Date.now()); }
                 }
             }, [
                 isScanning ? h('div', { 
@@ -206,21 +203,15 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
     return h('div', roots.map(r => renderNode(r, 1)));
 }
 
-function renderScanTable(results: { path: string, status: string }[], isIndexing: boolean) {
+function renderScanTable(results: { path: string, status: string, duration?: number }[], isIndexing: boolean) {
     let activeIndex = -1;
     if (isIndexing) {
-        // Find the last indexed item, that's the one we just finished or are working on (roughly)
-        // Or find the first pending? 
-        // Let's highlight the one currently processing. The status update happens AFTER processing.
-        // So the first 'pending' is arguably the one being worked on.
-        // But user wants to see progress. Highlighting the one just finished is good feedback.
         for (let i = results.length - 1; i >= 0; i--) {
             if (results[i].status === 'indexed') {
                 activeIndex = i;
                 break;
             }
         }
-        // If nothing indexed yet, maybe highlight first?
         if (activeIndex === -1 && results.length > 0) activeIndex = 0;
     }
 
@@ -228,6 +219,7 @@ function renderScanTable(results: { path: string, status: string }[], isIndexing
         h('thead', { style: { position: 'sticky', top: '0', background: 'var(--bg-input)', color: 'var(--text-bright)', zIndex: '1' } }, [
             h('tr', [
                 h('th', { style: { textAlign: 'left', padding: '1em' } }, 'File Path'),
+                h('th', { style: { textAlign: 'right', padding: '1em', width: '80px' } }, 'Duration'),
                 h('th', { style: { textAlign: 'right', padding: '1em', width: '100px' } }, 'Status')
             ])
         ]),
@@ -238,34 +230,10 @@ function renderScanTable(results: { path: string, status: string }[], isIndexing
                 style: { 
                     borderBottom: '1px solid var(--border-dim)',
                     background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent' 
-                },
-                hook: isActive ? {
-                    insert: (vnode) => {
-                        const el = vnode.elm as HTMLElement;
-                        const container = el.closest('.scan-results-scroll-container');
-                        if (container) {
-                            const lastScroll = (container as any).lastScroll || 0;
-                            if (Date.now() - lastScroll > 5000) {
-                                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                (el as any)._lastAutoScroll = Date.now();
-                            }
-                        }
-                    },
-                    update: (old, vnode) => {
-                        const el = vnode.elm as HTMLElement;
-                        const container = el.closest('.scan-results-scroll-container');
-                        if (container) {
-                            const lastScroll = (container as any).lastScroll || 0;
-                            const lastAuto = (el as any)._lastAutoScroll || 0;
-                            if (Date.now() - lastScroll > 5000 && Date.now() - lastAuto > 1000) {
-                                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                (el as any)._lastAutoScroll = Date.now();
-                            }
-                        }
-                    }
-                } : undefined
+                }
             }, [
                 h('td', { style: { padding: '0.5em 1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 'bold' : 'normal' }, attrs: { title: r.path } }, r.path),
+                h('td', { style: { padding: '0.5em 1em', textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.9em' } }, r.duration ? (r.duration / 1000).toFixed(2) + 's' : '-'),
                 h('td', { style: { padding: '0.5em 1em', textAlign: 'right', color: r.status === 'indexed' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: isActive ? 'bold' : 'normal' } }, r.status.toUpperCase())
             ]);
         }))

@@ -16,6 +16,7 @@ const ps = constants.pubsub;
 interface ScanResultItem {
     path: string;
     status: 'pending' | 'indexed';
+    duration?: number;
 }
 
 export class LibraryManager {
@@ -79,6 +80,7 @@ export class LibraryManager {
             const item = this.scanResults.find(r => data.path.endsWith(r.path));
             if (item) {
                 item.status = 'indexed';
+                item.duration = this.lastItemDuration;
                 this.render();
             }
         });
