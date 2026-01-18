@@ -35,6 +35,7 @@ AppPublisherURL=https://github.com/maxfridbe/PhotoLibrary
 DefaultDirName={autopf}\PhotoLibrary
 DefaultGroupName=PhotoLibrary
 AllowNoIcons=yes
+SetupIconFile=PhotoLibrary/wwwsrc/favicon.ico
 OutputDir=$OUTPUT_DIR_CONTAINER
 OutputBaseFilename=PhotoLibrary-Setup-$VERSION
 Compression=lzma
@@ -49,10 +50,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "$DIST_DIR_CONTAINER/PhotoLibrary.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "PhotoLibrary/wwwsrc/favicon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PhotoLibrary"; Filename: "{app}\PhotoLibrary.exe"
-Name: "{autodesktop}\PhotoLibrary"; Filename: "{app}\PhotoLibrary.exe"; Tasks: desktopicon
+Name: "{group}\PhotoLibrary"; Filename: "{app}\PhotoLibrary.exe"; IconFilename: "{app}\favicon.ico"
+Name: "{autodesktop}\PhotoLibrary"; Filename: "{app}\PhotoLibrary.exe"; Tasks: desktopicon; IconFilename: "{app}\favicon.ico"
 
 [Run]
 Filename: "{app}\PhotoLibrary.exe"; Description: "{cm:LaunchProgram,PhotoLibrary}"; Flags: nowait postinstall skipifsilent
