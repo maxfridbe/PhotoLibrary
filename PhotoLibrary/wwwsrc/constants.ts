@@ -24,6 +24,7 @@ export const constants = {
         UI_NOTIFICATION: 'ui.notification' as const,
         UI_SEARCH_STATUS: 'ui.search.status' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
+        RUNTIME_STATS: 'runtime.stats' as const,
     },
     socket: {
         IMAGE: 'image' as const,

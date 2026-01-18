@@ -96,6 +96,22 @@ namespace PhotoLibrary
             builder.Services.AddSingleton(loggerFactory);
 
             var app = builder.Build();
+
+            // REQ-WFE-00024
+            RuntimeStatistics.Instance.OnBroadcast += msg => _ = Broadcast(msg);
+            RuntimeStatistics.Instance.Start();
+
+            app.Use(async (context, next) => {
+                if (context.Request.ContentLength.HasValue) {
+                    RuntimeStatistics.Instance.RecordBytesReceived(context.Request.ContentLength.Value);
+                }
+                var originalBody = context.Response.Body;
+                using var tracker = new TrackingStream(originalBody, bytes => RuntimeStatistics.Instance.RecordBytesSent(bytes));
+                context.Response.Body = tracker;
+                try { await next(); }
+                finally { context.Response.Body = originalBody; } 
+            });
+
             var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
             app.UseWebSockets();
 

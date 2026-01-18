@@ -191,6 +191,7 @@ class App {
     }
     
     // Connection State
+    private runtimeStats: any = null;
     private disconnectedAt: number | null = null;
     private isConnected: boolean = false;
     private isConnecting: boolean = false;
@@ -601,6 +602,11 @@ class App {
                 }
             }
         });
+
+        hub.sub(ps.RUNTIME_STATS, (data) => {
+            this.runtimeStats = data;
+            this.updateStatusUI();
+        });
     }
 
     private startStatusTimer() {
@@ -643,8 +649,14 @@ class App {
         });
 
         if (changed) {
-            await this.saveHiddenSettings();
-            this.refreshPhotos(true); // Re-run filter
+            this.saveHiddenSettings();
+            
+            if (!this.showHidden) {
+                this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
+                this.processUIStacks();
+            } else {
+                this.gridViewManager.update(true);
+            }
         }
     }
 
@@ -847,6 +859,27 @@ class App {
         if (this.isConnected) {
             el.textContent = 'Connected';
             el.style.color = '#0f0';
+
+            if (this.runtimeStats) {
+                const s = this.runtimeStats;
+                const mem = (s.memoryBytes / 1024 / 1024 / 1024).toFixed(2).replace(/^0+/, '') + 'g';
+                const bw = s.sentBytesPerSec + s.recvBytesPerSec;
+                // Convert bytes/sec to bits/sec for "bps" or just maintain bytes/sec as implied by "mbps" usually meaning megabits but often used loosely?
+                // The prompt asked for "1mbps" or "500kbps". Usually mbps = megabits per second.
+                // My stats are in bytes/sec. So * 8 for bits.
+                const bits = bw * 8;
+                let bwStr = '';
+                if (bits > 1024 * 1024) bwStr = (bits / 1024 / 1024).toFixed(1) + 'mbps';
+                else bwStr = (bits / 1024).toFixed(0) + 'kbps';
+                
+                const statsSpan = document.createElement('span');
+                statsSpan.style.color = '#888';
+                statsSpan.style.marginLeft = '10px';
+                statsSpan.textContent = `(${mem}) (${bwStr})`;
+                statsSpan.title = "Memory Usage / Network Bandwidth";
+                statsSpan.setAttribute('aria-label', 'Memory Usage');
+                el.appendChild(statsSpan);
+            }
             return;
         }
 

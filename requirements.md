@@ -58,3 +58,4 @@
 - REQ-WFE-00021: User should be able to perform multi-criteria searches including folder/name paths, metadata tags, and file size comparisons.
 - REQ-WFE-00022: User should be able to build complex search queries using an interactive query builder overlay.
 - REQ-WFE-00023: User should be able to reveal a photo in its containing folder from search results.
+- REQ-WFE-00024: User should be able to view real-time system statistics (memory usage, network bandwidth) in the top-right corner of the interface.

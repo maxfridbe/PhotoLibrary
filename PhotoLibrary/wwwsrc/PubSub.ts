@@ -33,6 +33,7 @@ export interface EventMap {
     [ps.UI_NOTIFICATION]: { message: string, type: 'info' | 'error' | 'success' };
     [ps.UI_SEARCH_STATUS]: { active: boolean, message?: string };
     [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
+    [ps.RUNTIME_STATS]: { memoryBytes: number, sentBytesPerSec: number, recvBytesPerSec: number };
 }
 
 type Callback<T> = (data: T) => void;

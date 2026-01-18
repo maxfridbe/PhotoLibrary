@@ -89,6 +89,8 @@ export class CommunicationManager {
                         hub.pub(ps.PREVIEW_GENERATING, { fileId: msg.fileId });
                     } else if (msg.type === sk.PREVIEW_DELETED) {
                         hub.pub(ps.PREVIEW_DELETED, { fileId: msg.fileId });
+                    } else if (msg.type === 'runtime.stats') {
+                        hub.pub(ps.RUNTIME_STATS, msg);
                     }
                 } catch (err) { console.error("Failed to parse WS text message", err); }
             } else {
