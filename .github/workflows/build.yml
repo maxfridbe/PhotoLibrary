@@ -12,11 +12,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    steps:
+    - uses: actions/checkout@v4
 
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install dependencies
+      run: npm install -g typescript
+
+    - name: Build Windows Installer
+      run: ./publish-windows-installer.sh
+
+    - name: Upload Windows Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: PhotoLibrary-windows-installer
+        path: dist/installers/*.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
       with:
@@ -41,18 +65,38 @@ jobs:
     - name: Run build script
       run: ./buildAndPublish.sh
 
-    - name: Package for Release
+    - name: Package Binary
       run: |
         VERSION=$(cat version.txt)
         mkdir -p PhotoLibrary-linux-x64
         cp dist/linux/PhotoLibrary PhotoLibrary-linux-x64/
         zip -r PhotoLibrary-linux-x64-v$VERSION.zip PhotoLibrary-linux-x64/
 
-    - name: Upload Build Artifact
+    - name: Build OS Packages
+      run: ./make_appimage_rpm_deb.sh
+
+    - name: Upload Linux Binary
       uses: actions/upload-artifact@v4
       with:
         name: PhotoLibrary-linux-x64
-        path: PhotoLibrary-linux-x64/
+        path: PhotoLibrary-linux-x64-*.zip
+
+    - name: Upload Linux Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: PhotoLibrary-linux-packages
+        path: dist/packages/*
+
+  release:
+    needs: [build-linux, build-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set release info
       id: release_info
@@ -81,19 +125,28 @@ jobs:
           echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
         fi
 
-    - name: Build Packages
-      run: ./make_appimage_rpm_deb.sh
+    - name: Download Artifacts
+      if: steps.release_info.outputs.is_functional == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        path: dist/release
+
+    - name: Prepare Release Files
+      if: steps.release_info.outputs.is_functional == 'true'
+      run: |
+        mkdir -p dist/final
+        # Flatten all artifacts from subdirectories into a single folder for release
+        find dist/release -type f -exec cp {} dist/final/ \;
+        ls -R dist/final
 
     - name: Create Release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.release_info.outputs.is_functional == 'true'
+      if: steps.release_info.outputs.is_functional == 'true'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.release_info.outputs.release_tag }}
         name: ${{ steps.release_info.outputs.release_name }}
         body: ${{ steps.release_info.outputs.release_body }}
-        files: |
-          PhotoLibrary-linux-x64-*.zip
-          dist/packages/*
+        files: dist/final/*
         draft: false
         prerelease: false
       env:

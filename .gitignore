@@ -44,3 +44,4 @@ AppDir/
 *.rpm
 photolibrary.desktop
 wwwroot.zip
+installer.iss

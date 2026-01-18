@@ -1,0 +1,3 @@
+FROM amake/innosetup
+WORKDIR /work
+ENTRYPOINT ["iscc"]
