@@ -66,10 +66,10 @@ jobs:
         echo "release_body=$BODY" >> $GITHUB_OUTPUT
 
         if [ "$IS_FUNCTIONAL" = "true" ]; then
-          echo "release_name=Functional-v$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=PhotoLibrary-v$VERSION-functional" >> $GITHUB_OUTPUT
           echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
         else
-          echo "release_name=v$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=PhotoLibrary-v$VERSION" >> $GITHUB_OUTPUT
           echo "release_tag=v$VERSION" >> $GITHUB_OUTPUT
         fi
 
