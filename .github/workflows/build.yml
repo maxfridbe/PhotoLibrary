@@ -43,9 +43,10 @@ jobs:
 
     - name: Package for Release
       run: |
+        VERSION=$(cat version.txt)
         mkdir -p PhotoLibrary-linux-x64
         cp dist/linux/PhotoLibrary PhotoLibrary-linux-x64/
-        zip -r PhotoLibrary-linux-x64.zip PhotoLibrary-linux-x64/
+        zip -r PhotoLibrary-linux-x64-v$VERSION.zip PhotoLibrary-linux-x64/
 
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
@@ -77,7 +78,7 @@ jobs:
         tag_name: ${{ steps.release_info.outputs.release_tag }}
         name: ${{ steps.release_info.outputs.release_name }}
         files: |
-          PhotoLibrary-linux-x64.zip
+          PhotoLibrary-linux-x64-*.zip
           dist/packages/*
         draft: false
         prerelease: false
