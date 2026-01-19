@@ -22,12 +22,16 @@ OUTPUT_DIR_HOST="$(pwd)/dist/installers"
 mkdir -p "$OUTPUT_DIR_HOST"
 chmod 777 "$OUTPUT_DIR_HOST"
 
+# Pre-create the directory explicitly inside the mount path logic
+# to ensure the container user can write to it
+mkdir -p dist/installers
+
 # Paths inside the container
 DIST_DIR_CONTAINER="dist/win-x64"
 OUTPUT_DIR_CONTAINER="dist/installers"
 
 # Generate Inno Setup Script
-cat > Tooling/installer.iss <<EOF
+cat > installer.iss <<EOF
 [Setup]
 AppId={{D81329C0-1234-4567-89AB-CDEF01234567}
 AppName=PhotoLibrary
@@ -70,6 +74,8 @@ podman build -t photolibrary-installer -f Tooling/Dockerfile.installer .
 
 # Run Inno Setup in Docker
 # Mount current directory to /work with SELinux relabeling
-podman run --rm -v "$(pwd):/work:Z" -w "/work" photolibrary-installer Tooling/installer.iss
+podman run --rm -v "$(pwd):/work:Z" -w "/work" photolibrary-installer installer.iss
+
+rm installer.iss
 
 echo "Installer created at dist/installers/PhotoLibrary-Setup-$VERSION.exe"
