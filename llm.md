@@ -65,12 +65,13 @@ The project uses a clean separation between source code and tooling.
 - **`PhotoLibrary.Backend/`**: Core library processing and database management.
 - **`TypeGen/`**: Roslyn-based TS interface generator.
 - **`Tooling/`**: Centralized directory for all build, test, and packaging scripts.
-  - `version.txt`: The single source of truth for the project version.
+  - `version.txt`: The single source of truth for the project version (Format: Major.YY.MMDD.Minor).
   - `build.sh` / `publish.sh`: Manual build entry points.
   - `buildAndPublish.sh`: Core build orchestration used by CI.
   - `Build_full.sh`: Comprehensive build script that cleans and runs all build/packaging steps.
-  - `publish-windows-installer.sh`: Inno Setup orchestration via Podman.
-  - `make_appimage_rpm_deb.sh`: Linux packaging via nfpm.
+  - `publish-windows-installer.sh`: Windows build script using Inno Setup via Podman.
+  - `make_appimage_rpm_deb.sh`: Linux packaging script.
+  - `updateVersion.sh`: Updates `version.txt` by checking GitHub for existing releases today and incrementing the Minor version accordingly.
   - `clean.sh`: Deep clean script for the entire project.
 - **`PhotoLibrary.sln`**: Root solution file.
 - **`Directory.Build.props`**: Synchronizes assembly versions across all projects using `Tooling/version.txt`.
