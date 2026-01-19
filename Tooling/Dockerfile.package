@@ -26,7 +26,7 @@ RUN wget https://github.com/goreleaser/nfpm/releases/download/v2.41.2/nfpm_2.41.
 
 WORKDIR /src
 
-COPY entrypoint-package.sh /usr/local/bin/
+COPY Tooling/entrypoint-package.sh /usr/local/bin/entrypoint-package.sh
 RUN chmod +x /usr/local/bin/entrypoint-package.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint-package.sh"]
