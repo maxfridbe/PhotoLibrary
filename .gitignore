@@ -45,3 +45,4 @@ AppDir/
 photolibrary.desktop
 wwwroot.zip
 installer.iss
+*.log
