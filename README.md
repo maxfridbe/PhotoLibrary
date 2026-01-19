@@ -81,6 +81,13 @@ The simplest way to use PhotoLibrary is to build the self-contained executable a
 3.  **Browse**: Open `http://localhost:8080` in your browser.
 4.  **Import**: Use the "Maintenance" tab in the UI to add your photo directories.
 
+### Try it out (Transient Mode)
+Run the application without creating any database files on disk by using in-memory SQLite databases:
+```bash
+./Tooling/run.sh --library :memory: --previewdb :memory: --host 8082
+```
+*Note: Any data imported in this mode will be lost when the application stops.*
+
 ### Manual Configuration
 You can override any setting via CLI. These overrides are automatically saved to `~/.config/PhotoLibrary/config.json` for future runs.
 
