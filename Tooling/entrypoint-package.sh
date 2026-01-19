@@ -22,30 +22,34 @@ EOF
 
 # 2. Prepare AppDir for AppImage
 echo "Preparing AppDir..."
-rm -rf AppDir
-mkdir -p AppDir/usr/bin
-mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
+mkdir -p dist
+rm -rf dist/AppDir
+mkdir -p dist/AppDir/usr/bin
+mkdir -p dist/AppDir/usr/share/icons/hicolor/scalable/apps
 
-cp dist/linux/PhotoLibrary AppDir/usr/bin/photolibrary
-cp PhotoLibrary/wwwsrc/favicon.svg AppDir/usr/share/icons/hicolor/scalable/apps/photolibrary.svg
-cp PhotoLibrary/wwwsrc/favicon.svg AppDir/photolibrary.svg
-cp Tooling/photolibrary.desktop AppDir/photolibrary.desktop
+cp dist/linux/PhotoLibrary dist/AppDir/usr/bin/photolibrary
+cp PhotoLibrary/wwwsrc/favicon.svg dist/AppDir/usr/share/icons/hicolor/scalable/apps/photolibrary.svg
+cp PhotoLibrary/wwwsrc/favicon.svg dist/AppDir/photolibrary.svg
+cp Tooling/photolibrary.desktop dist/AppDir/photolibrary.desktop
 
 # Create AppRun script for AppImage
 echo "Creating AppRun..."
-cat > AppDir/AppRun <<'EOF'
+cat > dist/AppDir/AppRun <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
 exec "${HERE}/usr/bin/photolibrary" "$@"
 EOF
-chmod +x AppDir/AppRun
+chmod +x dist/AppDir/AppRun
 
 # 3. Generate AppImage
 echo "Generating AppImage..."
 VERSION=$(cat Tooling/version.txt)
 # Use correct architecture and silence some noisy warnings
 APPIMAGE_FILENAME="PhotoLibrary-${VERSION}-x86_64.AppImage"
-ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run AppDir "$APPIMAGE_FILENAME"
+ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run dist/AppDir "$APPIMAGE_FILENAME"
+
+# Cleanup AppDir immediately after generation
+rm -rf dist/AppDir
 
 echo "Zipping AppImage..."
 # Use standard AppImage naming convention for the zip as well, or keep deb style if preferred. 
