@@ -2,10 +2,10 @@
 
 A high-performance C# application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. Specifically optimized for slow network drives (CIFS/SMB) and massive libraries.
 
-![Grid View](gridview.png)
-![Loupe View](loupview.png)
-![Library Maintenance](library.png)
-![Collections](collections.png)
+![Grid View](Documentation/Screenshots/gridview.png)
+![Loupe View](Documentation/Screenshots/loupview.png)
+![Library Maintenance](Documentation/Screenshots/library.png)
+![Collections](Documentation/Screenshots/collections.png)
 
 ## Features
 

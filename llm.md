@@ -58,21 +58,28 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 - **Speed Culling**: Numerical keys (1-5) and 'P' for flags are instant and stack-aware.
 - **Global Feedback**: Toast notification system for all background processes and user actions.
 
-## 5. Project Structure & Layout
-- **Backend (`PhotoLibrary/`)**: .NET 8 core logic and WebServer.
-- **Type Generation (`TypeGen/`)**: Roslyn-based tool for keeping C# and TS in sync.
-- **Frontend Source (`PhotoLibrary/wwwsrc/`)**: Modularized TypeScript source.
-- **Build Output (`PhotoLibrary/wwwroot/`)**: Transient artifacts embedded into the assembly.
-- **Build & Packaging**:
-  - `Tooling/build.sh` / `Tooling/publish.sh`: Linux build scripts.
-  - `Tooling/buildAndPublish.sh`: Core build orchestration used by CI.
-  - `Tooling/publish-windows-installer.sh`: Windows build script using Inno Setup via Podman.
-  - `Tooling/make_appimage_rpm_deb.sh`: Linux packaging script.
-- **Orchestration (Root)**: Solution file, build/test scripts, and global documentation.
+## 5. Project Structure & Build Orchestration
+The project uses a clean separation between source code and tooling.
 
-## 6. Development Standards
-- **Requirement Traceability**: Every major function in C# and TypeScript must be tagged with the requirement ID it fulfills from `requirements.md` using a comment directly above the function containing ONLY the ID (e.g., `// REQ-SVC-00001` or `// REQ-ARCH-00001`).
-- **Standardized DTOs**: All request/response models must be defined in `PhotoLibrary/Requests.cs` or `PhotoLibrary/Responses.cs` to ensure they are picked up by the Roslyn generator.
-- **Surgical DOM**: Avoid `innerHTML` for dynamic content. Use `document.createElement` and `textContent` to maintain stability and prevent XSS or malformed literal issues.
-- **Stateless Server**: (See REQ-ARCH-00008) The server should remain as stateless as possible, pushing grouping and display logic to the client to maximize scalability. All data-requesting endpoints shall use the POST method and JSON payloads, strictly avoiding query string parameters for request data.
-- **UI-Only Stacking**: (See REQ-ARCH-00009) "Stacking" (grouping JPG+RAW) is strictly a client-side visualization concern. The server should never receive or process "stacked" flags or logic; it simply returns flat lists of files.
+- **`PhotoLibrary/`**: ASP.NET Core web server and frontend source (`wwwsrc/`).
+- **`PhotoLibrary.Backend/`**: Core library processing and database management.
+- **`TypeGen/`**: Roslyn-based TS interface generator.
+- **`Tooling/`**: Centralized directory for all build, test, and packaging scripts.
+  - `version.txt`: The single source of truth for the project version.
+  - `build.sh` / `publish.sh`: Manual build entry points.
+  - `publish-windows-installer.sh`: Inno Setup orchestration via Podman.
+  - `make_appimage_rpm_deb.sh`: Linux packaging via nfpm.
+- **`PhotoLibrary.sln`**: Root solution file.
+- **`Directory.Build.props`**: Synchronizes assembly versions across all projects using `Tooling/version.txt`.
+
+## 6. CI/CD & Distribution
+The project employs a parallelized GitHub Actions workflow:
+- **Parallel Builds**: Linux and Windows artifacts are built concurrently in separate jobs.
+- **Embedded Assets**: Frontend assets (`wwwroot`) are embedded as resources in the binary. Physical `wwwroot` folders are excluded from installers to reduce size.
+- **Functional Releases**: GitHub Releases are automatically created and populated with all artifacts (EXE, AppImage, DEB, RPM) when a commit is tagged as `functional`.
+
+## 7. Development Standards
+- **Requirement Traceability**: Every major function must be tagged with a requirement ID from `requirements.md` (e.g., `// REQ-SVC-00001`).
+- **Standardized DTOs**: Models must be defined in `Requests.cs` or `Responses.cs` for TypeGen to function.
+- **Stateless Server**: Grouping and display logic (like "Stacking") is handled strictly on the client; the server remains a flat, fast data provider.
+- **Surgical DOM**: Use `document.createElement` and `textContent` to ensure stability and performance in the Snabbdom-based UI.
