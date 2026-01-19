@@ -3,9 +3,9 @@ set -e
 
 # Ensure we are in the project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
-VERSION=$(cat version.txt)
+VERSION=$(cat Tooling/version.txt)
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 echo "Building Version: $VERSION ($BUILD_DATE)"
 
@@ -14,7 +14,7 @@ echo "export const APP_VERSION = '$VERSION';" > PhotoLibrary/wwwsrc/version.ts
 echo "export const BUILD_DATE = '$BUILD_DATE';" >> PhotoLibrary/wwwsrc/version.ts
 
 # Update nfpm.yaml version
-sed -i "s/version: \".*\"/version: \"$VERSION\"/" nfpm.yaml
+sed -i "s/version: \".*\"/version: \"$VERSION\"/" Tooling/nfpm.yaml
 
 # Clean up
 echo "Cleaning up..."

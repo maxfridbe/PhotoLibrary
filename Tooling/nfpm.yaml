@@ -13,7 +13,7 @@ contents:
     dst: "/usr/bin/photolibrary"
   - src: "PhotoLibrary/wwwsrc/favicon.svg"
     dst: "/usr/share/icons/hicolor/scalable/apps/photolibrary.svg"
-  - src: "photolibrary.desktop"
+  - src: "Tooling/photolibrary.desktop"
     dst: "/usr/share/applications/photolibrary.desktop"
 
 # Post-install logic if needed

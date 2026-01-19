@@ -1,9 +1,12 @@
 #!/bin/bash
 set -e
 
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
 # Use same version logic
-if [ -f version.txt ]; then
-    VERSION=$(cat version.txt)
+if [ -f Tooling/version.txt ]; then
+    VERSION=$(cat Tooling/version.txt)
 else
     VERSION="1.0.0"
 fi

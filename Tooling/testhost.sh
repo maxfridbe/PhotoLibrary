@@ -1,11 +1,12 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 # Check if test databases exist
-if [ ! -f "test.db" ] || [ ! -f "previews.db" ]; then
+if [ ! -f "Tooling/test.db" ] || [ ! -f "Tooling/test_previews.db" ]; then
     echo "Test databases not found. Running test.sh first to generate them..."
-    ./test.sh
+    ./Tooling/test.sh
 fi
 
 echo "Starting web server on http://localhost:8080..."
 echo "Press Ctrl+C to stop."
 
-./run.sh --library test.db --previewdb previews.db --host 8080
+./Tooling/run.sh --library Tooling/test.db --previewdb Tooling/test_previews.db --host 8080

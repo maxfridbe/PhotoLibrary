@@ -76,7 +76,7 @@ Download the latest version from the [Releases](https://github.com/maxfridbe/Pho
 ### Quick Start (Manual Build)
 The simplest way to use PhotoLibrary is to build the self-contained executable and run it. By default, it will store all its data and configuration in `~/.config/PhotoLibrary/`.
 
-1.  **Build**: `./build.sh`
+1.  **Build**: `Tooling/build.sh`
 2.  **Run**: `./dist/linux/PhotoLibrary`
 3.  **Browse**: Open `http://localhost:8080` in your browser.
 4.  **Import**: Use the "Maintenance" tab in the UI to add your photo directories.
@@ -110,9 +110,9 @@ You can override any setting via CLI. These overrides are automatically saved to
 -   **Arrows**: Navigate Grid/Filmstrip/Fullscreen
 
 ### Development Helpers
--   `./test.sh`: Samples 100 real images from RAID, preserving folder structure, and generates test DBs.
--   `./testhost.sh`: Launches the web viewer (port 8080) using test data.
--   `./run.sh`: Runs the application directly via `dotnet run`.
+-   `Tooling/test.sh`: Samples 100 real images from RAID, preserving folder structure, and generates test DBs.
+-   `Tooling/testhost.sh`: Launches the web viewer (port 8080) using test data.
+-   `Tooling/run.sh`: Runs the application directly via `dotnet run`.
 
 
 ## Database Schema

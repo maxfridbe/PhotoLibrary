@@ -23,5 +23,5 @@ WORKDIR /src
 
 # The script will be mounted or copied. 
 # We assume the whole project root is mounted to /src
-CMD ["./test-windows.sh"]
+CMD ["./Tooling/test-windows.sh"]
 

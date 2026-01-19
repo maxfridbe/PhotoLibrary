@@ -1,12 +1,15 @@
 #!/bin/bash
 set -e
 
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
 # Build the Windows binary first
-./build-windows.sh
+./Tooling/build-windows.sh
 
 # Get version
-if [ -f version.txt ]; then
-    VERSION=$(cat version.txt)
+if [ -f Tooling/version.txt ]; then
+    VERSION=$(cat Tooling/version.txt)
 else
     VERSION="1.0.0"
 fi
@@ -24,7 +27,7 @@ DIST_DIR_CONTAINER="dist/win-x64"
 OUTPUT_DIR_CONTAINER="dist/installers"
 
 # Generate Inno Setup Script
-cat > installer.iss <<EOF
+cat > Tooling/installer.iss <<EOF
 [Setup]
 AppId={{D81329C0-1234-4567-89AB-CDEF01234567}
 AppName=PhotoLibrary
@@ -63,10 +66,10 @@ EOF
 echo "Running Inno Setup via Docker..."
 
 # Build debug image
-podman build -t photolibrary-installer -f Dockerfile.installer .
+podman build -t photolibrary-installer -f Tooling/Dockerfile.installer .
 
 # Run Inno Setup in Docker
 # Mount current directory to /work with SELinux relabeling
-podman run --rm -v "$(pwd):/work:Z" -w "/work" photolibrary-installer installer.iss
+podman run --rm -v "$(pwd):/work:Z" -w "/work" photolibrary-installer Tooling/installer.iss
 
 echo "Installer created at dist/installers/PhotoLibrary-Setup-$VERSION.exe"

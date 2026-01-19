@@ -1,6 +1,7 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 # Setup test environment
-rm -f test.db test.db-wal test.db-shm previews.db previews.db-wal previews.db-shm
+rm -f Tooling/test.db Tooling/test.db-wal Tooling/test.db-shm Tooling/test_previews.db Tooling/test_previews.db-wal Tooling/test_previews.db-shm
 TEST_DIR="./test_images"
 # rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
@@ -48,13 +49,12 @@ echo -e "\nFinished copying $COUNT images to $TEST_DIR"
 
 # Run with --updatepreviews
 echo "Running scan and preview generation..."
-./run.sh --library test.db --updatemd "$TEST_DIR" --updatepreviews --previewdb previews.db --longedge 1024 --longedge 300
+./Tooling/run.sh --library Tooling/test.db --updatemd "$TEST_DIR" --updatepreviews --previewdb Tooling/test_previews.db --longedge 1024 --longedge 300
 
 # Check if db was created
-if [ -f "test.db" ]; then
+if [ -f "Tooling/test.db" ]; then
     echo "Success: Main Database created."
-    echo "Total files in DB: $(sqlite3 test.db "SELECT count(*) FROM FileEntry;")"
+    echo "Total files in DB: $(sqlite3 Tooling/test.db "SELECT count(*) FROM FileEntry;")"
 else
     echo "Failure: Main Database not created."
 fi
-

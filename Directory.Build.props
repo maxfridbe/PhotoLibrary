@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <VersionFile>$(MSBuildThisFileDirectory)version.txt</VersionFile>
+    <VersionFile>$(MSBuildThisFileDirectory)Tooling/version.txt</VersionFile>
   </PropertyGroup>
 
   <Target Name="ReadVersionFromFile" BeforeTargets="InitializeControlProperties;BeforeBuild;GetAssemblyVersion">

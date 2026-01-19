@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
 EXE_PATH="dist/win-x64/PhotoLibrary.exe"
 
 if ! command -v wine &> /dev/null; then
@@ -52,7 +55,7 @@ kill $PID || true
 
 if [ $SUCCESS -eq 1 ]; then
     echo "Test PASSED."
-    rm wine.log
+    rm -f wine.log
     exit 0
 else
     echo "Test FAILED. Server did not respond."

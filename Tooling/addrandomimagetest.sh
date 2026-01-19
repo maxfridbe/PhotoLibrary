@@ -1,4 +1,5 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 # Script to add one random image from the 2022 raid directory to the test dir
 
 RAID_SOURCE="$HOME/Pictures/raid/2022"

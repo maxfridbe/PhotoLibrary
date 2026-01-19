@@ -31,7 +31,7 @@ jobs:
       run: npm install -g typescript
 
     - name: Build Windows Installer
-      run: ./publish-windows-installer.sh
+      run: Tooling/publish-windows-installer.sh
 
     - name: Upload Windows Installer
       uses: actions/upload-artifact@v4
@@ -63,17 +63,17 @@ jobs:
         npm install -g typescript
 
     - name: Run build script
-      run: ./buildAndPublish.sh
+      run: Tooling/buildAndPublish.sh
 
     - name: Package Binary
       run: |
-        VERSION=$(cat version.txt)
+        VERSION=$(cat Tooling/version.txt)
         mkdir -p PhotoLibrary-linux-x64
         cp dist/linux/PhotoLibrary PhotoLibrary-linux-x64/
         zip -r PhotoLibrary-linux-x64-v$VERSION.zip PhotoLibrary-linux-x64/
 
     - name: Build OS Packages
-      run: ./make_appimage_rpm_deb.sh
+      run: Tooling/make_appimage_rpm_deb.sh
 
     - name: Upload Linux Binary
       uses: actions/upload-artifact@v4
@@ -101,7 +101,7 @@ jobs:
     - name: Set release info
       id: release_info
       run: |
-        VERSION=$(cat version.txt)
+        VERSION=$(cat Tooling/version.txt)
         BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
         IS_FUNCTIONAL=$(git tag --points-at HEAD | grep -q "functional" && echo "true" || echo "false")
         echo "is_functional=$IS_FUNCTIONAL" >> $GITHUB_OUTPUT

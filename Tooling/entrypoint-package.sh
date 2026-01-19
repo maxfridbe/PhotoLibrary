@@ -2,15 +2,15 @@
 set -e
 
 # This script runs inside the container
-# Working directory is /src (mounted from host)
+# Working directory is /src (mounted from host project root)
 
 # 1. Build the project
 echo "Building PhotoLibrary binary..."
-./buildAndPublish.sh
+./Tooling/buildAndPublish.sh
 
 # Create a common desktop file for all packages
 echo "Creating desktop file..."
-cat > photolibrary.desktop <<EOF
+cat > Tooling/photolibrary.desktop <<EOF
 [Desktop Entry]
 Name=PhotoLibrary
 Exec=photolibrary
@@ -29,7 +29,7 @@ mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
 cp dist/linux/PhotoLibrary AppDir/usr/bin/photolibrary
 cp PhotoLibrary/wwwsrc/favicon.svg AppDir/usr/share/icons/hicolor/scalable/apps/photolibrary.svg
 cp PhotoLibrary/wwwsrc/favicon.svg AppDir/photolibrary.svg
-cp photolibrary.desktop AppDir/photolibrary.desktop
+cp Tooling/photolibrary.desktop AppDir/photolibrary.desktop
 
 # Create AppRun script for AppImage
 echo "Creating AppRun..."
@@ -42,7 +42,7 @@ chmod +x AppDir/AppRun
 
 # 3. Generate AppImage
 echo "Generating AppImage..."
-VERSION=$(cat version.txt)
+VERSION=$(cat Tooling/version.txt)
 # Use correct architecture and silence some noisy warnings
 APPIMAGE_FILENAME="PhotoLibrary-${VERSION}-x86_64.AppImage"
 ARCH=x86_64 /usr/local/bin/appimagetool --appimage-extract-and-run AppDir "$APPIMAGE_FILENAME"
@@ -55,10 +55,10 @@ zip "$ZIP_NAME" "$APPIMAGE_FILENAME"
 
 # 4. Generate DEB and RPM using nfpm
 echo "Generating DEB package..."
-nfpm pkg --packager deb --target .
+nfpm pkg --packager deb --target . -f Tooling/nfpm.yaml
 
 echo "Generating RPM package..."
-nfpm pkg --packager rpm --target .
+nfpm pkg --packager rpm --target . -f Tooling/nfpm.yaml
 
 # 5. Organize output
 echo "Organizing output..."
