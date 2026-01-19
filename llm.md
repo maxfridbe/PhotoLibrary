@@ -67,8 +67,11 @@ The project uses a clean separation between source code and tooling.
 - **`Tooling/`**: Centralized directory for all build, test, and packaging scripts.
   - `version.txt`: The single source of truth for the project version.
   - `build.sh` / `publish.sh`: Manual build entry points.
+  - `buildAndPublish.sh`: Core build orchestration used by CI.
+  - `Build_full.sh`: Comprehensive build script that cleans and runs all build/packaging steps.
   - `publish-windows-installer.sh`: Inno Setup orchestration via Podman.
   - `make_appimage_rpm_deb.sh`: Linux packaging via nfpm.
+  - `clean.sh`: Deep clean script for the entire project.
 - **`PhotoLibrary.sln`**: Root solution file.
 - **`Directory.Build.props`**: Synchronizes assembly versions across all projects using `Tooling/version.txt`.
 
