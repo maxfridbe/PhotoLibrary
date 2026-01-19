@@ -155,9 +155,9 @@ namespace PhotoLibrary
                     indexer.Scan(scanDir, testOne);
                 }
 
-                // Hosting Mode (Always run if no scanDir, or if explicit hostPort)
                 if (hostPort.HasValue || string.IsNullOrEmpty(scanDir))
                 {
+                    DisplayBanner(config.Port);
                     _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
                     _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
                     _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
@@ -168,6 +168,27 @@ namespace PhotoLibrary
             {
                 _logger.LogError(ex, "An unexpected error occurred");
             }
+        }
+
+        private static void DisplayBanner(int port)
+        {
+            string blue = "\u001b[38;5;33m";
+            string white = "\u001b[38;5;255m";
+            string reset = "\u001b[0m";
+            string bold = "\u001b[1m";
+
+            Console.WriteLine();
+            Console.WriteLine($"{blue}         ▄▄██████▄▄          {reset}");
+            Console.WriteLine($"{blue}       ▄████████████▄        {reset}");
+            Console.WriteLine($"{blue}      ▄██████████████▄       {reset}   {bold}PhotoLibrary{reset}");
+            Console.WriteLine($"{blue}      ██████  {white}▄▄{blue}  ██████       {reset}   ----------------------------");
+            Console.WriteLine($"{blue}      ████  {white}▄████▄{blue}  ████       {reset}   Point your browser to:");
+            Console.WriteLine($"{blue}      ████  {white}▀████▀{blue}  ████       {reset}   {bold}http://localhost:{port}{reset}");
+            Console.WriteLine($"{blue}      ██████  {white}▀▀{blue}  ██████       {reset}   ----------------------------");
+            Console.WriteLine($"{blue}      ▀██████████████▀       {reset}");
+            Console.WriteLine($"{blue}       ▀████████████▀        {reset}");
+            Console.WriteLine($"{blue}         ▀▀██████▀▀          {reset}");
+            Console.WriteLine();
         }
     }
 }
