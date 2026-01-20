@@ -1606,7 +1606,7 @@ class App {
             menu.appendChild(el);
         };
         addItem('Generate Thumbnails (This Folder)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: false })
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false })
                 .catch(err => {
                 console.error('Failed to start thumbnail generation', err);
                 this.showNotification('Failed to start thumbnail generation', 'error');
@@ -1614,12 +1614,22 @@ class App {
             this.showNotification('Thumbnail generation started', 'info');
         });
         addItem('Generate Thumbnails (Recursive)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: true })
+            Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false })
                 .catch(err => {
                 console.error('Failed to start recursive thumbnail generation', err);
                 this.showNotification('Failed to start recursive thumbnail generation', 'error');
             });
             this.showNotification('Recursive thumbnail generation started', 'info');
+        });
+        addItem('Generate Thumbnails (Force)', () => {
+            if (!confirm('Are you sure you want to force regenerate thumbnails for this folder? This will delete existing thumbnails and regenerate them.'))
+                return;
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: true })
+                .catch(err => {
+                console.error('Failed to start forced thumbnail generation', err);
+                this.showNotification('Failed to start forced thumbnail generation', 'error');
+            });
+            this.showNotification('Forced thumbnail generation started', 'info');
         });
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';

@@ -22,30 +22,6 @@ export function FolderTree(props: FolderTreeProps): VNode {
         const isSelected = selectedRootId === node.id;
         const prog = folderProgress.get(node.id);
 
-        const renderProgress = () => {
-            if (!prog || prog.total === 0) return null;
-            const thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
-            if (thumbnailed >= prog.total) return null;
-
-            const notThumbnailed = prog.total - thumbnailed;
-            const rawPercent = ((thumbnailed - notThumbnailed) / prog.total) * 100;
-            const displayPercent = Math.max(0, Math.round(rawPercent));
-
-            return h('div', { style: { display: 'flex', alignItems: 'center' } }, [
-                h('div', { 
-                    style: { width: '60px', height: '8px', background: 'var(--bg-input)', border: '1px solid var(--border-light)', borderRadius: '4px', overflow: 'hidden', margin: '0 0.5em', position: 'relative' },
-                    attrs: { title: `Thumbnailed: ${thumbnailed}, Remaining: ${notThumbnailed}, Total: ${prog.total}` }
-                }, [
-                    h('div', { style: { width: `${displayPercent}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.2s ease' } })
-                ]),
-                h('span.cancel-task', { 
-                    style: { cursor: 'pointer', padding: '0 4px', color: 'var(--text-muted)', fontSize: '1.2em', lineHeight: '1' },
-                    attrs: { title: 'Cancel' },
-                    on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onCancelTask(node.id); } }
-                }, '\u00D7')
-            ]);
-        };
-
         const contrastColor = (hexcolor: string) => {
             const hex = hexcolor.replace('#', '');
             const r = parseInt(hex.substr(0, 2), 16);
@@ -53,6 +29,70 @@ export function FolderTree(props: FolderTreeProps): VNode {
             const b = parseInt(hex.substr(4, 2), 16);
             const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
             return (yiq >= 128) ? '#000000' : '#ffffff';
+        };
+
+        const renderCountOrProgress = () => {
+            const prog = folderProgress.get(node.id);
+            let total = node.imageCount;
+            let thumbnailed = node.thumbnailedCount;
+            let isActive = false;
+
+            if (prog) {
+                total = prog.total;
+                thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
+                isActive = thumbnailed < total;
+            }
+            
+            if (total <= 0) return h('span.count', { style: { marginLeft: 'auto' } }, '');
+
+            // If fully thumbnailed, show just the count (standard text), "way it was last commit"
+            if (thumbnailed >= total) {
+                return h('span.count', { 
+                    style: { marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.85em' },
+                    attrs: { title: `Total Images: ${total}` }
+                }, total.toString());
+            }
+
+            const percent = Math.min(100, Math.max(0, (thumbnailed / total) * 100));
+            
+            return h('div', { style: { display: 'flex', alignItems: 'center', marginLeft: 'auto' } }, [
+                isActive ? h('span.cancel-task', { 
+                    style: { cursor: 'pointer', padding: '0 4px', color: 'var(--text-muted)', fontSize: '1.2em', lineHeight: '1', marginRight: '4px' },
+                    attrs: { title: 'Cancel Thumbnail Generation' },
+                    on: { click: (e: MouseEvent) => { e.stopPropagation(); props.onCancelTask(node.id); } }
+                }, '\u00D7') : null,
+                h('div.count-pill', {
+                    style: {
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: '2.5em',
+                        padding: '1px 8px',
+                        borderRadius: '10px',
+                        background: 'var(--bg-input)', 
+                        overflow: 'hidden',
+                        fontSize: '0.85em',
+                        border: '1px solid var(--border-light)',
+                        color: 'var(--text-main)',
+                        height: '1.4em'
+                    },
+                    attrs: { title: `Thumbnailed: ${thumbnailed} / ${total}` }
+                }, [
+                    h('div', {
+                        style: {
+                            position: 'absolute',
+                            left: '0', top: '0', bottom: '0',
+                            width: `${percent}%`,
+                            background: 'var(--accent, #4caf50)',
+                            opacity: '0.3', 
+                            transition: 'width 0.3s ease',
+                            pointerEvents: 'none'
+                        }
+                    }),
+                    h('span', { style: { position: 'relative', zIndex: '1', lineHeight: '1.2' } }, total.toString())
+                ])
+            ]);
         };
 
         return h('div.folder-group', { key: node.id }, [
@@ -115,8 +155,7 @@ export function FolderTree(props: FolderTreeProps): VNode {
                     }, node.children && node.children.length > 0 ? (isExpanded ? '\u25BE' : '\u25B8') : '\u00A0'),
                 ]),
                 h('span.tree-name', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis' }, attrs: { title: node.path } }, node.name!),
-                renderProgress(),
-                h('span.count', node.imageCount > 0 ? node.imageCount.toString() : '')
+                renderCountOrProgress()
             ]),
             h('div.tree-children', {
                 style: { paddingLeft: '1em', display: isExpanded ? 'block' : 'none' }

@@ -431,7 +431,7 @@ public class CommunicationLayer : ICommunicationLayer
 
     public void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue)
     {
-        _logger.LogInformation("[API] Generate Thumbnails requested for root {RootId} (Recursive: {Recursive})", req.rootId, req.recursive);
+        _logger.LogInformation("[API] Generate Thumbnails requested for root {RootId} (Recursive: {Recursive}, Force: {Force})", req.rootId, req.recursive, req.force);
 
         string taskId = $"thumbnails-{req.rootId}";
         var cts = new CancellationTokenSource();
@@ -463,12 +463,18 @@ public class CommunicationLayer : ICommunicationLayer
                     processed++;
                     
                     string? hash = _db.GetFileHash(fId);
-                    if (hash != null && _pm.HasPreview(hash, 300) && _pm.HasPreview(hash, 1024))
+                    bool alreadyExists = hash != null && _pm.HasPreview(hash, 300) && _pm.HasPreview(hash, 1024);
+
+                    if (alreadyExists && !req.force)
                     {
                         thumbnailed++;
                     }
                     else
                     {
+                        if (req.force && hash != null)
+                        {
+                            _pm.DeletePreviewsByHash(hash);
+                        }
                         enqueue(new ImageRequest { fileId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
                     }
 

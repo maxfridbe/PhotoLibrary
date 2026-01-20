@@ -414,7 +414,12 @@ public static class WebServer
                                         {
                                             _currentProcess.Refresh();
                                             long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
-                                            using var image = new MagickImage(stream);
+                                            
+                                            var settings = new MagickReadSettings {
+                                                Format = GetMagickFormat(sourcePath)
+                                            };
+                                            
+                                            using var image = new MagickImage(stream, settings);
                                             _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
                                             image.AutoOrient();
                                             

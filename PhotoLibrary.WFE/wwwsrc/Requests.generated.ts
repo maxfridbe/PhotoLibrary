@@ -1,4 +1,4 @@
-// Generated from PhotoLibrary.Contracts/Requests.cs via Roslyn at 2026-01-20T11:40:52.6783728-06:00
+// Generated from PhotoLibrary.Contracts/Requests.cs via Roslyn at 2026-01-20T14:38:23.6385678-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -52,6 +52,7 @@ export interface ImportBatchRequest {
 export interface GenerateThumbnailsRequest {
     rootId: string;
     recursive: boolean;
+    force: boolean;
 }
 
 export interface FolderAnnotationRequest {
