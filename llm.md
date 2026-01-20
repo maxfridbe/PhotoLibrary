@@ -36,21 +36,28 @@ The UI is a TypeScript SPA broken down into specialized managers to ensure maint
 - **Dynamic Overlays (`PhotoLibrary/wwwsrc/app.ts`)**: Customizable Loupe overlays with support for any metadata via `{MD:tag}` syntax.
 - **Metadata Visualization (`PhotoLibrary/wwwsrc/aperatureVis.ts`)**: An SVG-based aperture and FOV visualizer integrated into the metadata panel, providing real-time feedback on lens and sensor parameters.
 
-## 3. Backend Architecture: "Minimalist & Normalized"
-The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage.
+## 3. Backend Architecture: "Decoupled & Pure Logic"
+The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage, entirely decoupled from the presentation layer.
+
+### RPC-Style Communication
+- **CommunicationLayer (`PhotoLibrary.Backend/CommunicationLayer.cs`)**: Centralizes all backend logic into a pure RPC-style service. It is entirely agnostic of ASP.NET Core, returning raw data or standard result records.
+- **Transport Separation**: The `WebServer` in the `PhotoLibrary/` project acts solely as a transport layer, mapping HTTP requests to `CommunicationLayer` calls and handling web-specific concerns like Content-Types and HTTP status codes.
 
 ### Smart Indexing & Previews
 - **Targeted Imports**: Backend supports batch importing specific relative paths to avoid full directory re-scans.
-- **Advanced Search**: A multi-criteria search engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`). Includes a "Reveal in Folders" context menu option to jump from search results to the source directory.
+- **Advanced Search**: A multi-criteria search engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`).
 - **On-the-Fly Generation**: If a requested preview is missing, it's generated live from the source (respecting RAW sidecars) and cached in the database.
-- **Cycle-Safe Paths**: Manual path reconstruction logic with recursive loop detection ensures stability even with complex directory structures.
 
 ### Type Generation
-- **Detailed Build Output (`TypeGen/`)**: The `TypeGen` utility uses Roslyn to parse C# models and generate TypeScript interfaces, now providing detailed "from -> to" logs during the build process to ensure transparency.
+- **Automated Pipeline**: The `TypeGen` utility is integrated into the `dotnet build` process. It parses C# models in the `Contracts` project and generates TypeScript interfaces, ensuring the frontend is always in sync with the latest backend models.
+
+### Standardized Models
+- **Contracts Project (`PhotoLibrary.Contracts/`)**: A dedicated library containing all DTOs, request/response models (implemented as record classes), and RPC result types shared across the solution.
+- **Unified Namespaces**: All backend C# files utilize the `PhotoLibrary.Backend;` file-scoped namespace format for consistency and reduced indentation.
 
 ### Normalized Storage
 - **Decoupled User Data**: User culling data (ratings/picks) is stored in specialized tables.
-- **Centralized Configuration**: (See REQ-SVC-00013) Persistent app settings (themes, overlays) stored in a `Settings` table and local `config.json`.
+- **Centralized Configuration**: Persistent app settings (themes, overlays) stored in a `Settings` table and local `config.json`.
 
 ## 4. Interaction Model: "The Keyboard Professional"
 The UI is inspired by Adobe Lightroom, optimized for power users:
@@ -61,8 +68,9 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 ## 5. Project Structure & Build Orchestration
 The project uses a clean separation between source code and tooling.
 
-- **`PhotoLibrary/`**: ASP.NET Core web server and frontend source (`wwwsrc/`).
-- **`PhotoLibrary.Backend/`**: Core library processing and database management.
+- **`PhotoLibrary/`**: ASP.NET Core web server (transport layer) and frontend source (`wwwsrc/`).
+- **`PhotoLibrary.Backend/`**: Core library processing, database management, and the decoupled `CommunicationLayer`.
+- **`PhotoLibrary.Contracts/`**: Shared domain models, request/response records, and RPC results.
 - **`TypeGen/`**: Roslyn-based TS interface generator.
 - **`Tooling/`**: Centralized directory for all build, test, and packaging scripts.
   - `version.txt`: The single source of truth for the project version (Format: Major.YY.MMDD.Minor).

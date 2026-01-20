@@ -1,32 +1,31 @@
 using System;
 using System.IO;
 
-namespace PhotoLibrary.Backend.ProcessingLayer
+namespace PhotoLibrary.Backend;
+
+public static class PathUtils
 {
-    public static class PathUtils
+    public static string ResolvePath(string path)
     {
-        public static string ResolvePath(string path)
+        if (string.IsNullOrEmpty(path)) return path;
+        
+        string resolved = path;
+        if (path.StartsWith("~"))
         {
-            if (string.IsNullOrEmpty(path)) return path;
-            
-            string resolved = path;
-            if (path.StartsWith("~"))
-            {
-                resolved = path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-            }
+            resolved = path.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        }
 
 #if !WINDOWS
-            // Resilience for Linux /home -> /var/home symlinks
-            if (resolved.StartsWith("/home/") && !Directory.Exists("/home"))
+        // Resilience for Linux /home -> /var/home symlinks
+        if (resolved.StartsWith("/home/") && !Directory.Exists("/home"))
+        {
+            if (Directory.Exists("/var/home"))
             {
-                if (Directory.Exists("/var/home"))
-                {
-                    resolved = "/var/home/" + resolved.Substring(6);
-                }
+                resolved = "/var/home/" + resolved.Substring(6);
             }
+        }
 #endif
 
-            return Path.GetFullPath(resolved);
-        }
+        return Path.GetFullPath(resolved);
     }
 }

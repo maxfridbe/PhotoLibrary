@@ -1,4 +1,4 @@
-// Generated from WebServer.cs via Roslyn at 2026-01-16T08:11:50.9741162-06:00
+// Generated from PhotoLibrary/WebServer.cs via Roslyn at 2026-01-19T21:07:30.0037709-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -9,7 +9,7 @@ async function post<T>(url: string, data: any = {}): Promise<T> {
     return text ? JSON.parse(text) : {} as T;
 }
 
-export async function api_photos(data: any): Promise<Res.PagedPhotosResponse> {
+export async function api_photos(data: Req.PagedPhotosRequest): Promise<Res.PagedPhotosResponse> {
     return await post<Res.PagedPhotosResponse>('/api/photos', data);
 }
 
@@ -25,15 +25,19 @@ export async function api_library_info(data: any): Promise<any> {
     return await post<any>('/api/library/info', data);
 }
 
-export async function api_pick(data: any): Promise<any> {
+export async function api_library_backup(data: any): Promise<any> {
+    return await post<any>('/api/library/backup', data);
+}
+
+export async function api_pick(data: Req.PickRequest): Promise<any> {
     return await post<any>('/api/pick', data);
 }
 
-export async function api_rate(data: any): Promise<any> {
+export async function api_rate(data: Req.RateRequest): Promise<any> {
     return await post<any>('/api/rate', data);
 }
 
-export async function api_search(data: any): Promise<string[]> {
+export async function api_search(data: Req.SearchRequest): Promise<string[]> {
     return await post<string[]>('/api/search', data);
 }
 
@@ -41,19 +45,19 @@ export async function api_collections_list(data: any): Promise<Res.CollectionRes
     return await post<Res.CollectionResponse[]>('/api/collections/list', data);
 }
 
-export async function api_collections_create(data: any): Promise<any> {
+export async function api_collections_create(data: Req.NameRequest): Promise<any> {
     return await post<any>('/api/collections/create', data);
 }
 
-export async function api_collections_delete(data: any): Promise<any> {
+export async function api_collections_delete(data: Req.IdRequest): Promise<any> {
     return await post<any>('/api/collections/delete', data);
 }
 
-export async function api_collections_add_files(data: any): Promise<any> {
+export async function api_collections_add_files(data: Req.CollectionAddRequest): Promise<any> {
     return await post<any>('/api/collections/add-files', data);
 }
 
-export async function api_collections_get_files(data: any): Promise<string[]> {
+export async function api_collections_get_files(data: Req.IdRequest): Promise<string[]> {
     return await post<string[]>('/api/collections/get-files', data);
 }
 

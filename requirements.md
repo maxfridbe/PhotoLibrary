@@ -19,6 +19,7 @@
 - REQ-ARCH-00016: The '/wwwroot' directory shall be treated as a transient, build-generated artifact; all web source files, assets, and original templates must reside in '/wwwsrc', which serves as the authoritative source of truth for the frontend.
 - REQ-ARCH-00017: The system shall enforce a strict multi-project architecture to ensure layer separation: core business logic and image processing (Backend) must remain decoupled from the web server/API surface (Presentation), and data access (DataLayer) must be abstracted from processing logic.
 - REQ-ARCH-00018: The application version shall be maintained in a single 'version.txt' file (format 1.2.YY.MMDD) and propagated to the UI, binary assembly metadata, and package manifests during the build process to ensure consistency.
+- REQ-ARCH-00019: The backend logic shall be exposed via a dedicated CommunicationLayer using an RPC-style pattern, ensuring that core processing and data retrieval are entirely decoupled from web-specific transport details (e.g., HTTP results, content-type mapping).
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via header-only metadata extraction (256KB default, 1MB for .cr3).

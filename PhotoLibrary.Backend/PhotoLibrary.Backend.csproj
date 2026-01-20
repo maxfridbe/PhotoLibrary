@@ -18,4 +18,8 @@
     <EmbeddedResource Include="cameras.db" LogicalName="PhotoLibrary.cameras.db" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\PhotoLibrary.Contracts\PhotoLibrary.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -4,122 +4,99 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PhotoLibrary.Backend.ProcessingLayer
+namespace PhotoLibrary.Backend;
+
+// REQ-WFE-00024
+public class RuntimeStatistics
 {
-    // REQ-WFE-00024
-    public class RuntimeStatistics
+    public static RuntimeStatistics Instance { get; } = new();
+
+    private long _bytesSent;
+    private long _bytesReceived;
+
+    public event Action<object>? OnBroadcast;
+
+    public void RecordBytesSent(long bytes) => Interlocked.Add(ref _bytesSent, bytes);
+    public void RecordBytesReceived(long bytes) => Interlocked.Add(ref _bytesReceived, bytes);
+
+    public void Start()
     {
-        public static RuntimeStatistics Instance { get; } = new();
+         _ = Task.Run(async () => {
+            long lastSent = 0;
+            long lastRecv = 0;
+            while(true) {
+                 await Task.Delay(500);
+                 long currentSent = Interlocked.Read(ref _bytesSent);
+                 long currentRecv = Interlocked.Read(ref _bytesReceived);
+                 
+                 double sentRate = (currentSent - lastSent) * 2.0; 
+                 double recvRate = (currentRecv - lastRecv) * 2.0;
 
-        private long _bytesSent;
-        private long _bytesReceived;
+                 lastSent = currentSent;
+                 lastRecv = currentRecv;
 
-        public event Action<object>? OnBroadcast;
+                 // Get Memory
+                 var p = Process.GetCurrentProcess();
+                 p.Refresh();
+                 long memory = p.WorkingSet64;
 
-        public void RecordBytesSent(long bytes) => Interlocked.Add(ref _bytesSent, bytes);
-        public void RecordBytesReceived(long bytes) => Interlocked.Add(ref _bytesReceived, bytes);
-
-        public void Start()
-        {
-             _ = Task.Run(async () => {
-                long lastSent = 0;
-                long lastRecv = 0;
-                while(true) {
-                     await Task.Delay(500);
-                     long currentSent = Interlocked.Read(ref _bytesSent);
-                     long currentRecv = Interlocked.Read(ref _bytesReceived);
-                     
-                     // sentRate is bytes per 500ms. To get per second, multiply by 2.
-                     // But the previous implementation calculated "bytes per second" based on the diff.
-                     // If I wait 500ms, the diff is bytes in 500ms.
-                     // So I should multiply by 2 to get bytes/sec rate.
-                     // Or, I can just send the diff and let the UI handle it? 
-                     // The previous implementation was:
-                     // double sentRate = (currentSent - lastSent); // bytes per second (because Delay(1000))
-                     
-                     double sentRate = (currentSent - lastSent) * 2.0; 
-                     double recvRate = (currentRecv - lastRecv) * 2.0;
-
-                     lastSent = currentSent;
-                     lastRecv = currentRecv;
-
-                     // Get Memory
-                     var p = Process.GetCurrentProcess();
-                     p.Refresh();
-                     long memory = p.WorkingSet64;
-
-                     var stats = new {
-                         type = "runtime.stats",
-                         memoryBytes = memory,
-                         sentBytesPerSec = sentRate,
-                         recvBytesPerSec = recvRate
-                     };
-                     
-                     OnBroadcast?.Invoke(stats);
-                }
-             });
-        }
+                 var stats = new {
+                     type = "runtime.stats",
+                     memoryBytes = memory,
+                     sentBytesPerSec = sentRate,
+                     recvBytesPerSec = recvRate
+                 };
+                 
+                 OnBroadcast?.Invoke(stats);
+            }
+         });
     }
+}
 
-    public class TrackingStream : Stream
+public class TrackingStream : Stream
+{
+    private readonly Stream _inner;
+    private readonly Action<long> _onWrite;
+    public TrackingStream(Stream inner, Action<long> onWrite) { _inner = inner; _onWrite = onWrite; }
+    public override bool CanRead => _inner.CanRead;
+    public override bool CanSeek => _inner.CanSeek;
+    public override bool CanWrite => _inner.CanWrite;
+    public override long Length => _inner.Length;
+    public override long Position { get => _inner.Position; set => _inner.Position = value; }
+    public override void Flush() => _inner.Flush();
+    public override int Read(byte[] buffer, int offset, int count)
     {
-        private readonly Stream _inner;
-        private readonly Action<long> _onWrite;
-        public TrackingStream(Stream inner, Action<long> onWrite) { _inner = inner; _onWrite = onWrite; }
-        public override bool CanRead => _inner.CanRead;
-        public override bool CanSeek => _inner.CanSeek;
-        public override bool CanWrite => _inner.CanWrite;
-        public override long Length => _inner.Length;
-        public override long Position { get => _inner.Position; set => _inner.Position = value; }
-        public override void Flush() => _inner.Flush();
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            int read = _inner.Read(buffer, offset, count);
-            if (read > 0) _onWrite(read); // Re-using _onWrite delegate for "activity", or should I separate?
-            // The prompt says "get data from the thumbnail generation...". This implies "reading from disk".
-            // RuntimeStatistics has RecordBytesReceived and RecordBytesSent.
-            // "Bandwidth" usually implies Network.
-            // But user said "get statistics for how much network bandwidth is being used...".
-            // Then "I want it to get data from the thumbnail generation...".
-            // Thumbnail generation is DISK I/O (Read) -> CPU (Process) -> DB (Write).
-            // It is NOT network.
-            // But the user calls it "bandwidth" in the first prompt ("network bandwidth").
-            // Maybe they mean "Disk Bandwidth" or "Throughput" of the image processing pipeline?
-            // "when that stream is handed to image conversion".
-            // If I use RecordBytesReceived, it will show up as "Received" in the stats.
-            // If I use RecordBytesSent, it shows as "Sent".
-            // The UI sums them up.
-            // So reusing _onWrite (which takes a delegate) is fine, I just pass the appropriate recording method.
-            return read;
-        }
-        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            int read = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
-            if (read > 0) _onWrite(read);
-            return read;
-        }
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            int read = await _inner.ReadAsync(buffer, cancellationToken);
-            if (read > 0) _onWrite(read);
-            return read;
-        }
-        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
-        public override void SetLength(long value) => _inner.SetLength(value);
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            _inner.Write(buffer, offset, count);
-            _onWrite(count);
-        }
-        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            await _inner.WriteAsync(buffer, offset, count, cancellationToken);
-            _onWrite(count);
-        }
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            await _inner.WriteAsync(buffer, cancellationToken);
-            _onWrite(buffer.Length);
-        }
+        int read = _inner.Read(buffer, offset, count);
+        if (read > 0) _onWrite(read);
+        return read;
+    }
+    public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        int read = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
+        if (read > 0) _onWrite(read);
+        return read;
+    }
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        int read = await _inner.ReadAsync(buffer, cancellationToken);
+        if (read > 0) _onWrite(read);
+        return read;
+    }
+    public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+    public override void SetLength(long value) => _inner.SetLength(value);
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        _inner.Write(buffer, offset, count);
+        _onWrite(count);
+    }
+    public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        await _inner.WriteAsync(buffer, offset, count, cancellationToken);
+        _onWrite(count);
+    }
+    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        await _inner.WriteAsync(buffer, cancellationToken);
+        _onWrite(buffer.Length);
     }
 }

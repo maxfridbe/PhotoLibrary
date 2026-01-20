@@ -1,20 +1,20 @@
-// Generated from Responses.cs via Roslyn at 2026-01-16T08:11:50.9334549-06:00
+// Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn at 2026-01-19T20:33:08.1058345-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
 export interface PhotoResponse {
     id: string;
-    rootPathId?: string;
-    fileName?: string;
+    rootPathId?: string | null;
+    fileName?: string | null;
     size: number;
     createdAt: string;
     modifiedAt: string;
-    hash?: string;
+    hash?: string | null;
     isPicked: boolean;
     rating: number;
     rotation: number;
     stackCount: number;
-    stackExtensions?: string;
+    stackExtensions?: string | null;
     stackFileIds: string[];
 }
 
@@ -24,9 +24,9 @@ export interface PagedPhotosResponse {
 }
 
 export interface MetadataItemResponse {
-    directory?: string;
-    tag?: string;
-    value?: string;
+    directory?: string | null;
+    tag?: string | null;
+    value?: string | null;
 }
 
 export interface MetadataGroupResponse {
@@ -40,8 +40,8 @@ export interface DirectoryNodeResponse {
     path: string;
     imageCount: number;
     thumbnailedCount: number;
-    annotation?: string;
-    color?: string;
+    annotation?: string | null;
+    color?: string | null;
     children: DirectoryNodeResponse[];
 }
 

@@ -1,4 +1,4 @@
-// Generated from Requests.cs via Roslyn at 2026-01-16T08:11:50.8982901-06:00
+// Generated from PhotoLibrary.Contracts/Requests.cs via Roslyn at 2026-01-19T20:33:08.0664574-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -21,9 +21,9 @@ export interface RateRequest {
 }
 
 export interface SearchRequest {
-    tag?: string;
-    value?: string;
-    query?: string;
+    tag?: string | null;
+    value?: string | null;
+    query?: string | null;
 }
 
 export interface CollectionAddRequest {
@@ -34,7 +34,7 @@ export interface CollectionAddRequest {
 export interface ZipRequest {
     fileIds: string[];
     type: string;
-    name?: string;
+    name?: string | null;
 }
 
 export interface SettingRequest {
@@ -57,7 +57,7 @@ export interface GenerateThumbnailsRequest {
 export interface FolderAnnotationRequest {
     folderId: string;
     annotation: string;
-    color?: string;
+    color?: string | null;
 }
 
 export interface ForceUpdatePreviewRequest {
@@ -65,13 +65,13 @@ export interface ForceUpdatePreviewRequest {
 }
 
 export interface PagedPhotosRequest {
-    limit?: number;
-    offset?: number;
-    rootId?: string;
-    pickedOnly?: boolean;
-    rating?: number;
-    specificIds?: string[];
-    stacked?: boolean;
+    limit?: number | null;
+    offset?: number | null;
+    rootId?: string | null;
+    pickedOnly?: boolean | null;
+    rating?: number | null;
+    specificIds?: string[] | null;
+    stacked?: boolean | null;
 }
 
 export interface ImageRequest {
