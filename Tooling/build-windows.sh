@@ -15,9 +15,11 @@ echo "Building Windows Version: $VERSION"
 
 # Ensure frontend assets are built
 echo "Compiling TypeScript..."
-cd PhotoLibrary
+cd PhotoLibrary.WFE
 tsc
 mkdir -p wwwroot/lib && cp -r wwwsrc/lib/* wwwroot/lib/
+# Remove .ts files from lib
+find wwwroot/lib -name "*.ts" -type f -delete
 cp wwwsrc/index.html wwwroot/
 cp wwwsrc/favicon.svg wwwroot/
 cd ..

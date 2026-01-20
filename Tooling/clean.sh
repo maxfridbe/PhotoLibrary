@@ -9,6 +9,9 @@ dotnet clean PhotoLibrary.sln -c Release
 echo "Removing build artifacts and temporary directories..."
 rm -rf dist/
 rm -rf AppDir/
+rm -rf PhotoLibrary.WFE/wwwroot/
+rm -rf PhotoLibrary.WFE/bin/
+rm -rf PhotoLibrary.WFE/obj/
 rm -rf PhotoLibrary/wwwroot/
 rm -rf PhotoLibrary/bin/
 rm -rf PhotoLibrary/obj/

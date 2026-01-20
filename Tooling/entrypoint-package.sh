@@ -28,8 +28,8 @@ mkdir -p dist/AppDir/usr/bin
 mkdir -p dist/AppDir/usr/share/icons/hicolor/scalable/apps
 
 cp dist/linux/PhotoLibrary dist/AppDir/usr/bin/photolibrary
-cp PhotoLibrary/wwwsrc/favicon.svg dist/AppDir/usr/share/icons/hicolor/scalable/apps/photolibrary.svg
-cp PhotoLibrary/wwwsrc/favicon.svg dist/AppDir/photolibrary.svg
+cp PhotoLibrary.WFE/wwwsrc/favicon.svg dist/AppDir/usr/share/icons/hicolor/scalable/apps/photolibrary.svg
+cp PhotoLibrary.WFE/wwwsrc/favicon.svg dist/AppDir/photolibrary.svg
 cp Tooling/photolibrary.desktop dist/AppDir/photolibrary.desktop
 
 # Create AppRun script for AppImage
