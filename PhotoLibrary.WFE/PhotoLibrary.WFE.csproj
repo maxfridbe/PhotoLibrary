@@ -42,7 +42,7 @@
   </Target>
 
   <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">
-    <Exec Command="dotnet run --project TypeGen/TypeGen.csproj --no-build" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
+    <Exec Command="dotnet run --project TypeGen/TypeGen.csproj" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
   </Target>
 
   <Target Name="CompileTypeScript" BeforeTargets="Build;BeforeBuild;CoreCompile">
