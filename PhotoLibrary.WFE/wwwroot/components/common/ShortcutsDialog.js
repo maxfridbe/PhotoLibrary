@@ -16,6 +16,7 @@ export function ShortcutsDialog(props) {
             h('div.shortcut-row', [h('span.shortcut-desc', 'Clear Rating'), h('span.shortcut-key', '0')]),
             h('div.shortcut-row', [h('span.shortcut-desc', 'Rotate Left'), h('span.shortcut-key', '[')]),
             h('div.shortcut-row', [h('span.shortcut-desc', 'Rotate Right'), h('span.shortcut-key', ']')]),
+            h('div.shortcut-row', [h('span.shortcut-desc', 'Reset Loupe Zoom'), h('span.shortcut-key', 'Z')]),
             h('div.shortcut-row', [h('span.shortcut-desc', 'Toggle Metadata'), h('span.shortcut-key', 'M')]),
             h('div.shortcut-row', [h('span.shortcut-desc', 'Toggle Library'), h('span.shortcut-key', 'B')]),
             h('div.shortcut-row', [h('span.shortcut-desc', 'Navigate Photos'), h('span.shortcut-key', 'Arrows')]),

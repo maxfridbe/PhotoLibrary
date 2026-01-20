@@ -5,6 +5,9 @@ async function post(url, data = {}) {
     const text = await res.text();
     return text ? JSON.parse(text) : {};
 }
+export async function api_get_application_settings(data) {
+    return await post('/api/get-application-settings', data);
+}
 export async function api_photos(data) {
     return await post('/api/photos', data);
 }

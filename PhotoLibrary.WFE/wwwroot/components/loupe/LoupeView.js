@@ -161,7 +161,7 @@ function setupLoupeLogic($el, initialProps) {
         if (isFullResLoaded)
             return;
         isFullResLoaded = true;
-        const fullResKey = photo.id + '-full';
+        const fullResKey = photo.id + '-0';
         const applyFullRes = (url) => {
             $imgH.src = url;
             const onLoaded = () => {
@@ -209,12 +209,14 @@ function setupLoupeLogic($el, initialProps) {
             });
         };
         if (imageUrlCache.has(highResKey)) {
-            $imgH.src = imageUrlCache.get(highResKey);
+            const url = imageUrlCache.get(highResKey);
+            $imgH.src = url;
             $imgH.style.opacity = '1';
             $spinner.style.display = 'none';
         }
         else if (imageUrlCache.has(lowResKey)) {
-            $imgP.src = imageUrlCache.get(lowResKey);
+            const url = imageUrlCache.get(lowResKey);
+            $imgP.src = url;
             requestHighRes();
         }
         else {
@@ -308,6 +310,13 @@ function setupLoupeLogic($el, initialProps) {
             updateTransform();
         }
     };
+    const resetView = () => {
+        scale = 1;
+        pX = 0;
+        pY = 0;
+        updateTransform();
+        showToolbar();
+    };
     $previewArea.addEventListener('wheel', onWheel);
     $previewArea.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
@@ -316,6 +325,7 @@ function setupLoupeLogic($el, initialProps) {
     updateTransform(true, true);
     window.app.rotateLeft = () => triggerRotate(-90);
     window.app.rotateRight = () => triggerRotate(90);
+    window.app.resetLoupeView = () => resetView();
     window.app.setViewTransform = (r, s, pl, pt) => {
         rotation = r;
         scale = s;

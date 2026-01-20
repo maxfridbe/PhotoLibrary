@@ -8,6 +8,7 @@ namespace PhotoLibrary.Backend;
 
 public interface ICommunicationLayer
 {
+    ApplicationSettingsResponse GetApplicationSettings();
     FileResult? GetCameraThumbnail(string model);
     PagedPhotosResponse GetPhotosPaged(PagedPhotosRequest req);
     List<MetadataGroupResponse> GetMetadata(IdRequest req);

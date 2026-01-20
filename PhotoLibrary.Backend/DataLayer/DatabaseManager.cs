@@ -24,7 +24,7 @@ public class DatabaseManager : IDatabaseManager
     public DatabaseManager(string dbPath, ILogger<DatabaseManager> logger)
     {
         DbPath = dbPath;
-        _connectionString = $"Data Source={dbPath}";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Default Timeout=30;";
         _logger = logger;
     }
 

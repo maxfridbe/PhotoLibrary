@@ -222,7 +222,7 @@ public class ImageIndexer : IImageIndexer
         try
         {
             using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+            using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
             
             string hash = CalculateHash(stream);
             stream.Position = 0;
@@ -305,7 +305,7 @@ public class ImageIndexer : IImageIndexer
         try
         {
             using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+            using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
             bool wasHashed = false;
 
             if (hash == null)
@@ -349,7 +349,7 @@ public class ImageIndexer : IImageIndexer
     public void GeneratePreviews(FileInfo file, string fileId)
     {
         using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+        using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
         GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
     }
 
@@ -385,7 +385,7 @@ public class ImageIndexer : IImageIndexer
             {
                 _logger.LogDebug("Found sidecar JPG for {FileName}: {Sidecar}", fileName, jpgPath);
                 var fs = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                sourceStream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+                sourceStream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
                 ownStream = true;
             }
         }
@@ -394,9 +394,14 @@ public class ImageIndexer : IImageIndexer
         {
             _currentProcess.Refresh();
             _logger.LogDebug("[MAGICK] Indexer Loading {FileName}. Process Mem: {Memory}MB", fileName, _currentProcess.WorkingSet64 / 1024 / 1024);
-            using (var image = new MagickImage(sourceStream))
+            
+            var settings = new MagickReadSettings {
+                Format = GetMagickFormat(fileName)
+            };
+
+            using (var image = new MagickImage(sourceStream, settings))
             {
-                _logger.LogDebug("Loaded {FileName}. Size: {W}x{H}", fileName, image.Width, image.Height);
+                _logger.LogDebug("Loaded {FileName}. Size: {W}x{H} (Format: {Format})", fileName, image.Width, image.Height, settings.Format);
                 image.AutoOrient();
                 foreach (var size in _longEdges)
                 {
@@ -428,6 +433,26 @@ public class ImageIndexer : IImageIndexer
                 GC.Collect(1, GCCollectionMode.Optimized, false);
             }
         }
+    }
+
+    private static MagickFormat GetMagickFormat(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".arw" => MagickFormat.Arw,
+            ".nef" => MagickFormat.Nef,
+            ".cr2" => MagickFormat.Cr2,
+            ".cr3" => MagickFormat.Cr3,
+            ".dng" => MagickFormat.Dng,
+            ".orf" => MagickFormat.Orf,
+            ".raf" => MagickFormat.Raf,
+            ".rw2" => MagickFormat.Rw2,
+            ".jpg" or ".jpeg" => MagickFormat.Jpg,
+            ".png" => MagickFormat.Png,
+            ".webp" => MagickFormat.WebP,
+            _ => MagickFormat.Unknown
+        };
     }
 
     private IEnumerable<MetadataItem> ExtractMetadata(Stream stream, string extension)

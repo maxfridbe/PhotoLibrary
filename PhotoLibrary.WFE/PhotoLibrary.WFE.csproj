@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PhotoLibrary.Backend\PhotoLibrary.Backend.csproj" />
     <ProjectReference Include="..\PhotoLibrary.Contracts\PhotoLibrary.Contracts.csproj" />
+    <ProjectReference Include="..\TypeGen\TypeGen.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,17 +23,17 @@
  </ItemGroup>
 
   <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">
-    <Exec Command="dotnet run --project TypeGen/TypeGen.csproj" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
+    <Exec Command="dotnet run --project TypeGen/TypeGen.csproj --no-build" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
   </Target>
 
   <Target Name="CompileTypeScript" BeforeTargets="Build;BeforeBuild;CoreCompile">
     <Exec Command="tsc" />
-    <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
-    <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="wwwroot" />
+    <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot" />
+    <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot" />
     <ItemGroup>
       <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
     </ItemGroup>
-    <Copy SourceFiles="@(LibFiles)" DestinationFolder="wwwroot/lib/%(RecursiveDir)" />
+    <Copy SourceFiles="@(LibFiles)" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot/lib/%(RecursiveDir)" />
   </Target>
 
   <ItemGroup>

@@ -1,4 +1,4 @@
-// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-19T21:39:43.6612308-06:00
+// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-20T08:57:18.7951791-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -7,6 +7,10 @@ async function post<T>(url: string, data: any = {}): Promise<T> {
     if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
     const text = await res.text();
     return text ? JSON.parse(text) : {} as T;
+}
+
+export async function api_get_application_settings(data: any): Promise<any> {
+    return await post<any>('/api/get-application-settings', data);
 }
 
 export async function api_photos(data: Req.PagedPhotosRequest): Promise<Res.PagedPhotosResponse> {

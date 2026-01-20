@@ -283,16 +283,9 @@ export class GridView {
 
         // Filmstrip Scroll
         if (this.$filmstripEl) {
-            const cardWidth = this.filmstripCardWidth;
-            const targetLeft = index * cardWidth;
-            const currentScroll = this.$filmstripEl.scrollLeft;
-            const viewWidth = this.$filmstripEl.clientWidth;
-
-            if (targetLeft < currentScroll || targetLeft + cardWidth > currentScroll + viewWidth) {
-                this.$filmstripEl.scrollTo({
-                    left: targetLeft - (viewWidth / 2) + (cardWidth / 2),
-                    behavior: 'smooth'
-                });
+            const el = this.$filmstripEl.querySelector(`.card[data-id="${id}"]`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
             }
         }
     }

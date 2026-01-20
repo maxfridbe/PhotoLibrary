@@ -7,12 +7,13 @@ public class PreviewManager : IPreviewManager
 {
     private readonly string _connectionString;
     private readonly ILogger<PreviewManager> _logger;
+    private readonly SemaphoreSlim _dbLock = new(1, 1);
     public string DbPath { get; private set; }
 
     public PreviewManager(string dbPath, ILogger<PreviewManager> logger)
     {
         DbPath = dbPath;
-        _connectionString = $"Data Source={dbPath}";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Default Timeout=30;";
         _logger = logger;
     }
 
@@ -77,6 +78,7 @@ public class PreviewManager : IPreviewManager
 
     public void SavePreview(string hash, int longEdge, byte[] data)
     {
+        _dbLock.Wait();
         try {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
@@ -99,6 +101,8 @@ public class PreviewManager : IPreviewManager
             transaction.Commit();
         } catch (Exception ex) {
             _logger.LogError(ex, "Failed to save preview for hash {Hash}", hash);
+        } finally {
+            _dbLock.Release();
         }
     }
 

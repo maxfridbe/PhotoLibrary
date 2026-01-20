@@ -113,6 +113,7 @@ class App {
 
     // View methods added during layout registration
     public setViewTransform?: (r: number, s: number, pl: number, pt: number) => void;
+    public resetLoupeView?: () => void;
     public rotateLeft?: () => void;
     public rotateRight?: () => void;
     public getPriority?: (id: string) => number;
@@ -247,19 +248,11 @@ class App {
 
     private hideSplash() {
         const $splash = document.getElementById('splash-screen');
-        if ($splash) {
-            $splash.style.opacity = '0';
-            $splash.style.pointerEvents = 'none';
-            setTimeout(() => {
-                $splash.style.display = 'none';
-            }, 500);
-        }
-        
-        if (this.layout) {
-            this.layout.updateSize();
-        }
-        hub.pub(ps.UI_LAYOUT_CHANGED, {});
+        if ($splash) $splash.style.display = 'none';
     }
+
+    public runtimeMode: string = "WebHost";
+    public version: string = "Unknown";
 
     constructor() {
         this.loadStartTime = Date.now();
@@ -788,8 +781,8 @@ class App {
                     const getRank = (fn: string) => {
                         const ext = fn.split('.').pop()?.toUpperCase();
                         const rawExts = ['ARW', 'NEF', 'CR2', 'CR3', 'DNG', 'RAF', 'RW2', 'ORF'];
-                        if (rawExts.includes(ext!)) return 0;
-                        if (ext === 'JPG' || ext === 'JPEG') return 1;
+                        if (ext === 'JPG' || ext === 'JPEG') return 0;
+                        if (rawExts.includes(ext!)) return 1;
                         return 2;
                     };
                     return getRank(a.fileName!) - getRank(b.fileName!);
@@ -865,7 +858,7 @@ class App {
             if (this.runtimeStats) {
                 const s = this.runtimeStats;
                 const mem = (s.memoryBytes / 1024 / 1024 / 1024).toFixed(2).replace(/^0+/, '') + 'g';
-                const bw = s.sentBytesPerSec + s.recvBytesPerSec;
+                const bw = s.recvBytesPerSec;
                 
                 let bwStr = '';
                 if (bw > 1024 * 1024) bwStr = (bw / 1024 / 1024).toFixed(1) + ' MB/s';
@@ -1137,6 +1130,7 @@ class App {
     }
 
     async loadData() {
+        await this.checkRuntimeMode();
         try {
             this.updateSplash('Fetching Library Data...', 60);
             const [roots, colls, stats, expState, searchesState] = await Promise.all([
@@ -1994,6 +1988,7 @@ class App {
         this.selectedId = id;
         this.updateSelectionUI(id);
         this.loadMetadata(id);
+        this.gridViewManager.scrollToPhoto(id);
         if (this.isFullscreen) this.updateFullscreenImage(id);
         else if (this.isLoupeMode) this.renderLoupe();
     }
@@ -2115,7 +2110,6 @@ class App {
             server.requestImage(id, 0).then((blob: Blob) => {
                 if (this.selectedId === id && this.isFullscreen) {
                     if (blob.size === 0) {
-                        // Error fallback: just stop spinner
                         this.$fullscreenSpinner!.style.display = 'none';
                         return;
                     }
@@ -2379,6 +2373,27 @@ class App {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
         if ((e.target as HTMLElement).isContentEditable) return;
         
+        // Block hotkeys if dialogs are open
+        if (this.isShortcutsVisible || this.isSettingsVisible) {
+            if (e.key === 'Escape') {
+                this.isShortcutsVisible = false;
+                this.isSettingsVisible = false;
+                this.renderModals();
+                e.preventDefault();
+            }
+            return;
+        }
+
+        // Block hotkeys if context menu is open
+        const ctxMenu = document.getElementById('context-menu');
+        if (ctxMenu && ctxMenu.style.display === 'block') {
+             if (e.key === 'Escape') {
+                ctxMenu.style.display = 'none';
+                e.preventDefault();
+             }
+             return;
+        }
+
         const key = e.key.toLowerCase();
 
         // Mode-switching and help should always work
@@ -2424,6 +2439,12 @@ class App {
         if (key === 'b') {
             e.preventDefault();
             this.toggleLibraryPanel();
+        }
+        if (key === 'z') {
+            if (this.isLoupeMode && this.resetLoupeView) {
+                e.preventDefault();
+                this.resetLoupeView();
+            }
         }
         if (key === 'p') {
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
@@ -2509,6 +2530,16 @@ class App {
 
     private setupGlobalKeyboard() {
         document.addEventListener('keydown', (e) => this.handleKey(e));
+    }
+
+    private async checkRuntimeMode() {
+        try {
+            const settings = await Api.api_get_application_settings({});
+            this.runtimeMode = settings.runtimeMode || "WebHost";
+            this.version = settings.version || "Unknown";
+        } catch (e) {
+            console.error("Failed to fetch application settings", e);
+        }
     }
 }
 

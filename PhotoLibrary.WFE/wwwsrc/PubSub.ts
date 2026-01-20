@@ -53,7 +53,9 @@ class PubSub {
     }
 
     public pub<K extends keyof EventMap>(event: K, data: EventMap[K]) {
-        console.log(`[PubSub] PUB: ${event}`, data);
+        if (event !== 'runtime.stats') {
+            console.log(`[PubSub] PUB: ${event}`, data);
+        }
         this.trigger(event, data);
         for (const key of this.subs.keys()) {
             if (key.endsWith('.*')) {

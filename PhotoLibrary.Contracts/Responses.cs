@@ -88,7 +88,23 @@ public record BackupFileResponse
 }
 
 public record DirectoryResponse
+
 {
+
     public string Path { get; init; } = "";
+
     public string Name { get; init; } = "";
+
+}
+
+
+
+public record ApplicationSettingsResponse
+
+{
+
+    public string RuntimeMode { get; init; } = "WebHost";
+
+    public string Version { get; init; } = "";
+
 }

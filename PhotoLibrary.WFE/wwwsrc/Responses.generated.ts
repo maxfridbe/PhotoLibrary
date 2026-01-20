@@ -1,4 +1,4 @@
-// Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn at 2026-01-19T21:39:43.6160525-06:00
+// Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn at 2026-01-20T08:57:18.7493354-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -80,5 +80,10 @@ export interface BackupFileResponse {
 export interface DirectoryResponse {
     path: string;
     name: string;
+}
+
+export interface ApplicationSettingsResponse {
+    runtimeMode: string;
+    version: string;
 }
 

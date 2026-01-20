@@ -6,7 +6,10 @@ using System.CommandLine.Invocation;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Drawing;
 using ImageMagick;
+using PhotoLibrary.Backend;
+using Photino.NET;
 
 namespace PhotoLibrary.Backend;
 
@@ -25,6 +28,7 @@ class Program
         public string? PreviewDbPath { get; set; }
         public int Port { get; set; } = 8080;
         public string Bind { get; set; } = "localhost";
+        public string Mode { get; set; } = "WebHost";
     }
 
     static async Task<int> Main(string[] args)
@@ -65,6 +69,11 @@ class Program
             name: "--host",
             description: "Port to host the web viewer on (e.g., 8080)");
 
+        var modeOption = new Option<string>(
+            name: "--mode",
+            description: "Runtime mode: WebHost or PhotinoNet",
+            getDefaultValue: () => "WebHost");
+
         rootCommand.AddOption(libraryOption);
         rootCommand.AddOption(updateMdOption);
         rootCommand.AddOption(testOneOption);
@@ -72,19 +81,20 @@ class Program
         rootCommand.AddOption(previewDbOption);
         rootCommand.AddOption(longEdgeOption);
         rootCommand.AddOption(hostOption);
+        rootCommand.AddOption(modeOption);
 
-        rootCommand.SetHandler(async (libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
+        rootCommand.SetHandler(async (libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode) =>
         {
-            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
-        }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption);
+            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode);
+        }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption, modeOption);
 
         return await rootCommand.InvokeAsync(args);
     }
 
-    static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
+    static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort, string mode)
     {
         var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
-        _logger.LogInformation("PhotoLibrary v{Version} Starting...", version);
+        _logger.LogInformation("PhotoLibrary v{Version} (Mode: {Mode}) Starting...", version, mode);
 
         try
         {
@@ -112,7 +122,8 @@ class Program
                     LibraryPath = Path.Combine(configDir, "library.db"),
                     PreviewDbPath = Path.Combine(configDir, "previews.db"),
                     Port = 8080,
-                    Bind = "localhost"
+                    Bind = "localhost",
+                    Mode = "WebHost"
                 };
             }
 
@@ -120,6 +131,7 @@ class Program
             if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = PathUtils.ResolvePath(libraryPath);
             if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = PathUtils.ResolvePath(previewDb);
             if (hostPort.HasValue) config.Port = hostPort.Value;
+            if (!string.IsNullOrEmpty(mode)) config.Mode = mode;
 
             // If paths are still null (shouldn't happen with defaults but safety first)
             if (string.IsNullOrEmpty(config.LibraryPath)) config.LibraryPath = Path.Combine(configDir, "library.db");
@@ -137,9 +149,7 @@ class Program
 
             ICameraManager cameraManager = new CameraManager(configDir, _loggerFactory.CreateLogger<CameraManager>());
 
-            IPreviewManager? previewManager = null;
-            // Pre-init preview manager if path is known
-            previewManager = new PreviewManager(finalPreviewDbPath, _loggerFactory.CreateLogger<PreviewManager>());
+            IPreviewManager previewManager = new PreviewManager(finalPreviewDbPath, _loggerFactory.CreateLogger<PreviewManager>());
             previewManager.Initialize();
 
             // CLI/Scanning Mode
@@ -155,11 +165,46 @@ class Program
 
             if (hostPort.HasValue || string.IsNullOrEmpty(scanDir))
             {
-                DisplayBanner(config.Port);
-                _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
-                _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
-                _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
-                await WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath);
+                if (config.Mode.Equals("PhotinoNet", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        _logger.LogInformation("Starting Photino Desktop Host...");
+                        // Start Web Server in background
+                        _ = WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, "localhost", configPath, "PhotinoNet");
+
+                        // Initialize Photino Window
+                        var window = new PhotinoWindow()
+                            .SetTitle($"PhotoLibrary - {version}")
+                            .SetUseOsDefaultSize(false)
+                            .SetSize(new Size(1200, 800))
+                            .Center()
+                            .Load($"http://localhost:{config.Port}");
+
+                        window.WaitForClose();
+                    }
+                    catch (Exception ex) when (ex.Message.Contains("Photino.Native") || ex is DllNotFoundException || ex.InnerException is DllNotFoundException)
+                    {
+                        Console.Error.WriteLine("\n[ERROR] Failed to start Photino Desktop Window.");
+#if WINDOWS
+                        Console.Error.WriteLine("Ensure that the Microsoft Edge WebView2 Runtime is installed.");
+                        Console.Error.WriteLine("Download: https://developer.microsoft.com/en-us/microsoft-edge/webview2/");
+#else
+                        Console.Error.WriteLine("Missing native dependencies (likely WebKit2GTK 4.1).");
+                        Console.Error.WriteLine("Try: sudo apt-get install libwebkit2gtk-4.1-0");
+                        Console.Error.WriteLine("On older systems like Ubuntu 20.04, you may need to use WebHost mode instead.");
+#endif
+                        _logger.LogDebug(ex, "Photino Native Error");
+                    }
+                }
+                else
+                {
+                    DisplayBanner(config.Port);
+                    _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
+                    _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
+                    _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
+                    await WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath, "WebHost");
+                }
             }
         }
         catch (Exception ex)

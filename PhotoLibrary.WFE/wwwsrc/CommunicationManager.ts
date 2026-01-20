@@ -34,7 +34,7 @@ interface QueuedImage {
 export class CommunicationManager {
     private ws: WebSocket | null = null;
     private clientId = Math.random().toString(36).substring(2, 15);
-    private requestMap: Map<number, (blob: Blob) => void> = new Map();
+    private requestMap: Map<number, { resolve: (blob: Blob) => void, size: number }> = new Map();
     private pendingRequests: Map<string, { promise: Promise<Blob>, priority: number, requestId: number }> = new Map();
     private nextRequestId = 1;
     public isConnected = false;
@@ -105,7 +105,7 @@ export class CommunicationManager {
         const data = buffer.slice(4);
         
         if (this.requestMap.has(reqId)) {
-            const resolve = this.requestMap.get(reqId)!;
+            const { resolve } = this.requestMap.get(reqId)!;
             this.requestMap.delete(reqId);
             resolve(new Blob([data], { type: 'image/webp' }));
         } else {
@@ -149,11 +149,13 @@ export class CommunicationManager {
 
             const req = { type: sk.IMAGE, requestId, fileId, size, priority: p };
             
-            this.requestMap.set(requestId, (blob) => {
-                this.pendingRequests.delete(cacheKey);
-                const elapsed = Date.now() - start;
-                // console.log(`requested ${fileId} took ${elapsed}ms for resp`);
-                resolve(blob);
+            this.requestMap.set(requestId, {
+                resolve: (blob) => {
+                    this.pendingRequests.delete(cacheKey);
+                    const elapsed = Date.now() - start;
+                    resolve(blob);
+                },
+                size
             });
             
             this.ws.send(JSON.stringify(req));

@@ -100,7 +100,7 @@ export class CommunicationManager {
         const reqId = view.getInt32(0, true);
         const data = buffer.slice(4);
         if (this.requestMap.has(reqId)) {
-            const resolve = this.requestMap.get(reqId);
+            const { resolve } = this.requestMap.get(reqId);
             this.requestMap.delete(reqId);
             resolve(new Blob([data], { type: 'image/webp' }));
         }
@@ -141,11 +141,13 @@ export class CommunicationManager {
                 return;
             }
             const req = { type: sk.IMAGE, requestId, fileId, size, priority: p };
-            this.requestMap.set(requestId, (blob) => {
-                this.pendingRequests.delete(cacheKey);
-                const elapsed = Date.now() - start;
-                // console.log(`requested ${fileId} took ${elapsed}ms for resp`);
-                resolve(blob);
+            this.requestMap.set(requestId, {
+                resolve: (blob) => {
+                    this.pendingRequests.delete(cacheKey);
+                    const elapsed = Date.now() - start;
+                    resolve(blob);
+                },
+                size
             });
             this.ws.send(JSON.stringify(req));
         });

@@ -65,7 +65,7 @@ public static class WebServer
         _queueSemaphore.Release();
     }
 
-    public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
+    public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "", string runtimeMode = "WebHost")
     {
         _logger = loggerFactory.CreateLogger("WebServer");
 
@@ -106,7 +106,7 @@ public static class WebServer
 
         var app = builder.Build();
 
-        _commLayer = new CommunicationLayer(dbManager, previewManager, cameraManager, loggerFactory, configPath, (msg) => Broadcast(msg), _activeTasks);
+        _commLayer = new CommunicationLayer(dbManager, previewManager, cameraManager, loggerFactory, configPath, (msg) => Broadcast(msg), _activeTasks, runtimeMode);
 
         // REQ-WFE-00024
         RuntimeStatistics.Instance.RegisterBroadcastHandler(msg => _ = Broadcast(msg));
@@ -121,6 +121,8 @@ public static class WebServer
 
         // --- API Endpoints ---
         // REQ-ARCH-00007
+
+        app.MapPost("/api/get-application-settings", () => Results.Ok(_commLayer?.GetApplicationSettings()));
 
         app.MapGet("/api/camera/thumbnail/{model}", (string model) => {
             var res = _commLayer?.GetCameraThumbnail(model);
@@ -304,7 +306,19 @@ public static class WebServer
                         if (fullPath != null && File.Exists(fullPath))
                         {
                             string ext = Path.GetExtension(fullPath);
-                            if (TableConstants.RawExtensions.Contains(ext))
+                            string sourcePath = fullPath;
+                            bool isRaw = TableConstants.RawExtensions.Contains(ext);
+
+                            if (isRaw)
+                            {
+                                string nameNoExt = Path.GetFileNameWithoutExtension(fullPath);
+                                string dir = Path.GetDirectoryName(fullPath) ?? "";
+                                string sidecar = Path.Combine(dir, nameNoExt + ".JPG");
+                                if (!File.Exists(sidecar)) sidecar = Path.Combine(dir, nameNoExt + ".jpg");
+                                if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
+                            }
+
+                            if (isRaw || Path.GetExtension(sourcePath).Equals(".png", StringComparison.OrdinalIgnoreCase))
                             {
                                 item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                                 long genStart = Stopwatch.GetTimestamp();
@@ -313,32 +327,28 @@ public static class WebServer
                                 Interlocked.Increment(ref _activeMagickTasks);
                                 try
                                 {
-                                    _currentProcess.Refresh();
-                                    long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
-                                    using var fs = File.OpenRead(fullPath);
-                                    using var tracker = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
-                                    using var image = new MagickImage(tracker);
+                                    using var fs = File.OpenRead(sourcePath);
+                                    using var tracker = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+                                    
+                                    var settings = new MagickReadSettings {
+                                        Format = GetMagickFormat(sourcePath)
+                                    };
+                                    
+                                    using var image = new MagickImage(tracker, settings);
                                     image.AutoOrient();
-                                    image.Format = MagickFormat.Jpg;
+                                    image.Format = MagickFormat.WebP;
                                     image.Quality = 90;
                                     data = image.ToByteArray();
-                                    _currentProcess.Refresh();
-                                    long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
-                                    _logger?.LogDebug("[MAGICK] FullRes {Id}. Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active: {Active}", 
-                                        req.fileId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
                                 }
                                 finally { 
                                     Interlocked.Decrement(ref _activeMagickTasks); 
                                     fileLock.Release(); 
-                                    _currentProcess.Refresh();
-                                    if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) {
-                                        GC.Collect(1, GCCollectionMode.Optimized, false);
-                                    }
+                                    if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
                                 }
                                 item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                             }
                             else {
-                                data = await File.ReadAllBytesAsync(fullPath, item.ct);
+                                data = await File.ReadAllBytesAsync(sourcePath, item.ct);
                                 RuntimeStatistics.Instance.RecordBytesReceived(data.Length);
                                 item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                             }
@@ -365,7 +375,7 @@ public static class WebServer
                                     }
                                     
                                     using (var fs = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                                    using (var stream = new TrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b)))
+                                    using (var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b)))
                                     {
                                         if (hash == null) {
                                             var hasher = new System.IO.Hashing.XxHash64();
@@ -482,7 +492,7 @@ public static class WebServer
                     var json = Encoding.UTF8.GetString(buffer, 0, wsResult.Count);
                     _ = Task.Run(async () => {
                         try {
-                            var req = JsonSerializer.Deserialize<ImageRequest>(json);
+                            var req = JsonSerializer.Deserialize<ImageRequest>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             if (req != null)
                             {
                                 long startTime = Stopwatch.GetTimestamp();
@@ -527,13 +537,19 @@ public static class WebServer
                                     } finally { entry.lockobj.Release(); }
                                     
                                     long sendingMs = (long)Stopwatch.GetElapsedTime(beforeSend).TotalMilliseconds;
+
+                                    // PERMANENT LOGGING
+                                    string sId = req.fileId;
+                                    string shortId = sId.Length > 12 ? $"{sId.Substring(0, 4)}...{sId.Substring(sId.Length - 4)}" : sId;
                                     if (reqObj != null)
                                     {
-                                        Console.WriteLine($"Fetching {req.fileId} priority {reqObj.Priority} overall {Stopwatch.GetElapsedTime(startTime).TotalMilliseconds:F2}ms queuetime {reqObj.QueueMs:F2}ms retrieval {reqObj.RetrievalMs:F2}ms generatingpreview {reqObj.GeneratingMs:F2}ms sending {sendingMs}ms");
+                                        double overall = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                                        Console.WriteLine($"[FETCH] {shortId,-11} | Pri: {reqObj.Priority,12:F4} | Tot: {overall,9:F1}ms | Q: {reqObj.QueueMs,8:F1}ms | R: {reqObj.RetrievalMs,8:F1}ms | G: {reqObj.GeneratingMs,8:F1}ms | S: {sendingMs,4}ms");
                                     }
                                     else if (immediateData != null)
                                     {
-                                        Console.WriteLine($"Fetching {req.fileId} priority {req.priority} FASTPATH retrieval {fastRetrievalMs:F2}ms sending {sendingMs}ms");
+                                        double overall = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+                                        Console.WriteLine($"[FETCH] {shortId,-11} | Pri: {req.priority,12:F4} | Tot: {overall,9:F1}ms | FASTPATH           | R: {fastRetrievalMs,8:F1}ms | {"",21} | S: {sendingMs,4}ms");
                                     }
                                 }
                             }
@@ -596,6 +612,26 @@ public static class WebServer
             ".svg" => "image/svg+xml",
             ".ico" => "image/x-icon",
             _ => "application/octet-stream",
+        };
+    }
+
+    private static MagickFormat GetMagickFormat(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".arw" => MagickFormat.Arw,
+            ".nef" => MagickFormat.Nef,
+            ".cr2" => MagickFormat.Cr2,
+            ".cr3" => MagickFormat.Cr3,
+            ".dng" => MagickFormat.Dng,
+            ".orf" => MagickFormat.Orf,
+            ".raf" => MagickFormat.Raf,
+            ".rw2" => MagickFormat.Rw2,
+            ".jpg" or ".jpeg" => MagickFormat.Jpg,
+            ".png" => MagickFormat.Png,
+            ".webp" => MagickFormat.WebP,
+            _ => MagickFormat.Unknown
         };
     }
 }

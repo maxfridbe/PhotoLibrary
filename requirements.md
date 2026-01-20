@@ -20,6 +20,8 @@
 - REQ-ARCH-00017: The system shall enforce a strict multi-project architecture to ensure layer separation: core business logic and image processing (Backend) must remain decoupled from the web server/API surface (Presentation), and data access (DataLayer) must be abstracted from processing logic.
 - REQ-ARCH-00018: The application version shall be maintained in a single 'version.txt' file (format 1.2.YY.MMDD) and propagated to the UI, binary assembly metadata, and package manifests during the build process to ensure consistency.
 - REQ-ARCH-00019: The backend logic shall be exposed via a dedicated CommunicationLayer using an RPC-style pattern, ensuring that core processing and data retrieval are entirely decoupled from web-specific transport details (e.g., HTTP results, content-type mapping).
+- REQ-ARCH-00020: All service-layer components (CommunicationLayer, DatabaseManager, ImageIndexer, PreviewManager, CameraManager) shall be defined by interfaces in the .Contracts project (or local to the implementation if specific dependencies like SQLite are required) to facilitate decoupling and testability via dependency injection.
+- REQ-ARCH-00021: The system shall utilize explicit callback registration methods (e.g., RegisterHandler) instead of standard C# events for passing data or notifications across architectural boundaries, ensuring clearer ownership and easier lifecycle management.
 
 ## Service (SVC) Requirements
 - REQ-SVC-00001: [Performance] Minimal bandwidth usage on high-latency network mounts via header-only metadata extraction (256KB default, 1MB for .cr3).

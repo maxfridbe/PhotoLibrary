@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using ImageMagick;
@@ -23,6 +24,7 @@ public class CommunicationLayer : ICommunicationLayer
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly string _configPath;
+    private readonly string _runtimeMode;
     private readonly Func<object, Task> _broadcast;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks;
     private readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
@@ -35,7 +37,8 @@ public class CommunicationLayer : ICommunicationLayer
         ILoggerFactory loggerFactory, 
         string configPath,
         Func<object, Task> broadcast,
-        ConcurrentDictionary<string, CancellationTokenSource> activeTasks)
+        ConcurrentDictionary<string, CancellationTokenSource> activeTasks,
+        string runtimeMode = "WebHost")
     {
         _db = db;
         _pm = pm;
@@ -43,8 +46,18 @@ public class CommunicationLayer : ICommunicationLayer
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<CommunicationLayer>();
         _configPath = configPath;
+        _runtimeMode = runtimeMode;
         _broadcast = broadcast;
         _activeTasks = activeTasks;
+    }
+
+    public ApplicationSettingsResponse GetApplicationSettings()
+    {
+        var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
+        return new ApplicationSettingsResponse {
+            RuntimeMode = _runtimeMode,
+            Version = version
+        };
     }
 
     public FileResult? GetCameraThumbnail(string model)
@@ -561,7 +574,10 @@ public class CommunicationLayer : ICommunicationLayer
                         bool isRaw = TableConstants.RawExtensions.Contains(Path.GetExtension(fullPath));
                         if (req.type == "previews" || isRaw || rotation != 0) 
                         { 
-                            using var image = new MagickImage(fullPath); 
+                            var settings = new MagickReadSettings {
+                                Format = GetMagickFormat(fullPath)
+                            };
+                            using var image = new MagickImage(fullPath, settings); 
                             image.AutoOrient(); 
                             if (rotation != 0) image.Rotate(rotation);
                             image.Format = MagickFormat.Jpg; 
@@ -584,6 +600,26 @@ public class CommunicationLayer : ICommunicationLayer
         string? fullPath = _db.GetFullFilePath(fileId);
         if (fullPath == null || !File.Exists(fullPath)) return null;
         return new PhysicalFileResult(fullPath, Path.GetFileName(fullPath));
+    }
+
+    private static MagickFormat GetMagickFormat(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".arw" => MagickFormat.Arw,
+            ".nef" => MagickFormat.Nef,
+            ".cr2" => MagickFormat.Cr2,
+            ".cr3" => MagickFormat.Cr3,
+            ".dng" => MagickFormat.Dng,
+            ".orf" => MagickFormat.Orf,
+            ".raf" => MagickFormat.Raf,
+            ".rw2" => MagickFormat.Rw2,
+            ".jpg" or ".jpeg" => MagickFormat.Jpg,
+            ".png" => MagickFormat.Png,
+            ".webp" => MagickFormat.WebP,
+            _ => MagickFormat.Unknown
+        };
     }
 
     private static string SanitizeFilename(string name)
