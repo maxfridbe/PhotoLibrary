@@ -50,7 +50,7 @@
     <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot" />
     <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot" />
     <ItemGroup>
-      <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
+      <LibFiles Include="wwwsrc/lib/**/*" Exclude="**/*.ts" />
     </ItemGroup>
     <Copy SourceFiles="@(LibFiles)" DestinationFolder="$(MSBuildThisFileDirectory)wwwroot/lib/%(RecursiveDir)" />
   </Target>
