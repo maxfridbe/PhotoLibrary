@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.Backend", "Pho
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.Contracts", "PhotoLibrary.Contracts\PhotoLibrary.Contracts.csproj", "{0B5107DA-DB6F-45D0-95A0-09A69B727D0E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.WFE", "PhotoLibrary.WFE\PhotoLibrary.WFE.csproj", "{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{0B5107DA-DB6F-45D0-95A0-09A69B727D0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0B5107DA-DB6F-45D0-95A0-09A69B727D0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0B5107DA-DB6F-45D0-95A0-09A69B727D0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

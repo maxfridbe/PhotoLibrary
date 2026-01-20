@@ -18,7 +18,8 @@ public class DatabaseManager : IDatabaseManager
     private readonly ConcurrentDictionary<string, string> _hashCache = new();
     public string DbPath { get; }
 
-    public event Action<string, string>? OnFolderCreated;
+    private Action<string, string>? _onFolderCreated;
+    public void RegisterFolderCreatedHandler(Action<string, string> handler) => _onFolderCreated = handler;
 
     public DatabaseManager(string dbPath, ILogger<DatabaseManager> logger)
     {
@@ -696,7 +697,7 @@ public class DatabaseManager : IDatabaseManager
         var result = EnsureRootPathExists(connection2, transaction, null, absolutePath);
         transaction.Commit();
         
-        if (result.created) OnFolderCreated?.Invoke(result.id, absolutePath);
+        if (result.created) _onFolderCreated?.Invoke(result.id, absolutePath);
         return result.id;
     }
 
@@ -708,7 +709,7 @@ public class DatabaseManager : IDatabaseManager
         var result = EnsureRootPathExists(connection, transaction, parentId, name);
         transaction.Commit();
         
-        if (result.created) OnFolderCreated?.Invoke(result.id, name);
+        if (result.created) _onFolderCreated?.Invoke(result.id, name);
         return result.id;
     }
 

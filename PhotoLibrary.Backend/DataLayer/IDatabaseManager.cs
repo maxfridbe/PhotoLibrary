@@ -7,7 +7,7 @@ namespace PhotoLibrary.Backend;
 public interface IDatabaseManager
 {
     string DbPath { get; }
-    event Action<string, string>? OnFolderCreated;
+    void RegisterFolderCreatedHandler(Action<string, string> handler);
 
     void ClearCaches();
     SqliteConnection GetOpenConnection();

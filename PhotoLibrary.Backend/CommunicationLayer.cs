@@ -365,11 +365,11 @@ public class CommunicationLayer : ICommunicationLayer
                 if (req.generateMedium) sizes.Add(1024);
 
                 IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
-                indexer.OnFileProcessed += (id, path) => 
+                indexer.RegisterFileProcessedHandler((id, path) => 
                 {
                     string? fileRootId = _db.GetFileRootId(id);
                     _ = _broadcast(new { type = "file.imported", id, path, rootId = fileRootId });
-                };
+                });
                 
                 string absRoot = PathUtils.ResolvePath(req.rootPath);
                 _logger?.LogInformation("[BATCH] Resolved Root: {AbsRoot}", absRoot);

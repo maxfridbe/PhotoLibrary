@@ -14,7 +14,8 @@ public class RuntimeStatistics
     private long _bytesSent;
     private long _bytesReceived;
 
-    public event Action<object>? OnBroadcast;
+    private Action<object>? _onBroadcast;
+    public void RegisterBroadcastHandler(Action<object> handler) => _onBroadcast = handler;
 
     public void RecordBytesSent(long bytes) => Interlocked.Add(ref _bytesSent, bytes);
     public void RecordBytesReceived(long bytes) => Interlocked.Add(ref _bytesReceived, bytes);
@@ -45,11 +46,12 @@ public class RuntimeStatistics
                      memoryBytes = memory,
                      sentBytesPerSec = sentRate,
                      recvBytesPerSec = recvRate
-                 };
+                                      };
+                                      
+                                      _onBroadcast?.Invoke(stats);
+                                 }
+                              });
                  
-                 OnBroadcast?.Invoke(stats);
-            }
-         });
     }
 }
 

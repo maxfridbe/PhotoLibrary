@@ -26,7 +26,8 @@ public class ImageIndexer : IImageIndexer
     private Microsoft.Data.Sqlite.SqliteConnection? _sharedConnection;
     private int _processedSinceCleanup = 0;
 
-    public event Action<string, string>? OnFileProcessed;
+    private Action<string, string>? _onFileProcessed;
+    public void RegisterFileProcessedHandler(Action<string, string> handler) => _onFileProcessed = handler;
 
     public static void SetProgress(bool isIndexing, int indexed, int total)
     {
@@ -251,7 +252,7 @@ public class ImageIndexer : IImageIndexer
                 }
                 
                 // Notify UI only after everything is ready (DB + Previews)
-                OnFileProcessed?.Invoke(fileId, file.FullName);
+                _onFileProcessed?.Invoke(fileId, file.FullName);
             }
 
             _processedSinceCleanup++;

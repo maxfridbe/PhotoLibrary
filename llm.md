@@ -39,9 +39,10 @@ The UI is a TypeScript SPA broken down into specialized managers to ensure maint
 ## 3. Backend Architecture: "Decoupled & Pure Logic"
 The backend is a .NET 8 application focused on providing high-concurrency and efficient SQLite storage, entirely decoupled from the presentation layer.
 
-### RPC-Style Communication
+### Transport & CLI Separation
+- **CLI Orchestrator (`PhotoLibrary/`)**: The main executable that handles command-line arguments, environment configuration, and initializes the backend services.
+- **WFE Library (`PhotoLibrary.WFE/`)**: A dedicated library containing the ASP.NET Core `WebServer`. It provides a `StartAsync` method to initiate the web interface, keeping the web-specific transport logic isolated from the CLI entry point.
 - **CommunicationLayer (`PhotoLibrary.Backend/CommunicationLayer.cs`)**: Centralizes all backend logic into a pure RPC-style service. It is entirely agnostic of ASP.NET Core, returning raw data or standard result records.
-- **Transport Separation**: The `WebServer` in the `PhotoLibrary/` project acts solely as a transport layer, mapping HTTP requests to `CommunicationLayer` calls and handling web-specific concerns like Content-Types and HTTP status codes.
 
 ### Smart Indexing & Previews
 - **Targeted Imports**: Backend supports batch importing specific relative paths to avoid full directory re-scans.
@@ -68,7 +69,8 @@ The UI is inspired by Adobe Lightroom, optimized for power users:
 ## 5. Project Structure & Build Orchestration
 The project uses a clean separation between source code and tooling.
 
-- **`PhotoLibrary/`**: ASP.NET Core web server (transport layer) and frontend source (`wwwsrc/`).
+- **`PhotoLibrary/`**: CLI entry point and orchestration.
+- **`PhotoLibrary.WFE/`**: ASP.NET Core web server (transport layer) and frontend source (`wwwsrc/`).
 - **`PhotoLibrary.Backend/`**: Core library processing, database management, and the decoupled `CommunicationLayer`.
 - **`PhotoLibrary.Contracts/`**: Shared domain models, request/response records, and RPC results.
 - **`TypeGen/`**: Roslyn-based TS interface generator.

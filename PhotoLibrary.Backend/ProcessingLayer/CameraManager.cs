@@ -8,6 +8,7 @@ namespace PhotoLibrary.Backend;
 
 public class CameraManager : ICameraManager
 {
+    private static readonly string _assemblyName = typeof(CameraManager).Assembly.GetName().Name!;
     private readonly string _dbPath;
     private readonly string _connectionString;
     private readonly ILogger<CameraManager> _logger;
@@ -57,7 +58,7 @@ public class CameraManager : ICameraManager
         {
             // Always re-extract to ensure we have the latest embedded data
             _logger.LogInformation("Updating cameras.db at {Path}", _dbPath);
-            ExtractResource("PhotoLibrary.cameras.db", _dbPath);
+            ExtractResource($"{_assemblyName}.cameras.db", _dbPath);
         }
         catch (Exception ex)
         {

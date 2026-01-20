@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhotoLibrary.Backend\PhotoLibrary.Backend.csproj" />
+    <ProjectReference Include="..\PhotoLibrary.Contracts\PhotoLibrary.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="TypeGen\**" />
+    <EmbeddedResource Remove="TypeGen\**" />
+    <None Remove="TypeGen\**" />
+ </ItemGroup>
+
+  <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">
+    <Exec Command="dotnet run --project TypeGen/TypeGen.csproj" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
+  </Target>
+
+  <Target Name="CompileTypeScript" BeforeTargets="Build;BeforeBuild;CoreCompile">
+    <Exec Command="tsc" />
+    <Copy SourceFiles="wwwsrc/index.html" DestinationFolder="wwwroot" />
+    <Copy SourceFiles="wwwsrc/favicon.svg" DestinationFolder="wwwroot" />
+    <ItemGroup>
+      <LibFiles Include="wwwsrc/lib/**/*" Exclude="wwwsrc/lib/**/*.ts" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LibFiles)" DestinationFolder="wwwroot/lib/%(RecursiveDir)" />
+  </Target>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot/**/*" />
+  </ItemGroup>
+
+</Project>

@@ -20,7 +20,7 @@ namespace PhotoLibrary.Backend;
 // REQ-ARCH-00004
 public static class WebServer
 {
-    private static readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
+    private static readonly string _assemblyName = typeof(WebServer).Assembly.GetName().Name!;
     private static readonly ConcurrentBag<(WebSocket socket, SemaphoreSlim lockobj, string clientId)> _activeSockets = new();
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
     private static ILogger? _logger;
@@ -65,7 +65,7 @@ public static class WebServer
         _queueSemaphore.Release();
     }
 
-    public static void Start(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
+    public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "")
     {
         _logger = loggerFactory.CreateLogger("WebServer");
 
@@ -109,15 +109,15 @@ public static class WebServer
         _commLayer = new CommunicationLayer(dbManager, previewManager, cameraManager, loggerFactory, configPath, (msg) => Broadcast(msg), _activeTasks);
 
         // REQ-WFE-00024
-        RuntimeStatistics.Instance.OnBroadcast += msg => _ = Broadcast(msg);
+        RuntimeStatistics.Instance.RegisterBroadcastHandler(msg => _ = Broadcast(msg));
         RuntimeStatistics.Instance.Start();
 
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
         app.UseWebSockets();
 
-        dbManager.OnFolderCreated += (id, name) => {
+        dbManager.RegisterFolderCreatedHandler((id, name) => {
             _ = Broadcast(new { type = "folder.created", id, name });
-        };
+        });
 
         // --- API Endpoints ---
         // REQ-ARCH-00007
@@ -236,10 +236,10 @@ public static class WebServer
             return res == null ? Results.NotFound() : Results.File(res.FullPath, GetContentType(res.FullPath), res.FileName);
         });
 
-        app.MapGet("/", () => ServeEmbeddedFile("PhotoLibrary.wwwroot.index.html", "text/html"));
+        app.MapGet("/", () => ServeEmbeddedFile($"{_assemblyName}.wwwroot.index.html", "text/html"));
         app.MapGet("/{*path}", (string path) => {
             if (string.IsNullOrEmpty(path)) return Results.NotFound();
-            string resourceName = "PhotoLibrary.wwwroot." + path.Replace('/', '.');
+            string resourceName = $"{_assemblyName}.wwwroot." + path.Replace('/', '.');
             return ServeEmbeddedFile(resourceName, GetContentType(path));
         });
 
@@ -262,7 +262,7 @@ public static class WebServer
             else context.Response.StatusCode = 400;
         });
 
-        app.Run();
+        await app.RunAsync();
     }
 
     private static void StartImageWorker(IDatabaseManager db, IPreviewManager pm)

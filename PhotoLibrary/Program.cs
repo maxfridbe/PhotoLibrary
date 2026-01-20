@@ -73,15 +73,15 @@ class Program
         rootCommand.AddOption(longEdgeOption);
         rootCommand.AddOption(hostOption);
 
-        rootCommand.SetHandler((libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
+        rootCommand.SetHandler(async (libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort) =>
         {
-            Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
+            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort);
         }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption);
 
         return await rootCommand.InvokeAsync(args);
     }
 
-    static void Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
+    static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort)
     {
         var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
         _logger.LogInformation("PhotoLibrary v{Version} Starting...", version);
@@ -132,12 +132,12 @@ class Program
             string finalPreviewDbPath = PathUtils.ResolvePath(config.PreviewDbPath);
             string bindAddr = config.Bind == "public" ? "*" : "localhost";
 
-            var dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
+            IDatabaseManager dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
             dbManager.Initialize();
 
-            var cameraManager = new CameraManager(configDir, _loggerFactory.CreateLogger<CameraManager>());
+            ICameraManager cameraManager = new CameraManager(configDir, _loggerFactory.CreateLogger<CameraManager>());
 
-            PreviewManager? previewManager = null;
+            IPreviewManager? previewManager = null;
             // Pre-init preview manager if path is known
             previewManager = new PreviewManager(finalPreviewDbPath, _loggerFactory.CreateLogger<PreviewManager>());
             previewManager.Initialize();
@@ -149,7 +149,7 @@ class Program
                 _logger.LogInformation("Library: {LibraryPath}", finalLibraryPath);
                 _logger.LogInformation("Scanning: {ScanDir}", scanDir);
                 
-                var indexer = new ImageIndexer(dbManager, _loggerFactory.CreateLogger<ImageIndexer>(), previewManager, longEdges);
+                IImageIndexer indexer = new ImageIndexer((DatabaseManager)dbManager, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)previewManager, longEdges);
                 indexer.Scan(scanDir, testOne);
             }
 
@@ -159,7 +159,7 @@ class Program
                 _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
                 _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
                 _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
-                WebServer.Start(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath);
+                await WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath);
             }
         }
         catch (Exception ex)

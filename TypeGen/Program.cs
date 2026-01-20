@@ -15,9 +15,9 @@ namespace TypeGen
         {
             var mappings = new List<(string From, string To)>();
             
-            if (GenerateTypes("PhotoLibrary.Backend/DataLayer/Requests.cs", "PhotoLibrary/wwwsrc/Requests.generated.ts")) mappings.Add(("PhotoLibrary.Backend/DataLayer/Requests.cs", "PhotoLibrary/wwwsrc/Requests.generated.ts"));
-            if (GenerateTypes("PhotoLibrary.Backend/DataLayer/Responses.cs", "PhotoLibrary/wwwsrc/Responses.generated.ts")) mappings.Add(("PhotoLibrary.Backend/DataLayer/Responses.cs", "PhotoLibrary/wwwsrc/Responses.generated.ts"));
-            if (GenerateFunctions("PhotoLibrary/WebServer.cs", "PhotoLibrary/wwwsrc/Functions.generated.ts")) mappings.Add(("PhotoLibrary/WebServer.cs", "PhotoLibrary/wwwsrc/Functions.generated.ts"));
+            if (GenerateTypes("PhotoLibrary.Contracts/Requests.cs", "PhotoLibrary.WFE/wwwsrc/Requests.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Requests.cs", "PhotoLibrary.WFE/wwwsrc/Requests.generated.ts"));
+            if (GenerateTypes("PhotoLibrary.Contracts/Responses.cs", "PhotoLibrary.WFE/wwwsrc/Responses.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Responses.cs", "PhotoLibrary.WFE/wwwsrc/Responses.generated.ts"));
+            if (GenerateFunctions("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts")) mappings.Add(("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts"));
             
             foreach (var mapping in mappings)
             {
@@ -48,9 +48,22 @@ namespace TypeGen
                         string name = param.Identifier.Text;
                         bool isOptional = param.Type?.ToString().Contains("?") ?? false;
                         string type = MapType(param.Type?.ToString() ?? "any");
-                        sb.AppendLine($"    {name}{(isOptional ? "?" : "")}: {type};");
+                        sb.AppendLine($"    {name}{(isOptional ? "?" : "")}: {type}{(isOptional ? " | null" : "")};");
                     }
                 }
+
+                // Also scan for properties inside the record body
+                var props = record.DescendantNodes().OfType<PropertyDeclarationSyntax>()
+                    .Where(p => p.Modifiers.Any(m => m.IsKind(SyntaxKind.PublicKeyword)));
+
+                foreach (var prop in props)
+                {
+                    string name = char.ToLower(prop.Identifier.Text[0]) + prop.Identifier.Text.Substring(1);
+                    bool isOptional = prop.Type.ToString().Contains("?");
+                    string type = MapType(prop.Type.ToString());
+                    sb.AppendLine($"    {name}{(isOptional ? "?" : "")}: {type}{(isOptional ? " | null" : "")};");
+                }
+
                 sb.AppendLine("}");
                 sb.AppendLine();
             }
