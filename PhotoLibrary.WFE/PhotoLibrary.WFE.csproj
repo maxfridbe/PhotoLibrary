@@ -13,7 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="..\PhotoLibrary.Backend\PhotoLibrary.Backend.csproj" />
     <ProjectReference Include="..\PhotoLibrary.Contracts\PhotoLibrary.Contracts.csproj" />
-    <ProjectReference Include="..\TypeGen\TypeGen.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
