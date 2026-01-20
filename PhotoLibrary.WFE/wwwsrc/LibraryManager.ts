@@ -220,7 +220,7 @@ export class LibraryManager {
                 // We'll need a reference to the main app to show the context menu
                 // or just handle it here if possible. 
                 // For now, let's assume we can use hub or global app reference.
-                (window as any).app.showFolderContextMenu(e, id);
+                window.app.showFolderContextMenu(e, id);
             },
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
                 const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {

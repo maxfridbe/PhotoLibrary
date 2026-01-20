@@ -1,5 +1,6 @@
 import { h, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
+import { AppVNodeData } from '../../types.js';
 
 export interface FolderTreeProps {
     roots: Res.DirectoryNodeResponse[];
@@ -63,7 +64,7 @@ export function FolderTree(props: FolderTreeProps): VNode {
                         if (isSelected) (vnode.elm as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     },
                     update: (old, vnode) => {
-                        const wasSelected = (old.data as any)?.class?.selected;
+                        const wasSelected = (old.data as AppVNodeData | undefined)?.class?.selected;
                         if (isSelected && !wasSelected) {
                             (vnode.elm as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                         }

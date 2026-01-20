@@ -4,17 +4,9 @@ import { server } from '../../CommunicationManager.js';
 import * as Api from '../../Functions.generated.js';
 import { hub } from '../../PubSub.js';
 import { constants } from '../../constants.js';
+import { AppHTMLElement, LoupeLogic, LoupeViewProps } from '../../types.js';
 
 const ps = constants.pubsub;
-
-export interface LoupeViewProps {
-    photo: Res.PhotoResponse | null;
-    rotation: number;
-    overlayText: string;
-    imageUrlCache: Map<string, string>;
-    isVisible: boolean;
-    onRotate: (id: string, rotation: number) => void;
-}
 
 export function LoupeView(props: LoupeViewProps): VNode {
     const { photo, rotation, overlayText, isVisible } = props;
@@ -29,21 +21,21 @@ export function LoupeView(props: LoupeViewProps): VNode {
         },
         hook: {
             insert: (vnode) => {
-                const $el = vnode.elm as HTMLElement;
-                ($el as any)._loupeLogic = setupLoupeLogic($el, props);
+                const $el = vnode.elm as AppHTMLElement;
+                $el._loupeLogic = setupLoupeLogic($el, props);
             },
             update: (oldVnode, vnode) => {
-                const $el = vnode.elm as HTMLElement;
-                const oldId = (oldVnode.data as any)?.dataset?.id;
+                const $el = vnode.elm as AppHTMLElement;
+                const oldId = oldVnode.data?.dataset?.id;
                 if (oldId !== photo.id) {
-                    if ((oldVnode.elm as any)?._loupeLogic) (oldVnode.elm as any)._loupeLogic.destroy();
-                    ($el as any)._loupeLogic = setupLoupeLogic($el, props);
-                } else if (($el as any)._loupeLogic) {
-                    ($el as any)._loupeLogic.updateProps(props);
+                    if ((oldVnode.elm as AppHTMLElement)?._loupeLogic) (oldVnode.elm as AppHTMLElement)._loupeLogic!.destroy();
+                    $el._loupeLogic = setupLoupeLogic($el, props);
+                } else if ($el._loupeLogic) {
+                    $el._loupeLogic.updateProps(props);
                 }
             },
             destroy: (vnode) => {
-                if ((vnode.elm as any)?._loupeLogic) (vnode.elm as any)._loupeLogic.destroy();
+                if ((vnode.elm as AppHTMLElement)?._loupeLogic) (vnode.elm as AppHTMLElement)._loupeLogic!.destroy();
             }
         },
         dataset: { id: photo.id }
@@ -103,7 +95,7 @@ export function LoupeView(props: LoupeViewProps): VNode {
     ]);
 }
 
-function setupLoupeLogic($el: HTMLElement, initialProps: LoupeViewProps) {
+function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     let props = initialProps;
     const { photo, imageUrlCache } = props;
     if (!photo) return { destroy: () => {}, updateProps: () => {} };
@@ -213,7 +205,7 @@ function setupLoupeLogic($el: HTMLElement, initialProps: LoupeViewProps) {
         $imgP.src = '';
 
         const requestHighRes = () => {
-            const priority = (window as any).app?.getPriority?.(photo.id) || 10;
+            const priority = window.app?.getPriority?.(photo.id) || 10;
             server.requestImage(photo.id, 1024, priority).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(highResKey, url);
@@ -237,7 +229,7 @@ function setupLoupeLogic($el: HTMLElement, initialProps: LoupeViewProps) {
             $imgP.src = url;
             requestHighRes();
         } else {
-            const priority = (window as any).app?.getPriority?.(photo.id) || 10;
+            const priority = window.app?.getPriority?.(photo.id) || 10;
             server.requestImage(photo.id, 300, priority).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(lowResKey, url);
@@ -341,10 +333,10 @@ function setupLoupeLogic($el: HTMLElement, initialProps: LoupeViewProps) {
     loadImages();
     updateTransform(true, true);
 
-    (window as any).app.rotateLeft = () => triggerRotate(-90);
-    (window as any).app.rotateRight = () => triggerRotate(90);
-    (window as any).app.resetLoupeView = () => resetView();
-    (window as any).app.setViewTransform = (r: number, s: number, pl: number, pt: number) => {
+    window.app.rotateLeft = () => triggerRotate(-90);
+    window.app.rotateRight = () => triggerRotate(90);
+    window.app.resetLoupeView = () => resetView();
+    window.app.setViewTransform = (r: number, s: number, pl: number, pt: number) => {
         rotation = r; scale = s;
         pX = pl * $previewArea.clientWidth;
         pY = pt * $previewArea.clientHeight;

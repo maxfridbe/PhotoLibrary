@@ -1534,7 +1534,7 @@ class App {
         this.renderMetadata();
 
         window.addEventListener('resize', () => { 
-            if (this.layout && (this.layout as any).isInitialised) {
+            if (this.layout?.isInitialised) {
                 this.layout.updateSize(); 
                 hub.pub(ps.UI_LAYOUT_CHANGED, {}); 
             }
@@ -1712,7 +1712,7 @@ class App {
 
     setupContextMenu() { document.addEventListener('click', () => { const menu = document.getElementById('context-menu'); if (menu) menu.style.display = 'none'; }); }
 
-    showFolderContextMenu(e: MouseEvent, rootId: string) {
+    public showFolderContextMenu(e: MouseEvent, rootId: string) {
         console.log(`[App] showFolderContextMenu for ${rootId}`);
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';

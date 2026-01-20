@@ -1,4 +1,4 @@
-// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-20T08:57:18.7951791-06:00
+// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-20T11:40:52.7654971-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 

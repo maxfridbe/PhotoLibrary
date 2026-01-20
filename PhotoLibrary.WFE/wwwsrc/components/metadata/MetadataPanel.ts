@@ -1,6 +1,6 @@
 import { h, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
-import { ApertureVisualizer } from '../aperature/ApertureVisualizer.js';
+import { ApertureVisualizer, ExifTag } from '../aperature/ApertureVisualizer.js';
 
 export interface MetadataPanelProps {
     photo: Res.PhotoResponse | null;
@@ -60,7 +60,7 @@ export function MetadataPanel(props: MetadataPanelProps): VNode {
     }, [
         h('h2', `${photo.fileName} ${pickText} ${starsText}`),
         (hasAperture && hasFocal) ? ApertureVisualizer({ 
-            metadata: metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ directory: g.name, tag, value })) ) as any, 
+            metadata: metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ directory: g.name, tag, value: value || '' } as ExifTag)) ), 
             cameraThumbUrl 
         }) : null,
         ...sortedGroups.map(group => {

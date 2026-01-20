@@ -1418,7 +1418,7 @@ class App {
         this.renderGrid();
         this.renderMetadata();
         window.addEventListener('resize', () => {
-            if (this.layout && this.layout.isInitialised) {
+            if (this.layout?.isInitialised) {
                 this.layout.updateSize();
                 hub.pub(ps.UI_LAYOUT_CHANGED, {});
             }
