@@ -10,8 +10,8 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 echo "Building Version: $VERSION ($BUILD_DATE)"
 
 # Generate frontend version file
-echo "export const APP_VERSION = '$VERSION';" > PhotoLibrary/wwwsrc/version.ts
-echo "export const BUILD_DATE = '$BUILD_DATE';" >> PhotoLibrary/wwwsrc/version.ts
+echo "export const APP_VERSION = '$VERSION';" > PhotoLibrary.WFE/wwwsrc/version.ts
+echo "export const BUILD_DATE = '$BUILD_DATE';" >> PhotoLibrary.WFE/wwwsrc/version.ts
 
 # Update nfpm.yaml version
 sed -i "s/version: \".*\"/version: \"$VERSION\"/" Tooling/nfpm.yaml
@@ -19,17 +19,19 @@ sed -i "s/version: \".*\"/version: \"$VERSION\"/" Tooling/nfpm.yaml
 # Clean up
 echo "Cleaning up..."
 rm -rf dist
-rm -rf PhotoLibrary/wwwroot
-mkdir -p PhotoLibrary/wwwroot
+rm -rf PhotoLibrary.WFE/wwwroot
+mkdir -p PhotoLibrary.WFE/wwwroot
 
 # Explicitly prepare frontend assets before publish
 # This ensures that EmbeddedResource Include="wwwroot\**\*" finds files
 echo "Compiling TypeScript..."
-cd PhotoLibrary
+cd PhotoLibrary.WFE
 tsc
 cp wwwsrc/index.html wwwroot/
 cp wwwsrc/favicon.svg wwwroot/
 mkdir -p wwwroot/lib && cp -r wwwsrc/lib/* wwwroot/lib/
+# Remove .ts files from lib if any were copied
+find wwwroot/lib -name "*.ts" -type f -delete
 cd ..
 
 # Build and Publish
