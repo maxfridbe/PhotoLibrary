@@ -22,6 +22,25 @@
     <None Remove="TypeGen\**" />
  </ItemGroup>
 
+  <Target Name="EnsureVersionFile" BeforeTargets="CompileTypeScript" Condition="!Exists('wwwsrc/version.ts')">
+    <PropertyGroup>
+      <VersionFile>..\Tooling\version.txt</VersionFile>
+      <ExtractedVersion>0.0.0.0</ExtractedVersion>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(VersionFile)" Condition="Exists('$(VersionFile)')">
+      <Output TaskParameter="Lines" ItemName="VersionLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup Condition="'@(VersionLines)' != ''">
+      <ExtractedVersion>%(VersionLines.Identity)</ExtractedVersion>
+    </PropertyGroup>
+    <Message Text="Generating default version.ts with version $(ExtractedVersion)..." Importance="high" />
+    <WriteLinesToFile
+      File="wwwsrc/version.ts"
+      Lines="export const APP_VERSION = '$(ExtractedVersion)'%3B;export const BUILD_DATE = '$([System.DateTime]::UtcNow.ToString(&apos;yyyy-MM-ddTHH:mm:ssZ&apos;))'%3B"
+      Overwrite="true"
+      Encoding="UTF-8" />
+  </Target>
+
   <Target Name="GenerateTsTypes" BeforeTargets="CompileTypeScript">
     <Exec Command="dotnet run --project TypeGen/TypeGen.csproj --no-build" ContinueOnError="true" WorkingDirectory="$(MSBuildThisFileDirectory).." />
   </Target>
