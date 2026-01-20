@@ -1,4 +1,4 @@
-# ![Logo](PhotoLibrary/wwwsrc/favicon.svg) PhotoLibrary
+# ![Logo](PhotoLibrary.WFE/wwwsrc/favicon.svg) PhotoLibrary
 
 A high-performance C# application designed to scan photo directories, index metadata, and host a web-based "Lightroom-style" viewer. Specifically optimized for slow network drives (CIFS/SMB) and massive libraries.
 
