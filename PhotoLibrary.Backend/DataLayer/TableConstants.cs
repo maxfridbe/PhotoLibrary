@@ -24,10 +24,18 @@ public static class TableConstants
         public const string UserCollections = "UserCollections";
         public const string CollectionFiles = "CollectionFiles";
         public const string Settings = "Settings";
+        public const string Previews = "Previews";
     }
 
     public static class Column
     {
+        public static class Previews
+        {
+            public const string Hash = "Hash";
+            public const string LongEdge = "LongEdge";
+            public const string Data = "Data";
+        }
+
         public static class RootPaths
         {
             public const string Id = "Id";

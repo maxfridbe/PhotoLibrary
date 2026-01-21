@@ -279,12 +279,12 @@ public class ImageIndexer : IImageIndexer
     }
 
     // REQ-SVC-00007
-    public ThumbnailResult EnsureThumbnails(string fileId)
+    public ThumbnailResult EnsureThumbnails(string fileEntryId)
     {
-        string? fullPath = _db.GetFullFilePath(fileId);
+        string? fullPath = _db.GetFullFilePath(fileEntryId);
         if (fullPath == null || !File.Exists(fullPath)) return ThumbnailResult.Error;
 
-        string? hash = _db.GetFileHash(fileId);
+        string? hash = _db.GetFileHash(fileEntryId);
         
         // Even if hash exists, we must check if thumbnails actually exist in the CURRENT previews.db
         if (hash != null)
@@ -312,7 +312,7 @@ public class ImageIndexer : IImageIndexer
             {
                 long hashStart = Stopwatch.GetTimestamp();
                 hash = CalculateHash(stream);
-                _db.UpdateFileHash(fileId, hash);
+                _db.UpdateFileHash(fileEntryId, hash);
                 stream.Position = 0;
                 wasHashed = true;
                 _logger.LogInformation("Hashed {FileName} in {Elapsed}ms", file.Name, Stopwatch.GetElapsedTime(hashStart).TotalMilliseconds.ToString("F2"));
@@ -332,7 +332,7 @@ public class ImageIndexer : IImageIndexer
             if (missingAny)
             {
                 long genStart = Stopwatch.GetTimestamp();
-                GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+                GeneratePreviews(stream, fileEntryId, file.Name, file.Extension, file.DirectoryName!);
                 _logger.LogInformation("Generated previews for {FileName} in {Elapsed}ms", file.Name, Stopwatch.GetElapsedTime(genStart).TotalMilliseconds.ToString("F2"));
                 return wasHashed ? ThumbnailResult.HashedAndGenerated : ThumbnailResult.Generated;
             }
@@ -341,24 +341,24 @@ public class ImageIndexer : IImageIndexer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to ensure thumbnails for {FileId} at {Path}", fileId, fullPath);
+            _logger.LogError(ex, "Failed to ensure thumbnails for {FileId} at {Path}", fileEntryId, fullPath);
             return ThumbnailResult.Error;
         }
     }
 
-    public void GeneratePreviews(FileInfo file, string fileId)
+    public void GeneratePreviews(FileInfo file, string fileEntryId)
     {
         using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
         using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
-        GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+        GeneratePreviews(stream, fileEntryId, file.Name, file.Extension, file.DirectoryName!);
     }
 
-    private void GeneratePreviews(Stream stream, string fileId, string fileName, string extension, string directoryName)
+    private void GeneratePreviews(Stream stream, string fileEntryId, string fileName, string extension, string directoryName)
     {
         bool missingAny = false;
         
         // Get the hash again (ensure we are consistent)
-        string? hash = _db.GetFileHash(fileId);
+        string? hash = _db.GetFileHash(fileEntryId);
         if (hash == null) return;
 
         foreach (var size in _longEdges)

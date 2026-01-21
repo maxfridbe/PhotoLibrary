@@ -6,25 +6,25 @@ const ps = constants.pubsub;
 export interface EventMap {
     [ps.VIEW_MODE_CHANGED]: { mode: 'grid' | 'loupe' | 'library', id?: string };
     [ps.PHOTO_SELECTED]: { id: string, photo: Res.PhotoResponse, modifiers?: { shift: boolean, ctrl: boolean } };
-    [ps.PHOTO_UPDATED]: { id: string, photo: Res.PhotoResponse };
-    [ps.PHOTO_ROTATED]: { id: string, rotation: number };
+    [ps.PHOTO_UPDATED]: { fileEntryId: string, photo: Res.PhotoResponse };
+    [ps.PHOTO_ROTATED]: { fileEntryId: string, rotation: number };
     
     // Status Events
-    [ps.PHOTO_PICKED_ADDED]: { id: string };
-    [ps.PHOTO_PICKED_REMOVED]: { id: string };
-    [ps.PHOTO_STARRED_ADDED]: { id: string, rating: number };
-    [ps.PHOTO_STARRED_REMOVED]: { id: string, previousRating: number };
-    [ps.PHOTO_STARRED_CHANGED]: { id: string, rating: number, previousRating: number };
+    [ps.PHOTO_PICKED_ADDED]: { fileEntryId: string };
+    [ps.PHOTO_PICKED_REMOVED]: { fileEntryId: string };
+    [ps.PHOTO_STARRED_ADDED]: { fileEntryId: string, rating: number };
+    [ps.PHOTO_STARRED_REMOVED]: { fileEntryId: string, previousRating: number };
+    [ps.PHOTO_STARRED_CHANGED]: { fileEntryId: string, rating: number, previousRating: number };
 
     [ps.LIBRARY_REFRESH]: {};
     [ps.LIBRARY_UPDATED]: {};
-    [ps.PHOTO_IMPORTED]: { id: string, path: string, rootId?: string };
-    [ps.FOLDER_CREATED]: { id: string, name: string };
+    [ps.PHOTO_IMPORTED]: { fileEntryId: string, path: string, rootId?: string };
+    [ps.FOLDER_CREATED]: { directoryId: string, name: string };
     [ps.FOLDER_PROGRESS]: { rootId: string, processed: number, total: number, thumbnailed?: number };
     [ps.FOLDER_FINISHED]: { rootId: string };
-    [ps.PREVIEW_GENERATED]: { fileId: string, rootId: string };
-    [ps.PREVIEW_GENERATING]: { fileId: string };
-    [ps.PREVIEW_DELETED]: { fileId: string };
+    [ps.PREVIEW_GENERATED]: { fileEntryId: string, rootId: string };
+    [ps.PREVIEW_GENERATING]: { fileEntryId: string };
+    [ps.PREVIEW_DELETED]: { fileEntryId: string };
     [ps.SEARCH_TRIGGERED]: { tag?: string, value?: string, query?: string };
     [ps.SHORTCUTS_SHOW]: {};
 

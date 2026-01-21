@@ -11,18 +11,18 @@ public interface ICommunicationLayer
     ApplicationSettingsResponse GetApplicationSettings();
     FileResult? GetCameraThumbnail(string model);
     PagedPhotosResponse GetPhotosPaged(PagedPhotosRequest req);
-    List<MetadataGroupResponse> GetMetadata(IdRequest req);
+    List<MetadataGroupResponse> GetMetadata(FileIdRequest req);
     List<DirectoryNodeResponse> GetDirectories();
     LibraryInfoResponse GetLibraryInfo();
     RpcResult<string> BackupLibrary();
     Task SetPicked(PickRequest req);
     Task SetRating(RateRequest req);
     IEnumerable<string> Search(SearchRequest req);
-    IEnumerable<object> GetCollections();
-    object CreateCollection(NameRequest req);
-    void DeleteCollection(IdRequest req);
+    IEnumerable<CollectionResponse> GetCollections();
+    CollectionCreatedResponse CreateCollection(NameRequest req);
+    void DeleteCollection(CollectionIdRequest req);
     void AddFilesToCollection(CollectionAddRequest req);
-    IEnumerable<string> GetCollectionFiles(IdRequest req);
+    IEnumerable<string> GetCollectionFiles(CollectionIdRequest req);
     void ClearPicked();
     IEnumerable<string> GetPickedIds();
     StatsResponse GetStats();
@@ -33,11 +33,11 @@ public interface ICommunicationLayer
     void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue);
     void SetAnnotation(FolderAnnotationRequest req);
     void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue);
-    bool CancelTask(IdRequest req);
+    bool CancelTask(TaskRequest req);
     string? GetSetting(string key);
     void SetSetting(SettingRequest req);
     string PrepareExport(ZipRequest req);
     string? GetExportZipName(string token);
     Task DownloadExport(string token, Stream outputStream);
-    PhysicalFileResult? DownloadFile(string fileId);
+    PhysicalFileResult? DownloadFile(string fileEntryId);
 }

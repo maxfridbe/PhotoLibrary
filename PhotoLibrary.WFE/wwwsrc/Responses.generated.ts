@@ -1,9 +1,9 @@
-// Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn at 2026-01-20T15:41:48.9302926-06:00
+// Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn at 2026-01-21T05:53:34.7828868-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
 export interface PhotoResponse {
-    id: string;
+    fileEntryId: string;
     rootPathId?: string | null;
     fileName?: string | null;
     size: number;
@@ -35,7 +35,7 @@ export interface MetadataGroupResponse {
 }
 
 export interface DirectoryNodeResponse {
-    id: string;
+    directoryId: string;
     name: string;
     path: string;
     imageCount: number;
@@ -46,9 +46,14 @@ export interface DirectoryNodeResponse {
 }
 
 export interface CollectionResponse {
-    id: string;
+    collectionId: string;
     name: string;
     count: number;
+}
+
+export interface CollectionCreatedResponse {
+    collectionId: string;
+    name: string;
 }
 
 export interface StatsResponse {

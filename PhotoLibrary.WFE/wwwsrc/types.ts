@@ -8,7 +8,7 @@ export interface LoupeViewProps {
     overlayText: string;
     imageUrlCache: Map<string, string>;
     isVisible: boolean;
-    onRotate: (id: string, rotation: number) => void;
+    onRotate: (fileEntryId: string, rotation: number) => void;
 }
 
 export interface LoupeLogic {

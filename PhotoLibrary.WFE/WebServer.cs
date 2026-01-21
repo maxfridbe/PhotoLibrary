@@ -116,7 +116,7 @@ public static class WebServer
         app.UseWebSockets();
 
         dbManager.RegisterFolderCreatedHandler((id, name) => {
-            _ = Broadcast(new { type = "folder.created", id, name });
+            _ = Broadcast(new { type = "folder.created", directoryId = id, name });
         });
 
         // --- API Endpoints ---
@@ -131,7 +131,7 @@ public static class WebServer
 
         app.MapPost("/api/photos", (PagedPhotosRequest req) => Results.Ok(_commLayer?.GetPhotosPaged(req)));
 
-        app.MapPost("/api/metadata", (IdRequest req) => Results.Ok(_commLayer?.GetMetadata(req)));
+        app.MapPost("/api/metadata", (FileIdRequest req) => Results.Ok(_commLayer?.GetMetadata(req)));
 
         app.MapPost("/api/directories", () => Results.Ok(_commLayer?.GetDirectories()));
 
@@ -158,7 +158,7 @@ public static class WebServer
 
         app.MapPost("/api/collections/create", (NameRequest req) => Results.Ok(_commLayer?.CreateCollection(req)));
 
-        app.MapPost("/api/collections/delete", (IdRequest req) => {
+        app.MapPost("/api/collections/delete", (CollectionIdRequest req) => {
             _commLayer?.DeleteCollection(req);
             return Results.Ok(new { });
         });
@@ -168,7 +168,7 @@ public static class WebServer
             return Results.Ok(new { });
         });
 
-        app.MapPost("/api/collections/get-files", (IdRequest req) => Results.Ok(_commLayer?.GetCollectionFiles(req)));
+        app.MapPost("/api/collections/get-files", (CollectionIdRequest req) => Results.Ok(_commLayer?.GetCollectionFiles(req)));
 
         app.MapPost("/api/picked/clear", () => {
             _commLayer?.ClearPicked();
@@ -205,7 +205,7 @@ public static class WebServer
             return Results.Ok();
         });
 
-        app.MapPost("/api/library/cancel-task", (IdRequest req) => {
+        app.MapPost("/api/library/cancel-task", (TaskRequest req) => {
             bool success = _commLayer?.CancelTask(req) ?? false;
             return success ? Results.Ok(new { success = true }) : Results.NotFound();
         });
@@ -233,8 +233,8 @@ public static class WebServer
             return Results.Empty;
         });
 
-        app.MapGet("/api/download/{fileId}", (string fileId) => {
-            var res = _commLayer?.DownloadFile(fileId);
+        app.MapGet("/api/download/{fileEntryId}", (string fileEntryId) => {
+            var res = _commLayer?.DownloadFile(fileEntryId);
             return res == null ? Results.NotFound() : Results.File(res.FullPath, GetContentType(res.FullPath), res.FileName);
         });
 
@@ -302,7 +302,7 @@ public static class WebServer
 
                     if (req.size == 0)
                     {
-                        string? fullPath = db.GetFullFilePath(req.fileId);
+                        string? fullPath = db.GetFullFilePath(req.fileEntryId);
                         if (fullPath != null && File.Exists(fullPath))
                         {
                             string ext = Path.GetExtension(fullPath);
@@ -322,7 +322,7 @@ public static class WebServer
                             {
                                 item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                                 long genStart = Stopwatch.GetTimestamp();
-                                var fileLock = _fileLocks.GetOrAdd(req.fileId, _ => new SemaphoreSlim(1, 1));
+                                var fileLock = _fileLocks.GetOrAdd(req.fileEntryId, _ => new SemaphoreSlim(1, 1));
                                 await fileLock.WaitAsync();
                                 Interlocked.Increment(ref _activeMagickTasks);
                                 try
@@ -356,12 +356,12 @@ public static class WebServer
                     }
                     else 
                     {
-                        string? hash = db.GetFileHash(req.fileId);
+                        string? hash = db.GetFileHash(req.fileEntryId);
                         data = hash != null ? pm.GetPreviewData(hash, req.size) : null;
                         
                         if (data == null)
                         {
-                            string? fullPath = db.GetFullFilePath(req.fileId);
+                            string? fullPath = db.GetFullFilePath(req.fileEntryId);
                             if (fullPath != null && File.Exists(fullPath))
                             {
                                 try {
@@ -382,7 +382,7 @@ public static class WebServer
                                             hasher.Append(stream);
                                             hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
                                             stream.Position = 0;
-                                            db.UpdateFileHash(req.fileId, hash);
+                                            db.UpdateFileHash(req.fileEntryId, hash);
                                         }
 
                                         data = pm.GetPreviewData(hash, req.size);
@@ -420,13 +420,13 @@ public static class WebServer
                                             };
                                             
                                             using var image = new MagickImage(stream, settings);
-                                            _ = Broadcast(new { type = "preview.generating", fileId = req.fileId });
+                                            _ = Broadcast(new { type = "preview.generating", fileEntryId = req.fileEntryId });
                                             image.AutoOrient();
                                             
                                             _currentProcess.Refresh();
                                             long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
                                             _logger?.LogDebug("[MAGICK] Loaded {Id}. Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active Tasks: {Active}", 
-                                                req.fileId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
+                                                req.fileEntryId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
 
                                             int[] targetSizes = { 300, 1024 };
                                             foreach (var targetSize in targetSizes)
@@ -463,10 +463,10 @@ public static class WebServer
                                         }
                                         item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                                         
-                                        string? fileRootId = db.GetFileRootId(req.fileId);
-                                        _ = Broadcast(new { type = "preview.generated", fileId = req.fileId, rootId = fileRootId });
+                                        string? fileRootId = db.GetFileRootId(req.fileEntryId);
+                                        _ = Broadcast(new { type = "preview.generated", fileEntryId = req.fileEntryId, rootId = fileRootId });
                                     }
-                                } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileId); }
+                                } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
                             }
                         }
                         item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds - item.GeneratingMs;
@@ -501,7 +501,7 @@ public static class WebServer
                             if (req != null)
                             {
                                 long startTime = Stopwatch.GetTimestamp();
-                                string? hash = db.GetFileHash(req.fileId);
+                                string? hash = db.GetFileHash(req.fileEntryId);
                                 byte[]? immediateData = (hash != null && req.size > 0) ? pm.GetPreviewData(hash, req.size) : null;
 
                                 byte[] payload;
@@ -544,7 +544,7 @@ public static class WebServer
                                     long sendingMs = (long)Stopwatch.GetElapsedTime(beforeSend).TotalMilliseconds;
 
                                     // PERMANENT LOGGING
-                                    string sId = req.fileId;
+                                    string sId = req.fileEntryId;
                                     string shortId = sId.Length > 12 ? $"{sId.Substring(0, 4)}...{sId.Substring(sId.Length - 4)}" : sId;
                                     if (reqObj != null)
                                     {

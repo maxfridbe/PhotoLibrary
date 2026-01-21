@@ -501,7 +501,7 @@ public class DatabaseManager : IDatabaseManager
             while (reader.Read())
             {
                 entries.Add(new PhotoResponse {
-                    Id = reader.GetString(0),
+                    FileEntryId = reader.GetString(0),
                     RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
                     FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
                     Size = reader.GetInt64(3),
@@ -544,7 +544,7 @@ public class DatabaseManager : IDatabaseManager
         return id;
     }
 
-    public void DeleteCollection(string id)
+    public void DeleteCollection(string collectionId)
     {
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
@@ -553,14 +553,14 @@ public class DatabaseManager : IDatabaseManager
         {
             cmd1.Transaction = transaction;
             cmd1.CommandText = $"DELETE FROM {TableName.CollectionFiles} WHERE {Column.CollectionFiles.CollectionId} = $Id";
-            cmd1.Parameters.AddWithValue("$Id", id);
+            cmd1.Parameters.AddWithValue("$Id", collectionId);
             cmd1.ExecuteNonQuery();
         }
         using (var cmd2 = connection.CreateCommand())
         {
             cmd2.Transaction = transaction;
             cmd2.CommandText = $"DELETE FROM {TableName.UserCollections} WHERE {Column.UserCollections.Id} = $Id";
-            cmd2.Parameters.AddWithValue("$Id", id);
+            cmd2.Parameters.AddWithValue("$Id", collectionId);
             cmd2.ExecuteNonQuery();
         }
         transaction.Commit();
@@ -597,7 +597,7 @@ public class DatabaseManager : IDatabaseManager
                 LEFT JOIN {TableName.CollectionFiles} cf ON c.{Column.UserCollections.Id} = cf.{Column.CollectionFiles.CollectionId} 
                 GROUP BY c.{Column.UserCollections.Id}, c.{Column.UserCollections.Name} ORDER BY c.{Column.UserCollections.Name}";
             using var reader = command.ExecuteReader();
-            while (reader.Read()) list.Add(new CollectionResponse { Id = reader.GetString(0), Name = reader.GetString(1), Count = reader.GetInt32(2) });
+            while (reader.Read()) list.Add(new CollectionResponse { CollectionId = reader.GetString(0), Name = reader.GetString(1), Count = reader.GetInt32(2) });
         }
         return list;
     }
@@ -1227,7 +1227,7 @@ public class DatabaseManager : IDatabaseManager
         foreach (var path in allPaths)
         {
             lookup[path.Id] = new DirectoryNodeResponse {
-                Id = path.Id,
+                DirectoryId = path.Id,
                 Name = path.Name ?? "",
                 ImageCount = path.ImageCount,
                 ThumbnailedCount = path.ThumbnailedCount,

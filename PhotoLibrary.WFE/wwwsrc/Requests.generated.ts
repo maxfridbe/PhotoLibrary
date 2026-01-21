@@ -1,9 +1,17 @@
-// Generated from PhotoLibrary.Contracts/Requests.cs via Roslyn at 2026-01-20T15:41:48.8871541-06:00
+// Generated from PhotoLibrary.Contracts/Requests.cs via Roslyn at 2026-01-21T05:53:34.7407620-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
-export interface IdRequest {
-    id: string;
+export interface FileIdRequest {
+    fileEntryId: string;
+}
+
+export interface CollectionIdRequest {
+    collectionId: string;
+}
+
+export interface TaskRequest {
+    taskId: string;
 }
 
 export interface NameRequest {
@@ -11,12 +19,12 @@ export interface NameRequest {
 }
 
 export interface PickRequest {
-    id: string;
+    fileEntryId: string;
     isPicked: boolean;
 }
 
 export interface RateRequest {
-    id: string;
+    fileEntryId: string;
     rating: number;
 }
 
@@ -28,11 +36,11 @@ export interface SearchRequest {
 
 export interface CollectionAddRequest {
     collectionId: string;
-    fileIds: string[];
+    fileEntryIds: string[];
 }
 
 export interface ZipRequest {
-    fileIds: string[];
+    fileEntryIds: string[];
     type: string;
     name?: string | null;
 }
@@ -62,7 +70,7 @@ export interface FolderAnnotationRequest {
 }
 
 export interface ForceUpdatePreviewRequest {
-    id: string;
+    fileEntryId: string;
 }
 
 export interface PagedPhotosRequest {
@@ -71,13 +79,13 @@ export interface PagedPhotosRequest {
     rootId?: string | null;
     pickedOnly?: boolean | null;
     rating?: number | null;
-    specificIds?: string[] | null;
+    specificFileEntryIds?: string[] | null;
     stacked?: boolean | null;
 }
 
 export interface ImageRequest {
     requestId: number;
-    fileId: string;
+    fileEntryId: string;
     size: number;
     priority: number;
 }

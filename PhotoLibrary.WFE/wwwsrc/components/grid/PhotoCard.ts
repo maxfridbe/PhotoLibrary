@@ -11,19 +11,19 @@ export interface PhotoCardProps {
     onSelect: (id: string, photo: Res.PhotoResponse, modifiers: { shift: boolean, ctrl: boolean }) => void;
     onDoubleClick: (id: string) => void;
     onContextMenu: (e: MouseEvent, photo: Res.PhotoResponse) => void;
-            onTogglePick: (photo: Res.PhotoResponse) => void;
-            onRate: (photo: Res.PhotoResponse, rating: number) => void;
-                onRotate: (photo: Res.PhotoResponse, rotation: number) => void;
-            }
-            
+    onTogglePick: (photo: Res.PhotoResponse) => void;
+    onRate: (photo: Res.PhotoResponse, rating: number) => void;
+    onRotate: (photo: Res.PhotoResponse, rotation: number) => void;
+}
+
 export function PhotoCard(props: PhotoCardProps): VNode {
     const { photo, isSelected, isGenerating, rotation, mode, imageUrlCache } = props;
-    // console.log(`[PhotoCard] ${photo.id} isPicked=${photo.isPicked}`);
+    // console.log(`[PhotoCard] ${photo.fileEntryId} isPicked=${photo.isPicked}`);
 
     const rotStyle = rotation ? { transform: `rotate(${rotation}deg)` } : {};
     const isPortrait = rotation % 180 !== 0;
 
-    const cacheKey = photo.id + '-300';
+    const cacheKey = photo.fileEntryId + '-300';
     const cachedUrl = imageUrlCache.get(cacheKey);
 
     const getDisplayName = () => {
@@ -37,20 +37,20 @@ export function PhotoCard(props: PhotoCardProps): VNode {
     };
 
     return h('div.card', {
-        key: `${mode}-${photo.id}`,
+        key: `${mode}-${photo.fileEntryId}`,
         class: {
             selected: isSelected,
             generating: isGenerating,
             'is-stacked': photo.stackCount > 1,
             loading: !cachedUrl
         },
-        dataset: { id: photo.id },
+        dataset: { id: photo.fileEntryId },
         on: {
             click: (e: MouseEvent) => {
                 e.stopPropagation();
-                props.onSelect(photo.id, photo, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+                props.onSelect(photo.fileEntryId, photo, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
             },
-            dblclick: () => { if (mode === 'grid') props.onDoubleClick(photo.id); },
+            dblclick: () => { if (mode === 'grid') props.onDoubleClick(photo.fileEntryId); },
             contextmenu: (e: MouseEvent) => { e.preventDefault(); props.onContextMenu(e, photo); }
         }
     }, [
@@ -65,13 +65,13 @@ export function PhotoCard(props: PhotoCardProps): VNode {
                 hook: {
                     insert: (vnode) => {
                         if (!cachedUrl) {
-                            window.app.gridViewManager.lazyLoadImage(photo.id, vnode.elm as HTMLImageElement, 300);
+                            window.app.gridViewManager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
                         }
                     },
                     update: (oldVnode, vnode) => {
                         const oldId = (oldVnode.elm?.parentElement as HTMLElement)?.dataset?.id;
-                        if (photo.id !== oldId && !cachedUrl) {
-                            window.app.gridViewManager.lazyLoadImage(photo.id, vnode.elm as HTMLImageElement, 300);
+                        if (photo.fileEntryId !== oldId && !cachedUrl) {
+                            window.app.gridViewManager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
                         }
                     }
                 }

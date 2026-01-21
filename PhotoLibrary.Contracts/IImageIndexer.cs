@@ -8,6 +8,6 @@ public interface IImageIndexer
     void RegisterFileProcessedHandler(Action<string, string> handler);
     void Scan(string directoryPath, bool testOne = false, int? limit = null);
     void ProcessSingleFile(FileInfo file, string scanRootPath);
-    ThumbnailResult EnsureThumbnails(string fileId);
-    void GeneratePreviews(FileInfo file, string fileId);
+    ThumbnailResult EnsureThumbnails(string fileEntryId);
+    void GeneratePreviews(FileInfo file, string fileEntryId);
 }

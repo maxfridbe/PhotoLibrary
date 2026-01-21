@@ -27,7 +27,7 @@ export function LoupeView(props: LoupeViewProps): VNode {
             update: (oldVnode, vnode) => {
                 const $el = vnode.elm as AppHTMLElement;
                 const oldId = oldVnode.data?.dataset?.id;
-                if (oldId !== photo.id) {
+                if (oldId !== photo.fileEntryId) {
                     if ((oldVnode.elm as AppHTMLElement)?._loupeLogic) (oldVnode.elm as AppHTMLElement)._loupeLogic!.destroy();
                     $el._loupeLogic = setupLoupeLogic($el, props);
                 } else if ($el._loupeLogic) {
@@ -38,7 +38,7 @@ export function LoupeView(props: LoupeViewProps): VNode {
                 if ((vnode.elm as AppHTMLElement)?._loupeLogic) (vnode.elm as AppHTMLElement)._loupeLogic!.destroy();
             }
         },
-        dataset: { id: photo.id }
+        dataset: { id: photo.fileEntryId }
     }, [
         h('div.preview-area', { 
             style: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '1' }
@@ -171,7 +171,7 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
         if (isFullResLoaded) return;
         isFullResLoaded = true;
         
-        const fullResKey = photo.id + '-0';
+        const fullResKey = photo.fileEntryId + '-0';
         
         const applyFullRes = (url: string) => {
             $imgH.src = url;
@@ -187,7 +187,7 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
         if (imageUrlCache.has(fullResKey)) {
             applyFullRes(imageUrlCache.get(fullResKey)!);
         } else {
-            server.requestImage(photo.id, 0).then((blob: Blob) => {
+            server.requestImage(photo.fileEntryId, 0).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(fullResKey, url);
                 applyFullRes(url);
@@ -196,8 +196,8 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     };
 
     const loadImages = () => {
-        const lowResKey = photo.id + '-300';
-        const highResKey = photo.id + '-1024';
+        const lowResKey = photo.fileEntryId + '-300';
+        const highResKey = photo.fileEntryId + '-1024';
 
         $spinner.style.display = 'block';
         $imgH.style.opacity = '0';
@@ -205,8 +205,8 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
         $imgP.src = '';
 
         const requestHighRes = () => {
-            const priority = window.app?.getPriority?.(photo.id) || 10;
-            server.requestImage(photo.id, 1024, priority).then((blob: Blob) => {
+            const priority = window.app?.getPriority?.(photo.fileEntryId) || 10;
+            server.requestImage(photo.fileEntryId, 1024, priority).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(highResKey, url);
                 $imgH.src = url;
@@ -229,8 +229,8 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
             $imgP.src = url;
             requestHighRes();
         } else {
-            const priority = window.app?.getPriority?.(photo.id) || 10;
-            server.requestImage(photo.id, 300, priority).then((blob: Blob) => {
+            const priority = window.app?.getPriority?.(photo.fileEntryId) || 10;
+            server.requestImage(photo.fileEntryId, 300, priority).then((blob: Blob) => {
                 const url = URL.createObjectURL(blob);
                 imageUrlCache.set(lowResKey, url);
                 $imgP.src = url;
@@ -243,7 +243,7 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
         rotation += dir;
         updateTransform();
         showToolbar();
-        props.onRotate(photo.id, rotation);
+        props.onRotate(photo.fileEntryId, rotation);
     };
 
     $btnPlus.onclick = (e) => { e.stopPropagation(); scale = Math.min(5, scale + 0.1); updateTransform(); showToolbar(); };

@@ -74,9 +74,9 @@ export class CommunicationManager {
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === sk.FILE_IMPORTED) {
-                        hub.pub(ps.PHOTO_IMPORTED, { id: msg.id, path: msg.path, rootId: msg.rootId });
+                        hub.pub(ps.PHOTO_IMPORTED, { fileEntryId: msg.fileEntryId, path: msg.path, rootId: msg.rootId });
                     } else if (msg.type === sk.FOLDER_CREATED) {
-                        hub.pub(ps.FOLDER_CREATED, { id: msg.id, name: msg.name });
+                        hub.pub(ps.FOLDER_CREATED, { directoryId: msg.directoryId, name: msg.name });
                     } else if (msg.type === sk.SCAN_FINISHED) {
                         hub.pub(ps.LIBRARY_UPDATED, {});
                     } else if (msg.type === sk.FOLDER_PROGRESS) {
@@ -84,11 +84,11 @@ export class CommunicationManager {
                     } else if (msg.type === sk.FOLDER_FINISHED) {
                         hub.pub(ps.FOLDER_FINISHED, { rootId: msg.rootId });
                     } else if (msg.type === sk.PREVIEW_GENERATED) {
-                        hub.pub(ps.PREVIEW_GENERATED, { fileId: msg.fileId, rootId: msg.rootId });
+                        hub.pub(ps.PREVIEW_GENERATED, { fileEntryId: msg.fileEntryId, rootId: msg.rootId });
                     } else if (msg.type === sk.PREVIEW_GENERATING) {
-                        hub.pub(ps.PREVIEW_GENERATING, { fileId: msg.fileId });
+                        hub.pub(ps.PREVIEW_GENERATING, { fileEntryId: msg.fileEntryId });
                     } else if (msg.type === sk.PREVIEW_DELETED) {
-                        hub.pub(ps.PREVIEW_DELETED, { fileId: msg.fileId });
+                        hub.pub(ps.PREVIEW_DELETED, { fileEntryId: msg.fileEntryId });
                     } else if (msg.type === 'runtime.stats') {
                         hub.pub(ps.RUNTIME_STATS, msg);
                     }
@@ -115,8 +115,8 @@ export class CommunicationManager {
 
     // REQ-SVC-00003
     // REQ-ARCH-00010
-    requestImage(fileId: string, size: number, priority: number = 0): Promise<Blob> {
-        const cacheKey = `${fileId}-${size}`;
+    requestImage(fileEntryId: string, size: number, priority: number = 0): Promise<Blob> {
+        const cacheKey = `${fileEntryId}-${size}`;
         
         // Boost priority for high-res/fullscreen requests
         let p = priority;
@@ -130,7 +130,7 @@ export class CommunicationManager {
                 // The server will enqueue it again, and the higher priority one will process first.
                 pending.priority = p;
                 if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    const req = { type: sk.IMAGE, requestId: pending.requestId, fileId, size, priority: p };
+                    const req = { type: sk.IMAGE, requestId: pending.requestId, fileEntryId, size, priority: p };
                     this.ws.send(JSON.stringify(req));
                 }
             }
@@ -147,7 +147,7 @@ export class CommunicationManager {
                 return;
             }
 
-            const req = { type: sk.IMAGE, requestId, fileId, size, priority: p };
+            const req = { type: sk.IMAGE, requestId, fileEntryId, size, priority: p };
             
             this.requestMap.set(requestId, {
                 resolve: (blob) => {
@@ -173,18 +173,18 @@ export class CommunicationManager {
         const newStatus = !original;
         photo.isPicked = newStatus;
         
-        hub.pub(ps.PHOTO_UPDATED, { id: photo.id, photo });
+        hub.pub(ps.PHOTO_UPDATED, { fileEntryId: photo.fileEntryId, photo });
         if (newStatus) hub.pub(ps.UI_NOTIFICATION, { message: `Image ${photo.fileName} Picked`, type: 'success' });
 
         try {
-            const ids = photo.stackFileIds || [photo.id];
-            await Promise.all(ids.map(id => Api.api_pick({ id, isPicked: newStatus })));
+            const ids = photo.stackFileIds || [photo.fileEntryId];
+            await Promise.all(ids.map(fileEntryId => Api.api_pick({ fileEntryId, isPicked: newStatus })));
             
-            if (newStatus) hub.pub(ps.PHOTO_PICKED_ADDED, { id: photo.id });
-            else hub.pub(ps.PHOTO_PICKED_REMOVED, { id: photo.id });
+            if (newStatus) hub.pub(ps.PHOTO_PICKED_ADDED, { fileEntryId: photo.fileEntryId });
+            else hub.pub(ps.PHOTO_PICKED_REMOVED, { fileEntryId: photo.fileEntryId });
         } catch {
             photo.isPicked = original;
-            hub.pub(ps.PHOTO_UPDATED, { id: photo.id, photo });
+            hub.pub(ps.PHOTO_UPDATED, { fileEntryId: photo.fileEntryId, photo });
             hub.pub(ps.UI_NOTIFICATION, { message: 'Failed to update pick status', type: 'error' });
         }
     }
@@ -195,19 +195,19 @@ export class CommunicationManager {
         if (prev === rating) return;
 
         photo.rating = rating;
-        hub.pub(ps.PHOTO_UPDATED, { id: photo.id, photo });
+        hub.pub(ps.PHOTO_UPDATED, { fileEntryId: photo.fileEntryId, photo });
         hub.pub(ps.UI_NOTIFICATION, { message: `Image ${photo.fileName} rated ${rating} stars`, type: 'success' });
 
         try {
-            const ids = photo.stackFileIds || [photo.id];
-            await Promise.all(ids.map(id => Api.api_rate({ id, rating })));
+            const ids = photo.stackFileIds || [photo.fileEntryId];
+            await Promise.all(ids.map(fileEntryId => Api.api_rate({ fileEntryId, rating })));
 
-            if (prev === 0 && rating > 0) hub.pub(ps.PHOTO_STARRED_ADDED, { id: photo.id, rating });
-            else if (prev > 0 && rating === 0) hub.pub(ps.PHOTO_STARRED_REMOVED, { id: photo.id, previousRating: prev });
-            else hub.pub(ps.PHOTO_STARRED_CHANGED, { id: photo.id, rating, previousRating: prev });
+            if (prev === 0 && rating > 0) hub.pub(ps.PHOTO_STARRED_ADDED, { fileEntryId: photo.fileEntryId, rating });
+            else if (prev > 0 && rating === 0) hub.pub(ps.PHOTO_STARRED_REMOVED, { fileEntryId: photo.fileEntryId, previousRating: prev });
+            else hub.pub(ps.PHOTO_STARRED_CHANGED, { fileEntryId: photo.fileEntryId, rating, previousRating: prev });
         } catch {
             photo.rating = prev;
-            hub.pub(ps.PHOTO_UPDATED, { id: photo.id, photo });
+            hub.pub(ps.PHOTO_UPDATED, { fileEntryId: photo.fileEntryId, photo });
             hub.pub(ps.UI_NOTIFICATION, { message: 'Failed to update rating', type: 'error' });
         }
     }

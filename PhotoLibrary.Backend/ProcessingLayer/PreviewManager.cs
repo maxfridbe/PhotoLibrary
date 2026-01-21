@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using static PhotoLibrary.Backend.TableConstants;
 
 namespace PhotoLibrary.Backend;
 
@@ -33,7 +34,7 @@ public class PreviewManager : IPreviewManager
         try 
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = $"SELECT Hash FROM Previews LIMIT 1";
+            cmd.CommandText = $"SELECT {Column.Previews.Hash} FROM {TableName.Previews} LIMIT 1";
             cmd.ExecuteNonQuery();
             hasHash = true;
         }
@@ -42,20 +43,20 @@ public class PreviewManager : IPreviewManager
         if (!hasHash)
         {
             using var dropCmd = connection.CreateCommand();
-            dropCmd.CommandText = $"DROP TABLE IF EXISTS Previews";
+            dropCmd.CommandText = $"DROP TABLE IF EXISTS {TableName.Previews}";
             dropCmd.ExecuteNonQuery();
         }
 
         using (var command = connection.CreateCommand())
         {
             command.CommandText = $@"
-                CREATE TABLE IF NOT EXISTS Previews (
-                    Hash TEXT,
-                    LongEdge INTEGER,
-                    Data BLOB,
-                    PRIMARY KEY (Hash, LongEdge)
+                CREATE TABLE IF NOT EXISTS {TableName.Previews} (
+                    {Column.Previews.Hash} TEXT,
+                    {Column.Previews.LongEdge} INTEGER,
+                    {Column.Previews.Data} BLOB,
+                    PRIMARY KEY ({Column.Previews.Hash}, {Column.Previews.LongEdge})
                 );
-                CREATE INDEX IF NOT EXISTS IDX_Previews_Hash ON Previews(Hash);
+                CREATE INDEX IF NOT EXISTS IDX_Previews_Hash ON {TableName.Previews}({Column.Previews.Hash});
             ";
             command.ExecuteNonQuery();
         }
@@ -68,7 +69,7 @@ public class PreviewManager : IPreviewManager
 
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT 1 FROM Previews WHERE Hash = $Hash AND LongEdge = $LongEdge";
+            command.CommandText = $"SELECT 1 FROM {TableName.Previews} WHERE {Column.Previews.Hash} = $Hash AND {Column.Previews.LongEdge} = $LongEdge";
             command.Parameters.AddWithValue("$Hash", hash);
             command.Parameters.AddWithValue("$LongEdge", longEdge);
 
@@ -88,9 +89,9 @@ public class PreviewManager : IPreviewManager
             {
                 command.Transaction = transaction;
                 command.CommandText = $@"
-                    INSERT INTO Previews (Hash, LongEdge, Data)
+                    INSERT INTO {TableName.Previews} ({Column.Previews.Hash}, {Column.Previews.LongEdge}, {Column.Previews.Data})
                     VALUES ($Hash, $LongEdge, $Data)
-                    ON CONFLICT(Hash, LongEdge) DO UPDATE SET Data = excluded.Data;
+                    ON CONFLICT({Column.Previews.Hash}, {Column.Previews.LongEdge}) DO UPDATE SET {Column.Previews.Data} = excluded.{Column.Previews.Data};
                 ";
                 command.Parameters.AddWithValue("$Hash", hash);
                 command.Parameters.AddWithValue("$LongEdge", longEdge);
@@ -113,7 +114,7 @@ public class PreviewManager : IPreviewManager
 
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT Data FROM Previews WHERE Hash = $Hash AND LongEdge = $LongEdge";
+            command.CommandText = $"SELECT {Column.Previews.Data} FROM {TableName.Previews} WHERE {Column.Previews.Hash} = $Hash AND {Column.Previews.LongEdge} = $LongEdge";
             command.Parameters.AddWithValue("$Hash", hash);
             command.Parameters.AddWithValue("$LongEdge", longEdge);
 
@@ -130,7 +131,7 @@ public class PreviewManager : IPreviewManager
 
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"DELETE FROM Previews WHERE Hash = $Hash";
+            command.CommandText = $"DELETE FROM {TableName.Previews} WHERE {Column.Previews.Hash} = $Hash";
             command.Parameters.AddWithValue("$Hash", hash);
             command.ExecuteNonQuery();
         }
@@ -144,7 +145,7 @@ public class PreviewManager : IPreviewManager
         connection.Open();
 
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(DISTINCT Hash) FROM Previews";
+        command.CommandText = $"SELECT COUNT(DISTINCT {Column.Previews.Hash}) FROM {TableName.Previews}";
         return Convert.ToInt32(command.ExecuteScalar());
     }
 }

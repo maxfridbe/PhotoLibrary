@@ -51,12 +51,12 @@ export class GridView {
         this.priorityProvider = priorityProvider;
 
         hub.sub(ps.PREVIEW_GENERATING, (data) => {
-            this.generatingIds.add(data.fileId);
+            this.generatingIds.add(data.fileEntryId);
             this.update(true);
         });
 
         hub.sub(ps.PREVIEW_GENERATED, (data) => {
-            this.generatingIds.delete(data.fileId);
+            this.generatingIds.delete(data.fileEntryId);
             this.update(true);
         });
 
@@ -155,9 +155,9 @@ export class GridView {
             if (photo) {
                 cards.push(PhotoCard({
                     photo,
-                    isSelected: this.selectedIds.has(photo.id),
-                    isGenerating: this.generatingIds.has(photo.id),
-                    rotation: this.rotationMap.get(photo.id) || 0,
+                    isSelected: this.selectedIds.has(photo.fileEntryId),
+                    isGenerating: this.generatingIds.has(photo.fileEntryId),
+                    rotation: this.rotationMap.get(photo.fileEntryId) || 0,
                     mode: 'grid',
                     imageUrlCache: this.imageUrlCache,
                     onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
@@ -165,7 +165,7 @@ export class GridView {
                     onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
                     onTogglePick: (p) => server.togglePick(p),
                     onRate: (p, r) => server.setRating(p, r),
-                    onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { id: p.id, rotation: r })
+                    onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })
                 }));
             }
         }
@@ -187,9 +187,9 @@ export class GridView {
 
         const cards = this.photos.map(photo => PhotoCard({
             photo,
-            isSelected: this.selectedIds.has(photo.id),
-            isGenerating: this.generatingIds.has(photo.id),
-            rotation: this.rotationMap.get(photo.id) || 0,
+            isSelected: this.selectedIds.has(photo.fileEntryId),
+            isGenerating: this.generatingIds.has(photo.fileEntryId),
+            rotation: this.rotationMap.get(photo.fileEntryId) || 0,
             mode: 'filmstrip',
             imageUrlCache: this.imageUrlCache,
             onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
@@ -197,7 +197,7 @@ export class GridView {
             onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
             onTogglePick: (p) => server.togglePick(p),
             onRate: (p, r) => server.setRating(p, r),
-            onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { id: p.id, rotation: r })
+            onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })
         }));
 
         const newVNode = h('div#filmstrip-content', {
@@ -260,7 +260,7 @@ export class GridView {
     }
 
     public scrollToPhoto(id: string) {
-        const index = this.photos.findIndex(p => p?.id === id);
+        const index = this.photos.findIndex(p => p?.fileEntryId === id);
         if (index === -1) return;
 
         // Grid Scroll

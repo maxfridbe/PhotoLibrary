@@ -48,8 +48,8 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
     const collectionItems = props.userCollections.map(c => TreeItem({
         text: c.name,
         count: c.count,
-        isSelected: props.selectedCollectionId === c.id,
-        typeAttr: 'collection-' + c.id,
+        isSelected: props.selectedCollectionId === c.collectionId,
+        typeAttr: 'collection-' + c.collectionId,
         onClick: () => props.onCollectionFilterChange(c),
         onContextMenu: (e) => props.onCollectionContextMenu(e, c),
         icon: CollectionIcon
@@ -57,8 +57,8 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
 
     const savedSearchItems = props.savedSearches.map(s => TreeItem({
         text: s.title,
-        isSelected: props.selectedSavedSearchId === s.id,
-        typeAttr: 'saved-search-' + s.id,
+        isSelected: props.selectedSavedSearchId === s.savedSearchId,
+        typeAttr: 'saved-search-' + s.savedSearchId,
         onClick: () => props.onSavedSearchFilterChange(s),
         onContextMenu: (e) => props.onSavedSearchContextMenu(e, s),
         icon: '\uD83D\uDCCD'

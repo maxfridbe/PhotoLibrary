@@ -130,12 +130,12 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
 
     const renderNode = (node: Res.DirectoryNodeResponse, depth: number): VNode => {
         const indent = depth * 1.5 + 'em';
-        const isExpanded = expanded.has(node.id);
+        const isExpanded = expanded.has(node.directoryId);
         const hasChildren = node.children && node.children.length > 0;
 
         return h('div', [
             h('div.folder-row', {
-                key: node.id,
+                key: node.directoryId,
                 style: { 
                     padding: `0.4em 1em 0.4em ${indent}`, 
                     borderBottom: '1px solid var(--border-dim)', 
@@ -147,7 +147,7 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
                 },
                 on: { 
                     click: () => onPathChange(node.path),
-                    contextmenu: (e: MouseEvent) => { e.preventDefault(); onFolderContextMenu(e, node.id); }
+                    contextmenu: (e: MouseEvent) => { e.preventDefault(); onFolderContextMenu(e, node.directoryId); }
                 }
             }, [
                 h('span.tree-item-prefix', { style: { position: 'static', width: 'auto', marginRight: '0.5em', display: 'flex', alignItems: 'center' } }, [
@@ -171,7 +171,7 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
                         on: {
                             blur: (e: any) => {
                                 const val = e.target.textContent.trim().split(/\s+/).slice(0, 3).join(' ');
-                                onAnnotationSave(node.id, val);
+                                onAnnotationSave(node.directoryId, val);
                             },
                             keydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); } },
                             click: (e: MouseEvent) => e.stopPropagation(),
@@ -180,14 +180,14 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
                                 const input = document.createElement('input');
                                 input.type = 'color';
                                 input.value = node.color || '#00bcd4';
-                                input.onchange = () => onAnnotationSave(node.id, node.annotation || '', input.value);
+                                input.onchange = () => onAnnotationSave(node.directoryId, node.annotation || '', input.value);
                                 input.click();
                             }
                         }
                     }),
                     h('span', {
                         style: { width: '1em', display: 'inline-block', textAlign: 'center', cursor: 'pointer', color: 'var(--text-muted)' },
-                        on: { click: (e: MouseEvent) => { e.stopPropagation(); onToggle(node.id); } }
+                        on: { click: (e: MouseEvent) => { e.stopPropagation(); onToggle(node.directoryId); } }
                     }, hasChildren ? (isExpanded ? '\u25BE' : '\u25B8') : ''),
                 ]),
                 h('span', { style: { marginRight: '0.5em', color: 'var(--accent)' } }, '\uD83D\uDCC1'),

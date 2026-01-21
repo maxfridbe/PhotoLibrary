@@ -69,12 +69,12 @@ public class CommunicationLayer : ICommunicationLayer
 
     public PagedPhotosResponse GetPhotosPaged(PagedPhotosRequest req)
     {
-        return _db.GetPhotosPaged(req.limit ?? 100, req.offset ?? 0, req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificIds);
+        return _db.GetPhotosPaged(req.limit ?? 100, req.offset ?? 0, req.rootId, req.pickedOnly ?? false, req.rating ?? 0, req.specificFileEntryIds);
     }
 
-    public List<MetadataGroupResponse> GetMetadata(IdRequest req)
+    public List<MetadataGroupResponse> GetMetadata(FileIdRequest req)
     {
-        var flatMetadata = _db.GetMetadata(req.id);
+        var flatMetadata = _db.GetMetadata(req.fileEntryId);
         return flatMetadata
             .GroupBy(m => m.Directory ?? "General")
             .Select(g => new MetadataGroupResponse
@@ -157,14 +157,14 @@ public class CommunicationLayer : ICommunicationLayer
 
     public async Task SetPicked(PickRequest req)
     {
-        _db.SetPicked(req.id, req.isPicked);
-        await _broadcast(new { type = "photo.picked." + (req.isPicked ? "added" : "removed"), id = req.id });
+        _db.SetPicked(req.fileEntryId, req.isPicked);
+        await _broadcast(new { type = "photo.picked." + (req.isPicked ? "added" : "removed"), fileEntryId = req.fileEntryId });
     }
 
     public async Task SetRating(RateRequest req)
     {
-        _db.SetRating(req.id, req.rating);
-        await _broadcast(new { type = "photo.starred.added", id = req.id, rating = req.rating });
+        _db.SetRating(req.fileEntryId, req.rating);
+        await _broadcast(new { type = "photo.starred.added", fileEntryId = req.fileEntryId, rating = req.rating });
     }
 
     public IEnumerable<string> Search(SearchRequest req)
@@ -172,30 +172,30 @@ public class CommunicationLayer : ICommunicationLayer
         return _db.Search(req);
     }
 
-    public IEnumerable<object> GetCollections()
+    public IEnumerable<CollectionResponse> GetCollections()
     {
-        return _db.GetCollections().Select(c => new { id = c.Id, name = c.Name, count = c.Count });
+        return _db.GetCollections();
     }
 
-    public object CreateCollection(NameRequest req)
+    public CollectionCreatedResponse CreateCollection(NameRequest req)
     {
         var id = _db.CreateCollection(req.name);
-        return new { id, name = req.name };
+        return new CollectionCreatedResponse(id, req.name);
     }
 
-    public void DeleteCollection(IdRequest req)
+    public void DeleteCollection(CollectionIdRequest req)
     {
-        _db.DeleteCollection(req.id);
+        _db.DeleteCollection(req.collectionId);
     }
 
     public void AddFilesToCollection(CollectionAddRequest req)
     {
-        _db.AddFilesToCollection(req.collectionId, req.fileIds);
+        _db.AddFilesToCollection(req.collectionId, req.fileEntryIds);
     }
 
-    public IEnumerable<string> GetCollectionFiles(IdRequest req)
+    public IEnumerable<string> GetCollectionFiles(CollectionIdRequest req)
     {
-        return _db.GetCollectionFiles(req.id);
+        return _db.GetCollectionFiles(req.collectionId);
     }
 
     public void ClearPicked()
@@ -381,7 +381,7 @@ public class CommunicationLayer : ICommunicationLayer
                 indexer.RegisterFileProcessedHandler((id, path) => 
                 {
                     string? fileRootId = _db.GetFileRootId(id);
-                    _ = _broadcast(new { type = "file.imported", id, path, rootId = fileRootId });
+                    _ = _broadcast(new { type = "file.imported", fileEntryId = id, path, rootId = fileRootId });
                 });
                 
                 string absRoot = PathUtils.ResolvePath(req.rootPath);
@@ -475,7 +475,7 @@ public class CommunicationLayer : ICommunicationLayer
                         {
                             _pm.DeletePreviewsByHash(hash);
                         }
-                        enqueue(new ImageRequest { fileId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
+                        enqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
                     }
 
                     if (processed % 50 == 0 || processed == total)
@@ -504,19 +504,19 @@ public class CommunicationLayer : ICommunicationLayer
 
     public void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue)
     {
-        string? hash = _db.GetFileHash(req.id);
+        string? hash = _db.GetFileHash(req.fileEntryId);
         if (hash != null)
         {
             _pm.DeletePreviewsByHash(hash);
         }
         
-        enqueue(new ImageRequest { fileId = req.id, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
-        enqueue(new ImageRequest { fileId = req.id, size = 1024, requestId = -1, priority = 90 }, CancellationToken.None);
+        enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
+        enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 1024, requestId = -1, priority = 90 }, CancellationToken.None);
     }
 
-    public bool CancelTask(IdRequest req)
+    public bool CancelTask(TaskRequest req)
     {
-        if (_activeTasks.TryRemove(req.id, out var cts))
+        if (_activeTasks.TryRemove(req.taskId, out var cts))
         {
             cts.Cancel();
             cts.Dispose();
@@ -554,14 +554,14 @@ public class CommunicationLayer : ICommunicationLayer
 
     public async Task DownloadExport(string token, Stream outputStream)
     {
-        if (!_exportCache.TryRemove(token, out var req) || req.fileIds == null) return;
+        if (!_exportCache.TryRemove(token, out var req) || req.fileEntryIds == null) return;
         
-        _logger.LogInformation("[EXPORT] Starting export for {Count} files", req.fileIds.Length);
+        _logger.LogInformation("[EXPORT] Starting export for {Count} files", req.fileEntryIds.Length);
 
         using (var archive = new ZipArchive(outputStream, ZipArchiveMode.Create))
         {
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var id in req.fileIds)
+            foreach (var id in req.fileEntryIds)
             {
                 try {
                     var (fullPath, rotation, isHidden) = _db.GetExportInfo(id);
@@ -601,9 +601,9 @@ public class CommunicationLayer : ICommunicationLayer
         }
     }
 
-    public PhysicalFileResult? DownloadFile(string fileId)
+    public PhysicalFileResult? DownloadFile(string fileEntryId)
     {
-        string? fullPath = _db.GetFullFilePath(fileId);
+        string? fullPath = _db.GetFullFilePath(fileEntryId);
         if (fullPath == null || !File.Exists(fullPath)) return null;
         return new PhysicalFileResult(fullPath, Path.GetFileName(fullPath));
     }

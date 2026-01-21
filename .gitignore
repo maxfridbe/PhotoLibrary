@@ -37,7 +37,7 @@ test_images/
 *.TIF
 *.TIFF
 dist/
-PhotoLibrary/wwwroot/
+PhotoLibrary.WFE/wwwroot/
 AppDir/
 *.AppImage
 *.deb

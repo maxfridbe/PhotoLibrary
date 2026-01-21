@@ -1,4 +1,4 @@
-// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-20T15:41:48.9807526-06:00
+// Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn at 2026-01-21T05:53:34.8254966-06:00
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 
@@ -17,7 +17,7 @@ export async function api_photos(data: Req.PagedPhotosRequest): Promise<Res.Page
     return await post<Res.PagedPhotosResponse>('/api/photos', data);
 }
 
-export async function api_metadata(data: Req.IdRequest): Promise<Res.MetadataGroupResponse[]> {
+export async function api_metadata(data: Req.FileIdRequest): Promise<Res.MetadataGroupResponse[]> {
     return await post<Res.MetadataGroupResponse[]>('/api/metadata', data);
 }
 
@@ -53,7 +53,7 @@ export async function api_collections_create(data: Req.NameRequest): Promise<any
     return await post<any>('/api/collections/create', data);
 }
 
-export async function api_collections_delete(data: Req.IdRequest): Promise<any> {
+export async function api_collections_delete(data: Req.CollectionIdRequest): Promise<any> {
     return await post<any>('/api/collections/delete', data);
 }
 
@@ -61,7 +61,7 @@ export async function api_collections_add_files(data: Req.CollectionAddRequest):
     return await post<any>('/api/collections/add-files', data);
 }
 
-export async function api_collections_get_files(data: Req.IdRequest): Promise<string[]> {
+export async function api_collections_get_files(data: Req.CollectionIdRequest): Promise<string[]> {
     return await post<string[]>('/api/collections/get-files', data);
 }
 
@@ -105,7 +105,7 @@ export async function api_library_force_update_preview(data: Req.ForceUpdatePrev
     return await post<any>('/api/library/force-update-preview', data);
 }
 
-export async function api_library_cancel_task(data: Req.IdRequest): Promise<any> {
+export async function api_library_cancel_task(data: Req.TaskRequest): Promise<any> {
     return await post<any>('/api/library/cancel-task', data);
 }
 

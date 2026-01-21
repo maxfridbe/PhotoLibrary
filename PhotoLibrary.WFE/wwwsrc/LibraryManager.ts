@@ -225,7 +225,7 @@ export class LibraryManager {
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
                 const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
                     for (const node of nodes) {
-                        if (node.id === targetId) return node;
+                        if (node.directoryId === targetId) return node;
                         if (node.children) {
                             const found = findNodeById(node.children, targetId);
                             if (found) return found;
@@ -242,7 +242,7 @@ export class LibraryManager {
                 if (targetColor) node.color = targetColor;
                 this.render();
             },
-            onCancelTask: (id: string) => Api.api_library_cancel_task({ id: `thumbnails-${id}` }),
+            onCancelTask: (id: string) => Api.api_library_cancel_task({ taskId: `thumbnails-${id}` }),
             
             // Find & Index Props
             scanResults: this.scanResults,
@@ -261,11 +261,12 @@ export class LibraryManager {
             onCancelImport: () => {
                 this.isCancelling = true;
                 this.render();
-                Api.api_library_cancel_task({ id: 'import-batch' }).then(() => {
+                Api.api_library_cancel_task({ taskId: 'import-batch' }).then(() => {
                     this.isCancelling = false;
                     this.render();
                 });
             },
+
             onScanPathChange: (path: string) => {
                 this.currentScanPath = path;
                 this.render();

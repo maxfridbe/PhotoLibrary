@@ -30,7 +30,7 @@ export function MetadataPanel(props: MetadataPanelProps): VNode {
     if (!fileInfo.items['Created']) {
         fileInfo.items['Created'] = new Date(photo.createdAt).toLocaleString();
         fileInfo.items['Size'] = (photo.size / (1024 * 1024)).toFixed(2) + ' MB';
-        fileInfo.items['ID'] = photo.id;
+        fileInfo.items['ID'] = photo.fileEntryId;
     }
 
     const sortedGroups = groups.sort((a, b) => {

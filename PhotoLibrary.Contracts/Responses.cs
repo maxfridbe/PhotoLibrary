@@ -5,7 +5,7 @@ namespace PhotoLibrary.Backend;
 
 public record PhotoResponse
 {
-    public string Id { get; init; } = "";
+    public string FileEntryId { get; init; } = "";
     public string? RootPathId { get; init; }
     public string? FileName { get; init; }
     public long Size { get; init; }
@@ -41,7 +41,7 @@ public record MetadataGroupResponse
 
 public record DirectoryNodeResponse
 {
-    public string Id { get; init; } = "";
+    public string DirectoryId { get; init; } = "";
     public string Name { get; init; } = "";
     public string Path { get; set; } = "";
     public int ImageCount { get; init; }
@@ -53,10 +53,12 @@ public record DirectoryNodeResponse
 
 public record CollectionResponse
 {
-    public string Id { get; init; } = "";
+    public string CollectionId { get; init; } = "";
     public string Name { get; init; } = "";
     public int Count { get; init; }
 }
+
+public record CollectionCreatedResponse(string collectionId, string name);
 
 public record StatsResponse
 {

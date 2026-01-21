@@ -132,48 +132,11 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
 
 function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], onPathChange: (path: string) => void) {
     const renderNode = (node: Res.DirectoryNodeResponse, depth: number): VNode => {
-        // Derive simple name from path if needed, or use path if it's root. 
-        // For DirectoryNodeResponse, 'Name' is the segment name (or full path for roots?).
-        // If we want full path for onPathChange, we might need to reconstruct it or store it.
-        // Wait, DirectoryNodeResponse has 'Name'. RootPathResponse has 'Name'.
-        // But we need the full path to scan.
-        // RootPathResponse doesn't have 'Path'. 
-        // DatabaseManager.GetDirectoryTree constructs it.
-        // Wait, I didn't add 'Path' to DirectoryNodeResponse in Responses.cs!
-        // I only added Id, Name, ImageCount, etc.
-        // LibraryFolderResponse had 'Path'.
-        
-        // RootPathResponse has 'Name'. If it's a root, Name might be absolute path?
-        // Let's check DatabaseManager.cs GetDirectoryTree.
-        // It populates Name from RootPathResponse.Name.
-        
-        // In NormalizeRootPaths, Name is segment.
-        // In GetRootAbsolutePath, it reconstructs path.
-        
-        // LibraryFolderResponse had 'Path' which was full path.
-        // I need 'Path' in DirectoryNodeResponse if I want to use it for scanning.
-        
-        // I'll assume 'Name' is display name.
-        // But how to get full path?
-        // I should probably add 'Path' to DirectoryNodeResponse or reconstruct it.
-        // For now, I'll use 'Name' as display, but I need path.
-        
-        // Let's modify DirectoryNodeResponse in Responses.cs to include Path?
-        // Or I can fetch it?
-        
-        // Actually, for "Quick Select", we want to scan *that* folder.
-        // If it's a root, Name is likely the path.
-        // If it's a child, Name is just the segment.
-        
-        // LibraryFolderResponse had 'Path' computed by GetRootAbsolutePath.
-        
-        // I should add 'Path' to DirectoryNodeResponse.
-        
         const indent = depth * 1.5 + 'em';
         
         return h('div', [
             h('div.folder-row', {
-                key: node.id,
+                key: node.directoryId,
                 style: { 
                     padding: '0.4em 1em 0.4em ' + indent, 
                     borderBottom: '1px solid var(--border-dim)', 

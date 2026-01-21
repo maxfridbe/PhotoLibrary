@@ -19,7 +19,7 @@ public interface IDatabaseManager
     StatsResponse GetGlobalStats();
     PagedPhotosResponse GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null);
     string CreateCollection(string name);
-    void DeleteCollection(string id);
+    void DeleteCollection(string collectionId);
     void AddFilesToCollection(string collectionId, IEnumerable<string> fileIds);
     IEnumerable<CollectionResponse> GetCollections();
     IEnumerable<string> GetCollectionFiles(string collectionId);

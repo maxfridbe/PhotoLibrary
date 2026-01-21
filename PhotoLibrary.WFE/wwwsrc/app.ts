@@ -39,7 +39,7 @@ interface FolderTreeNode {
 }
 
 export interface SavedSearch {
-    id: string;
+    savedSearchId: string;
     title: string;
     tag?: string;
     value?: string;
@@ -120,7 +120,7 @@ class App {
 
     private findDirectoryById(nodes: Res.DirectoryNodeResponse[], id: string): Res.DirectoryNodeResponse | null {
         for (const n of nodes) {
-            if (n.id === id) return n;
+            if (n.directoryId === id) return n;
             const found = this.findDirectoryById(n.children, id);
             if (found) return found;
         }
@@ -134,7 +134,7 @@ class App {
             const node = this.findDirectoryById(this.roots, this.selectedRootId);
             name = node ? node.name : '';
         } else if (this.filterType === 'collection' && this.selectedCollectionId) {
-            const c = this.userCollections.find(x => x.id === this.selectedCollectionId);
+            const c = this.userCollections.find(x => x.collectionId === this.selectedCollectionId);
             name = c ? c.name : '';
         } else if (this.filterType === 'picked') {
             name = 'Picked';
@@ -155,11 +155,11 @@ class App {
         const existing = this.savedSearches.find(s => s.tag === this.searchTag && s.value === this.searchValue && s.query === this.searchQuery);
         
         if (existing) {
-            await this.removeSavedSearch(existing.id);
+            await this.removeSavedSearch(existing.savedSearchId);
         } else {
             const title = prompt('Name for this saved search:', this.searchTitle) || this.searchTitle;
             const newSearch: SavedSearch = {
-                id: Math.random().toString(36).substring(2, 9),
+                savedSearchId: Math.random().toString(36).substring(2, 9),
                 title,
                 tag: this.searchTag || undefined,
                 value: this.searchValue || undefined,
@@ -167,19 +167,19 @@ class App {
             };
             this.savedSearches.push(newSearch);
             await this.saveSavedSearches();
-            this.selectedSavedSearchId = newSearch.id;
+            this.selectedSavedSearchId = newSearch.savedSearchId;
             this.renderLibrary();
         }
     }
 
     public async setSavedSearchFilter(s: SavedSearch) {
         await this.searchPhotos(s.tag || null, s.value || null, s.query);
-        this.selectedSavedSearchId = s.id;
+        this.selectedSavedSearchId = s.savedSearchId;
         this.renderLibrary();
     }
 
     public async removeSavedSearch(id: string) {
-        this.savedSearches = this.savedSearches.filter(s => s.id !== id);
+        this.savedSearches = this.savedSearches.filter(s => s.savedSearchId !== id);
         if (this.selectedSavedSearchId === id) this.selectedSavedSearchId = null;
         await this.saveSavedSearches();
         this.renderLibrary();
@@ -234,7 +234,7 @@ class App {
     private importedBatchCount = 0;
     private importedBatchTimer: any = null;
     private directoryRefreshTimer: any = null;
-    private importedQueue: { id: string, path: string, rootId?: string }[] = [];
+    private importedQueue: { fileEntryId: string, path: string, rootId?: string }[] = [];
     private importProcessTimer: any = null;
     private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
     private loadStartTime: number = Date.now();
@@ -260,7 +260,7 @@ class App {
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
         this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap, (id) => {
-            const index = this.photos.findIndex(p => p.id === id);
+            const index = this.photos.findIndex(p => p.fileEntryId === id);
             const subPriority = index !== -1 ? (1 - (index / Math.max(1, this.photos.length))) : 0;
             const totalPriority = this.prioritySession + subPriority;
             // console.log(`[Priority] Requesting ${id} at index ${index} with priority ${totalPriority}`);
@@ -386,8 +386,8 @@ class App {
             if (mods.shift) {
                 // Range select from anchor
                 const anchor = this.anchorId || this.selectedId || id;
-                const startIdx = this.photos.findIndex(p => p.id === anchor);
-                const endIdx = this.photos.findIndex(p => p.id === id);
+                const startIdx = this.photos.findIndex(p => p.fileEntryId === anchor);
+                const endIdx = this.photos.findIndex(p => p.fileEntryId === id);
                 
                 if (startIdx !== -1 && endIdx !== -1) {
                     const low = Math.min(startIdx, endIdx);
@@ -398,7 +398,7 @@ class App {
                     }
                     
                     for (let i = low; i <= high; i++) {
-                        this.selectedIds.add(this.photos[i].id);
+                        this.selectedIds.add(this.photos[i].fileEntryId);
                     }
                 } else {
                     // Fallback
@@ -479,11 +479,11 @@ class App {
 
         hub.sub(ps.PHOTO_UPDATED, (data) => {
             // Update local map
-            const updatedPhoto = { ...this.photoMap.get(data.id), ...data.photo };
-            this.photoMap.set(data.id, updatedPhoto);
+            const updatedPhoto = { ...this.photoMap.get(data.fileEntryId), ...data.photo };
+            this.photoMap.set(data.fileEntryId, updatedPhoto);
             
             // Update flat list
-            const flatIdx = this.allPhotosFlat.findIndex(p => p.id === data.id);
+            const flatIdx = this.allPhotosFlat.findIndex(p => p.fileEntryId === data.fileEntryId);
             if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = updatedPhoto;
 
             // If stacking is enabled, re-evaluate everything as this photo might change a stack representative's state
@@ -491,34 +491,34 @@ class App {
                 this.processUIStacks();
             } else {
                 // If not stacking, we can try to update in place
-                const idx = this.photos.findIndex(p => p.id === data.id);
+                const idx = this.photos.findIndex(p => p.fileEntryId === data.fileEntryId);
                 if (idx !== -1) {
                     this.photos[idx] = updatedPhoto;
-                    this.gridViewManager.refreshStats(data.id, this.photos);
+                    this.gridViewManager.refreshStats(data.fileEntryId, this.photos);
                 } else {
                     // Not in current list (maybe filtered out), but let's refresh just in case
                     this.gridViewManager.update(true);
                 }
             }
 
-            if (this.selectedId === data.id) {
-                this.updateSelectionUI(data.id);
-                if (this.isLoupeMode) this.updateLoupeOverlay(data.id);
+            if (this.selectedId === data.fileEntryId) {
+                this.updateSelectionUI(data.fileEntryId);
+                if (this.isLoupeMode) this.updateLoupeOverlay(data.fileEntryId);
             }
         });
 
         hub.sub(ps.PHOTO_ROTATED, (data) => {
-            this.rotationMap.set(data.id, data.rotation);
-            this.gridViewManager.refreshStats(data.id, this.photos);
-            this.savePhotoPreferences(data.id, data.rotation);
+            this.rotationMap.set(data.fileEntryId, data.rotation);
+            this.gridViewManager.refreshStats(data.fileEntryId, this.photos);
+            this.savePhotoPreferences(data.fileEntryId, data.rotation);
             
             // Update loupe
-            if (this.selectedId === data.id && this.isLoupeMode) {
+            if (this.selectedId === data.fileEntryId && this.isLoupeMode) {
                 this.renderLoupe();
             }
 
             // Update fullscreen image
-            if (this.isFullscreen && this.selectedId === data.id) {
+            if (this.isFullscreen && this.selectedId === data.fileEntryId) {
                 if (this.$fullscreenImgPlaceholder) this.$fullscreenImgPlaceholder.style.transform = `rotate(${data.rotation}deg)`;
                 if (this.$fullscreenImgHighRes) this.$fullscreenImgHighRes.style.transform = `rotate(${data.rotation}deg)`;
             }
@@ -542,10 +542,10 @@ class App {
         });
 
         hub.sub(ps.PREVIEW_DELETED, (data) => {
-            const cacheKey = data.fileId + '-300';
+            const cacheKey = data.fileEntryId + '-300';
             this.imageUrlCache.delete(cacheKey);
-            this.imageUrlCache.delete(data.fileId + '-2000');
-            this.gridViewManager.refreshStats(data.fileId, this.photos);
+            this.imageUrlCache.delete(data.fileEntryId + '-2000');
+            this.gridViewManager.refreshStats(data.fileEntryId, this.photos);
         });
 
         hub.sub(ps.UI_NOTIFICATION, (data) => this.showNotification(data.message, data.type));
@@ -579,11 +579,11 @@ class App {
         });
 
         hub.sub(ps.PREVIEW_GENERATED, (data) => {
-            this.gridViewManager.refreshStats(data.fileId, this.photos);
+            this.gridViewManager.refreshStats(data.fileEntryId, this.photos);
             if (data.rootId) {
                 let prog = this.folderProgress.get(data.rootId);
                 if (!prog) {
-                    const root = this.roots.find(r => r.id === data.rootId);
+                    const root = this.roots.find(r => r.directoryId === data.rootId);
                     if (root) {
                         prog = { processed: root.thumbnailedCount, total: root.imageCount, thumbnailed: root.thumbnailedCount };
                     }
@@ -646,7 +646,7 @@ class App {
             this.saveHiddenSettings();
             
             if (!this.showHidden) {
-                this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
+                this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.fileEntryId));
                 this.processUIStacks();
             } else {
                 this.gridViewManager.update(true);
@@ -679,11 +679,11 @@ class App {
     }
 
     private handlePhotoUpdate(photo: Photo) {
-        this.photoMap.set(photo.id, photo);
-        const updateTargets = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [photo.id];
+        this.photoMap.set(photo.fileEntryId, photo);
+        const updateTargets = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [photo.fileEntryId];
         
         this.allPhotosFlat.forEach(p => {
-            if (p && updateTargets.includes(p.id)) {
+            if (p && updateTargets.includes(p.fileEntryId)) {
                 p.isPicked = photo.isPicked;
                 p.rating = photo.rating;
             }
@@ -691,15 +691,15 @@ class App {
 
         this.processUIStacks();
         
-        const rep = this.photos.find(p => p.id === photo.id || (p.stackFileIds && p.stackFileIds.includes(photo.id)));
+        const rep = this.photos.find(p => p.fileEntryId === photo.fileEntryId || (p.stackFileIds && p.stackFileIds.includes(photo.fileEntryId)));
         if (rep) {
-            this.gridViewManager.refreshStats(rep.id, this.photos);
+            this.gridViewManager.refreshStats(rep.fileEntryId, this.photos);
         }
         
-        if (this.selectedId === photo.id) this.loadMetadata(photo.id);
+        if (this.selectedId === photo.fileEntryId) this.loadMetadata(photo.fileEntryId);
     }
 
-    private async handlePhotoImported(data: { id: string, path: string, rootId?: string }) {
+    private async handlePhotoImported(data: { fileEntryId: string, path: string, rootId?: string }) {
         // Immediate UI updates for counts
         this.stats.totalCount++;
         if (data.rootId) {
@@ -733,18 +733,18 @@ class App {
                     matches = true;
                 }
             }
-            if (matches && !this.photoMap.has(data.id)) {
-                idsToFetch.push(data.id);
+            if (matches && !this.photoMap.has(data.fileEntryId)) {
+                idsToFetch.push(data.fileEntryId);
             }
         }
 
         if (idsToFetch.length > 0) {
-            const res = await Api.api_photos({ specificIds: idsToFetch });
+            const res = await Api.api_photos({ specificFileEntryIds: idsToFetch });
             if (res.photos) {
                 let changed = false;
                 for (const photo of res.photos) {
-                    if (!this.photoMap.has(photo.id)) {
-                        this.photoMap.set(photo.id, photo);
+                    if (!this.photoMap.has(photo.fileEntryId)) {
+                        this.photoMap.set(photo.fileEntryId, photo);
                         this.allPhotosFlat.push(photo);
                         changed = true;
                     }
@@ -763,7 +763,7 @@ class App {
             result = this.allPhotosFlat.map(p => ({
                 ...p, 
                 stackCount: 1, 
-                stackFileIds: [p.id], 
+                stackFileIds: [p.fileEntryId], 
                 stackExtensions: p.fileName!.split('.').pop()?.toUpperCase()
             }));
         } else {
@@ -790,7 +790,7 @@ class App {
 
                 const rep = { ...group[0] };
                 rep.stackCount = group.length;
-                rep.stackFileIds = group.map(p => p.id);
+                rep.stackFileIds = group.map(p => p.fileEntryId);
                 rep.isPicked = group.some(p => p.isPicked);
                 rep.rating = Math.max(...group.map(p => p.rating));
                 
@@ -913,12 +913,12 @@ class App {
             const sorted = [...nodes].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             
             sorted.forEach(node => {
-                this.flatFolderList.push(node.id);
-                this.folderNodeMap.set(node.id, node);
-                if (parentId) this.parentMap.set(node.id, parentId);
+                this.flatFolderList.push(node.directoryId);
+                this.folderNodeMap.set(node.directoryId, node);
+                if (parentId) this.parentMap.set(node.directoryId, parentId);
                 
                 if (node.children && node.children.length > 0) {
-                    walk(node.children, node.id);
+                    walk(node.children, node.directoryId);
                 }
             });
         };
@@ -1048,7 +1048,7 @@ class App {
                 this.searchTitle = newSearchTitle;
                 
                 if (this.filterType === 'collection' && this.selectedCollectionId) {
-                    this.collectionFiles = await Api.api_collections_get_files({ id: this.selectedCollectionId });
+                    this.collectionFiles = await Api.api_collections_get_files({ collectionId: this.selectedCollectionId });
                 } else if (this.filterType === 'search') {
                     this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
                 }
@@ -1074,7 +1074,7 @@ class App {
                 const p = this.photoMap.get(idFromUrl);
                 if (p) {
                     this.selectedId = idFromUrl;
-                    hub.pub(ps.PHOTO_SELECTED, { id: p.id, photo: p });
+                    hub.pub(ps.PHOTO_SELECTED, { id: p.fileEntryId, photo: p });
                 }
             } else if (!idFromUrl && this.selectedId) {
                 // Deselection via URL? Usually we want to keep selection unless explicit.
@@ -1187,15 +1187,15 @@ class App {
             rootId: this.selectedRootId || undefined, 
             pickedOnly: this.filterType === 'picked', 
             rating: this.filterRating, 
-            specificIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
+            specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
         };
         const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats({}) ]);
         
         this.allPhotosFlat = data.photos as Photo[];
         this.photoMap.clear();
         this.allPhotosFlat.forEach(p => {
-            this.photoMap.set(p.id, p);
-            if (p.rotation) this.rotationMap.set(p.id, p.rotation);
+            this.photoMap.set(p.fileEntryId, p);
+            if (p.rotation) this.rotationMap.set(p.fileEntryId, p.rotation);
         });
         
         this.stats = stats;
@@ -1207,17 +1207,17 @@ class App {
         }
 
         if (!this.showHidden && this.hiddenIds.size > 0) {
-            this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.id));
+            this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.fileEntryId));
         }
 
         this.photos = this.allPhotosFlat;
 
         // Initialize folder progress counts from current state
         this.roots.forEach(r => {
-            if (!this.folderProgress.has(r.id)) {
+            if (!this.folderProgress.has(r.directoryId)) {
                 // Only show initial bar if significant work is missing (> 5%)
                 if (r.thumbnailedCount < r.imageCount * 0.95) {
-                    this.folderProgress.set(r.id, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
+                    this.folderProgress.set(r.directoryId, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
                 }
             }
         });
@@ -1232,10 +1232,10 @@ class App {
                 hub.pub(ps.PHOTO_SELECTED, { id: this.selectedId, photo });
             } else {
                 // Selection no longer valid in new view, fallback to first
-                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
+                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].fileEntryId, photo: this.photos[0] });
             }
         } else if (!keepSelection && this.photos.length > 0) {
-            hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].id, photo: this.photos[0] });
+            hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].fileEntryId, photo: this.photos[0] });
         }
     }
 
@@ -1647,7 +1647,7 @@ class App {
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
                 const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
                     for (const node of nodes) {
-                        if (node.id === targetId) return node;
+                        if (node.directoryId === targetId) return node;
                         if (node.children) {
                             const found = findNodeById(node.children, targetId);
                             if (found) return found;
@@ -1666,7 +1666,7 @@ class App {
                     this.renderLibrary();
                 }
             },
-            onCancelTask: (id: string) => Api.api_library_cancel_task({ id: `thumbnails-${id}` })
+            onCancelTask: (id: string) => Api.api_library_cancel_task({ taskId: `thumbnails-${id}` })
         };
 
         if (!this.libraryVNode) {
@@ -1702,10 +1702,10 @@ class App {
     async setCollectionFilter(c: Collection) {
         this.prioritySession++;
         this.filterType = 'collection';
-        this.selectedCollectionId = c.id;
+        this.selectedCollectionId = c.collectionId;
         this.selectedRootId = null;
         this.selectedSavedSearchId = null;
-        this.collectionFiles = await Api.api_collections_get_files({ id: c.id });
+        this.collectionFiles = await Api.api_collections_get_files({ collectionId: c.collectionId });
         this.refreshPhotos();
         this.syncUrl();
     }
@@ -1765,11 +1765,11 @@ class App {
             const el = document.createElement('div'); el.className = 'context-menu-item'; el.textContent = text; el.onclick = (e) => { e.stopPropagation(); cb(); menu.style.display = 'none'; }; menu.appendChild(el);
         };
 
-        addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.id]));
+        addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.fileEntryId]));
         
         if (this.selectedRootId) {
-            const isHidden = this.hiddenIds.has(p.id);
-            addItem(isHidden ? 'Unhide Photo (h)' : 'Hide Photo (h)', () => this.toggleHide(p.id));
+            const isHidden = this.hiddenIds.has(p.fileEntryId);
+            addItem(isHidden ? 'Unhide Photo (h)' : 'Hide Photo (h)', () => this.toggleHide(p.fileEntryId));
         }
 
         // REQ-WFE-00023
@@ -1783,7 +1783,7 @@ class App {
             const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);
             this.userCollections.forEach(c => {
                 addItem(`Add to '${c.name}'`, () => {
-                    Api.api_collections_add_files({ collectionId: c.id, fileIds: [p.id] });
+                    Api.api_collections_add_files({ collectionId: c.collectionId, fileEntryIds: [p.fileEntryId] });
                     this.showNotification(`Added to ${c.name}`, 'success');
                     this.refreshCollections();
                 });
@@ -1792,7 +1792,7 @@ class App {
 
         const d2 = document.createElement('div'); d2.className = 'context-menu-divider'; menu.appendChild(d2);
         addItem('Force Update Preview', () => {
-            Api.api_library_force_update_preview({ id: p.id });
+            Api.api_library_force_update_preview({ fileEntryId: p.fileEntryId });
             this.showNotification('Preview regeneration requested', 'info');
         });
 
@@ -1810,7 +1810,7 @@ class App {
         addItem('Clear All Picked', () => this.clearAllPicked());
         const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);
         addItem('Store to new collection...', () => this.storePickedToCollection(null));
-        this.userCollections.forEach(c => addItem(`Store to '${c.name}'`, () => this.storePickedToCollection(c.id)));
+        this.userCollections.forEach(c => addItem(`Store to '${c.name}'`, () => this.storePickedToCollection(c.collectionId)));
         
         const d2 = document.createElement('div'); d2.className = 'context-menu-divider'; menu.appendChild(d2);
         addItem('Download ZIP (Previews)', () => this.downloadZip('previews'));
@@ -1825,10 +1825,10 @@ class App {
         const addItem = (text: string, cb: () => void) => {
             const el = document.createElement('div'); el.className = 'context-menu-item'; el.textContent = text; el.onclick = cb; menu.appendChild(el);
         };
-        addItem('Remove Collection', () => this.deleteCollection(c.id));
+        addItem('Remove Collection', () => this.deleteCollection(c.collectionId));
         const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);
-        addItem('Download ZIP (Previews)', () => this.downloadZip('previews', c.id));
-        addItem('Download ZIP (Originals)', () => this.downloadZip('originals', c.id));
+        addItem('Download ZIP (Previews)', () => this.downloadZip('previews', c.collectionId));
+        addItem('Download ZIP (Originals)', () => this.downloadZip('originals', c.collectionId));
 
         menu.style.display = 'block'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     }
@@ -1839,7 +1839,7 @@ class App {
         const addItem = (text: string, cb: () => void) => {
             const el = document.createElement('div'); el.className = 'context-menu-item'; el.textContent = text; el.onclick = cb; menu.appendChild(el);
         };
-        addItem('Unpin Search', () => this.removeSavedSearch(s.id));
+        addItem('Unpin Search', () => this.removeSavedSearch(s.savedSearchId));
         menu.style.display = 'block'; menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     }
 
@@ -1851,9 +1851,9 @@ class App {
         let exportName = 'picked';
 
         if (collectionId) {
-            const coll = this.userCollections.find(c => c.id === collectionId);
+            const coll = this.userCollections.find(c => c.collectionId === collectionId);
             exportName = coll?.name || 'collection';
-            fileIds = await Api.api_collections_get_files({ id: collectionId });
+            fileIds = await Api.api_collections_get_files({ collectionId: collectionId });
         } else if (this.filterType === 'picked') {
             fileIds = await Api.api_picked_ids({});
         }
@@ -1861,13 +1861,13 @@ class App {
         if (fileIds.length === 0) return;
 
         if (this.stackingEnabled) {
-            const reps = this.photos.filter(p => fileIds.includes(p.id));
-            fileIds = reps.map(r => r.id);
+            const reps = this.photos.filter(p => fileIds.includes(p.fileEntryId));
+            fileIds = reps.map(r => r.fileEntryId);
         }
 
         try {
             // 1. Get token
-            const res = await Api.api_export_prepare({ fileIds, type, name: exportName });
+            const res = await Api.api_export_prepare({ fileEntryIds: fileIds, type, name: exportName });
 
             if (res && res.token) {
                 const token = res.token;
@@ -1894,21 +1894,21 @@ class App {
             name = prompt('New Collection Name:') || '';
             if (!name) return;
             const res = await Api.api_collections_create({ name });
-            id = res.id;
+            id = res.collectionId;
         } else {
-            const coll = this.userCollections.find(c => c.id === id);
+            const coll = this.userCollections.find(c => c.collectionId === id);
             name = coll?.name || 'Collection';
         }
-        await Api.api_collections_add_files({ collectionId: id!, fileIds: fileIds });
+        await Api.api_collections_add_files({ collectionId: id!, fileEntryIds: fileIds });
         this.showNotification(`Collection ${name} updated`, 'success');
         await this.refreshCollections();
     }
 
     async deleteCollection(id: string) {
-        const coll = this.userCollections.find(c => c.id === id);
+        const coll = this.userCollections.find(c => c.collectionId === id);
         const name = coll?.name || 'Collection';
         if (!confirm(`Are you sure you want to remove collection '${name}'?`)) return;
-        await Api.api_collections_delete({ id });
+        await Api.api_collections_delete({ collectionId: id });
         this.showNotification(`Collection ${name} deleted`, 'info');
         if (this.selectedCollectionId === id) this.setFilter('all');
         else await this.refreshCollections();
@@ -1951,7 +1951,7 @@ class App {
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
         else if (this.filterType === 'search') headerText = "Search: " + this.searchTitle;
-        else if (this.filterType === 'collection') { const c = this.userCollections.find(x => x.id === this.selectedCollectionId); headerText = "Collection: " + (c?.name || ""); }
+        else if (this.filterType === 'collection') { const c = this.userCollections.find(x => x.collectionId === this.selectedCollectionId); headerText = "Collection: " + (c?.name || ""); }
         else if (this.selectedRootId) { const root = this.folderNodeMap.get(this.selectedRootId); headerText = root ? `Folder: ${root.name}` : "Folder"; }
         if (this.$gridHeader) {
             const headerTextEl = this.$gridHeader.querySelector('#header-text');
@@ -1983,7 +1983,7 @@ class App {
             onRotate: (id: string, rot: number) => {
                 this.rotationMap.set(id, rot);
                 this.savePhotoPreferences(id, rot);
-                hub.pub(ps.PHOTO_ROTATED, { id, rotation: rot });
+                hub.pub(ps.PHOTO_ROTATED, { fileEntryId: id, rotation: rot });
             }
         };
 
@@ -2254,7 +2254,7 @@ class App {
         if (!photo) return;
 
         try {
-            const meta = await Api.api_metadata({ id });
+            const meta = await Api.api_metadata({ fileEntryId: id });
             this.selectedMetadata = meta;
             if (this.isLoupeMode) this.updateLoupeOverlay(id);
 
@@ -2456,13 +2456,13 @@ class App {
         }
         if (key === 'p') {
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
-            const photos = this.photos.filter(p => targets.includes(p.id));
+            const photos = this.photos.filter(p => targets.includes(p.fileEntryId));
             photos.forEach(p => server.togglePick(p));
         }
         if (key >= '0' && key <= '5') {
             const rating = parseInt(key);
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
-            const photos = this.photos.filter(p => targets.includes(p.id));
+            const photos = this.photos.filter(p => targets.includes(p.fileEntryId));
             photos.forEach(p => server.setRating(p, rating));
         }
 
@@ -2470,14 +2470,14 @@ class App {
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
             targets.forEach(id => {
                 const current = this.rotationMap.get(id) || 0;
-                hub.pub(ps.PHOTO_ROTATED, { id, rotation: current - 90 });
+                hub.pub(ps.PHOTO_ROTATED, { fileEntryId: id, rotation: current - 90 });
             });
         }
         if (key === ']') {
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
             targets.forEach(id => {
                 const current = this.rotationMap.get(id) || 0;
-                hub.pub(ps.PHOTO_ROTATED, { id, rotation: current + 90 });
+                hub.pub(ps.PHOTO_ROTATED, { fileEntryId: id, rotation: current + 90 });
             });
         }
 
@@ -2512,7 +2512,7 @@ class App {
     private navigate(key: string, shift: boolean = false) {
         if (this.photos.length === 0) return;
         
-        let index = this.selectedId ? this.photos.findIndex(p => p?.id === this.selectedId) : -1;
+        let index = this.selectedId ? this.photos.findIndex(p => p?.fileEntryId === this.selectedId) : -1;
         
         if (key === 'ArrowRight') index++; 
         else if (key === 'ArrowLeft') index--;
@@ -2530,9 +2530,8 @@ class App {
             // If shift is pressed, we treat it as standard range selection from anchor
             // unless in Loupe mode where we enforce single selection.
             const mods = { shift: shift, ctrl: false }; 
-            hub.pub(ps.PHOTO_SELECTED, { id: target.id, photo: target, modifiers: mods });
-            // Always scroll to photo in background to keep grid in sync
-            this.gridViewManager.scrollToPhoto(target.id);
+            hub.pub(ps.PHOTO_SELECTED, { id: target.fileEntryId, photo: target, modifiers: mods });
+            this.gridViewManager.scrollToPhoto(target.fileEntryId);
         }
     }
 
