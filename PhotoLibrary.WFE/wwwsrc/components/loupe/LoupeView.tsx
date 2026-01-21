@@ -1,4 +1,5 @@
-import { h, VNode } from '../../snabbdom-setup.js';
+/** @jsx jsx */
+import { jsx, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
 import { server } from '../../CommunicationManager.js';
 import * as Api from '../../Functions.generated.js';
@@ -11,88 +12,117 @@ const ps = constants.pubsub;
 export function LoupeView(props: LoupeViewProps): VNode {
     const { photo, rotation, overlayText, isVisible } = props;
 
-    if (!photo) return h('div#loupe-view.loupe-view', { style: { display: isVisible ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', height: '100%' } }, 'No photo selected');
+    return (
+        <div 
+            id="loupe-view"
+            class={{ 'loupe-view': true }}
+            key="loupe-view"
+            style={{ 
+                height: '100%', position: 'relative', overflow: 'hidden', background: '#000', 
+                display: isVisible ? 'flex' : 'none' 
+            }}
+            hook={{
+                insert: (vnode) => {
+                    const $el = vnode.elm as AppHTMLElement;
+                    if (photo) $el._loupeLogic = setupLoupeLogic($el, props);
+                },
+                postpatch: (oldVnode, vnode) => {
+                    const $el = vnode.elm as AppHTMLElement;
+                    if (!photo) {
+                        if ($el._loupeLogic) {
+                            $el._loupeLogic.destroy();
+                            $el._loupeLogic = undefined;
+                        }
+                        return;
+                    }
 
-    return h('div#loupe-view.loupe-view', {
-        key: 'loupe-view',
-        style: { 
-            height: '100%', position: 'relative', overflow: 'hidden', background: '#000', 
-            display: isVisible ? 'flex' : 'none' 
-        },
-        hook: {
-            insert: (vnode) => {
-                const $el = vnode.elm as AppHTMLElement;
-                $el._loupeLogic = setupLoupeLogic($el, props);
-            },
-            update: (oldVnode, vnode) => {
-                const $el = vnode.elm as AppHTMLElement;
-                const oldId = oldVnode.data?.dataset?.id;
-                if (oldId !== photo.fileEntryId) {
-                    if ((oldVnode.elm as AppHTMLElement)?._loupeLogic) (oldVnode.elm as AppHTMLElement)._loupeLogic!.destroy();
-                    $el._loupeLogic = setupLoupeLogic($el, props);
-                } else if ($el._loupeLogic) {
-                    $el._loupeLogic.updateProps(props);
+                    const oldId = oldVnode.data?.dataset?.id;
+                    if (oldId !== photo.fileEntryId) {
+                        if ($el._loupeLogic) $el._loupeLogic.destroy();
+                        $el._loupeLogic = setupLoupeLogic($el, props);
+                    } else if ($el._loupeLogic) {
+                        $el._loupeLogic.updateProps(props);
+                    }
+                },
+                destroy: (vnode) => {
+                    if ((vnode.elm as AppHTMLElement)?._loupeLogic) (vnode.elm as AppHTMLElement)._loupeLogic!.destroy();
                 }
-            },
-            destroy: (vnode) => {
-                if ((vnode.elm as AppHTMLElement)?._loupeLogic) (vnode.elm as AppHTMLElement)._loupeLogic!.destroy();
-            }
-        },
-        dataset: { id: photo.fileEntryId }
-    }, [
-        h('div.preview-area', { 
-            style: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '1' }
-        }, [
-            h('div#preview-spinner.spinner.center-spinner', { style: { display: 'none' } }),
-            h('div#loupe-overlay.loupe-overlay', { 
-                props: { textContent: overlayText },
-                style: { position: 'absolute', top: '10px', left: '10px', color: 'white', textShadow: '1px 1px 2px black', zIndex: '10', pointerEvents: 'none', whiteSpace: 'pre-wrap', fontSize: '0.9em' }
-            }),
-            h('img#loupe-preview-placeholder.loupe-img.placeholder', {
-                class: { 'is-portrait-rotated': rotation % 180 !== 0 },
-                style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }
-            }),
-            h('img#main-preview.loupe-img.highres', {
-                class: { 'is-portrait-rotated': rotation % 180 !== 0 },
-                style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', position: 'absolute', opacity: '0', transition: 'opacity 0.3s' }
-            }),
-            // Zoom Toolbar
-            h('div.zoom-toolbar', {
-                style: {
-                    position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', padding: '5px 15px',
-                    borderRadius: '20px', display: 'flex', gap: '15px', alignItems: 'center',
-                    color: 'white', opacity: '0', transition: 'opacity 0.3s', pointerEvents: 'none',
-                    zIndex: '100', border: '1px solid rgba(255,255,255,0.2)'
-                }
-            }, [
-                h('span.btn-rotate-left', { 
-                    props: { innerHTML: '&#8634;', title: 'Rotate Left ([)' }, 
-                    style: { cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '1.2em' }
-                }),
-                h('span.btn-minus', { 
-                    props: { textContent: '-', title: 'Zoom Out' },
-                    style: { cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto' }
-                }),
-                h('span.zoom-level', { 
-                    props: { textContent: '100%' },
-                    style: { fontVariantNumeric: 'tabular-nums', width: '3em', textAlign: 'center' }
-                }),
-                h('span.btn-plus', { 
-                    props: { textContent: '+', title: 'Zoom In' },
-                    style: { cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto' }
-                }),
-                h('span.btn-1to1', { 
-                    props: { textContent: '1:1', title: 'Zoom to Device Pixels' },
-                    style: { cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '0.8em', border: '1px solid white', borderRadius: '4px', display: 'none' }
-                }),
-                h('span.btn-rotate-right', { 
-                    props: { innerHTML: '&#8635;', title: 'Rotate Right (])' },
-                    style: { cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '1.2em' }
-                })
-            ])
-        ])
-    ]);
+            }}
+            dataset={photo ? { id: photo.fileEntryId } : {}}
+        >
+            {!photo ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%', color: 'var(--text-muted)' }}>
+                    No photo selected
+                </div>
+            ) : (
+                <div 
+                    class={{ 'preview-area': true }} 
+                    style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '1' }}
+                >
+                    <div id="preview-spinner" class={{ spinner: true, 'center-spinner': true }} style={{ display: 'none' }} />
+                    <div 
+                        id="loupe-overlay" 
+                        class={{ 'loupe-overlay': true }} 
+                        props={{ textContent: overlayText }}
+                        style={{ position: 'absolute', top: '10px', left: '10px', color: 'white', textShadow: '1px 1px 2px black', zIndex: '10', pointerEvents: 'none', whiteSpace: 'pre-wrap', fontSize: '0.9em' }}
+                    />
+                    <img 
+                        id="loupe-preview-placeholder" 
+                        class={{ 'loupe-img': true, placeholder: true, 'is-portrait-rotated': rotation % 180 !== 0 }}
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                    />
+                    <img 
+                        id="main-preview" 
+                        class={{ 'loupe-img': true, highres: true, 'is-portrait-rotated': rotation % 180 !== 0 }}
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', position: 'absolute', opacity: '0', transition: 'opacity 0.3s' }}
+                    />
+                    
+                    {/* Zoom Toolbar */}
+                    <div 
+                        class={{ 'zoom-toolbar': true }}
+                        style={{
+                            position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+                            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)', padding: '5px 15px',
+                            borderRadius: '20px', display: 'flex', gap: '15px', alignItems: 'center',
+                            color: 'white', opacity: '0', transition: 'opacity 0.3s', pointerEvents: 'none',
+                            zIndex: '100', border: '1px solid rgba(255,255,255,0.2)'
+                        }}
+                    >
+                        <span 
+                            class={{ 'btn-rotate-left': true }}
+                            props={{ innerHTML: '&#8634;', title: 'Rotate Left ([)' }} 
+                            style={{ cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '1.2em' }}
+                        />
+                        <span 
+                            class={{ 'btn-minus': true }}
+                            props={{ textContent: '-', title: 'Zoom Out' }}
+                            style={{ cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto' }}
+                        />
+                        <span 
+                            class={{ 'zoom-level': true }}
+                            props={{ textContent: '100%' }}
+                            style={{ fontVariantNumeric: 'tabular-nums', width: '3em', textAlign: 'center' }}
+                        />
+                        <span 
+                            class={{ 'btn-plus': true }}
+                            props={{ textContent: '+', title: 'Zoom In' }}
+                            style={{ cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto' }}
+                        />
+                        <span 
+                            class={{ 'btn-1to1': true }}
+                            props={{ textContent: '1:1', title: 'Zoom to Device Pixels' }}
+                            style={{ cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '0.8em', border: '1px solid white', borderRadius: '4px', display: 'none' }}
+                        />
+                        <span 
+                            class={{ 'btn-rotate-right': true }}
+                            props={{ innerHTML: '&#8635;', title: 'Rotate Right (])' }}
+                            style={{ cursor: 'pointer', fontWeight: 'bold', padding: '0 5px', pointerEvents: 'auto', fontSize: '1.2em' }}
+                        />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
@@ -112,6 +142,10 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     const $btnRotateLeft = $el.querySelector('.btn-rotate-left') as HTMLElement;
     const $btnRotateRight = $el.querySelector('.btn-rotate-right') as HTMLElement;
 
+    if (!$previewArea || !$imgP || !$imgH || !$spinner || !$zoomToolbar || !$zoomLevel || !$btnPlus || !$btnMinus || !$btn1to1 || !$btnRotateLeft || !$btnRotateRight) {
+        console.warn('[LoupeView] Some DOM elements missing, skipping logic setup');
+        return { destroy: () => {}, updateProps: () => {} };
+    }
     let scale = 1;
     let rotation = props.rotation;
     let pX = 0, pY = 0;
@@ -361,4 +395,3 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
         }
     };
 }
-

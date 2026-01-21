@@ -1,4 +1,5 @@
-import { h, VNode } from '../../snabbdom-setup.js';
+/** @jsx jsx */
+import { jsx, VNode } from '../../snabbdom-setup.js';
 
 export interface ExifTag {
     directory: string;
@@ -122,71 +123,83 @@ export function ApertureVisualizer(data: ApertureData): VNode {
         const x4 = cx + rOuter * Math.cos(theta + 0.3);
         const y4 = cy + rOuter * Math.sin(theta + 0.3);
 
-        bladePaths.push(h('path', {
-            attrs: {
-                d: `M${x1},${y1} L${x2},${y2} L${x3},${y3} L${x4},${y4} Z`,
-                fill: "var(--bg-panel)",
-                stroke: "var(--border-light)",
-                'stroke-width': "1"
-            }
-        }));
+        bladePaths.push(
+            <path
+                attrs={{
+                    d: `M${x1},${y1} L${x2},${y2} L${x3},${y3} L${x4},${y4} Z`,
+                    fill: "var(--bg-panel)",
+                    stroke: "var(--border-light)",
+                    'stroke-width': "1"
+                }}
+            />
+        );
     }
 
-    return h('div.vis-root', [
-        h('div', {
-            style: {
-                width: '100%', textAlign: 'center', background: 'var(--bg-card)',
-                padding: '15px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                color: 'var(--text-main)', boxSizing: 'border-box'
-            }
-        }, [
-            h('svg', {
-                attrs: { width: "100%", height: "100%", viewBox: "0 0 300 300" },
-                style: { display: 'block', margin: '0 auto', background: 'var(--bg-input)', borderRadius: '8px', boxShadow: 'inset 0 0 20px var(--bg-black)' }
-            }, [
-                h('defs', [
-                    h('clipPath', { attrs: { id: 'housing-clip' } }, [
-                        h('circle', { attrs: { cx: "150", cy: "150", r: "100" } })
-                    ])
-                ]),
-                h('path', {
-                    attrs: {
-                        id: 'fov-cone', fill: "var(--accent-gold)", stroke: "var(--accent-gold)", 'stroke-opacity': "0.3", 'fill-opacity': "0.15",
-                        d: `M150,150 L${150 - safeWidth},0 L${150 + safeWidth},0 Z`
-                    }
-                }),
-                h('circle', { attrs: { cx: "150", cy: "150", r: "105", fill: "var(--border-main)", stroke: "var(--border-focus)", 'stroke-width': "2" } }),
-                h('circle', { attrs: { cx: "150", cy: "150", r: "100", fill: "var(--bg-dark)" } }),
-                h('g', { attrs: { 'clip-path': "url(#housing-clip)" } }, bladePaths),
-                h('rect', {
-                    attrs: {
-                        x: (150 - sW / 2).toString(), y: (150 - sH / 2).toString(),
-                        width: sW.toString(), height: sH.toString(),
-                        fill: "rgba(255, 255, 255, 0.05)", stroke: "var(--accent)", 'stroke-width': "1.5", 'stroke-dasharray': "4,3"
-                    }
-                }),
-                h('text', {
-                    attrs: { x: "150", y: "150", 'text-anchor': "middle", 'dominant-baseline': "middle", fill: "var(--accent)", 'font-size': "10" },
-                    style: { pointerEvents: 'none', opacity: '0.8', textShadow: '0px 0px 3px var(--bg-black)', fontWeight: 'bold' }
-                }, sensorName.toUpperCase()),
-                h('text', { attrs: { x: "20", y: "280", 'text-anchor': "start", fill: "var(--accent)", 'font-size': "14" } }, `f/${fStop} @ ${rawFocal}mm`),
-                h('text', {
-                    attrs: { x: "280", y: "280", 'text-anchor': "end", fill: "var(--accent-gold)", 'font-size': "14" },
-                    style: { fontWeight: 'bold', fontFamily: 'monospace' }
-                }, shutterTime.toString()),
-            ]),
-            h('div', {
-                style: { marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px' }
-            }, [
-                cameraThumbUrl ? h('img', {
-                    attrs: { src: cameraThumbUrl },
-                    style: { width: '30%', height: 'auto', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }
-                }) : null,
-                h('div', {
-                    style: { textAlign: 'left', fontFamily: 'monospace', color: 'var(--accent)', lineHeight: '1.5', fontSize: '0.9em' },
-                    props: { innerHTML: `${model}<br><small style="color: var(--text-muted);">ISO ${iso} • ${sensorName} • ${bladeCountVal} Blades</small>` }
-                })
-            ])
-        ])
-    ]);
+    return (
+        <div class={{ 'vis-root': true }}>
+            <div
+                style={{
+                    width: '100%', textAlign: 'center', background: 'var(--bg-card)',
+                    padding: '15px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                    color: 'var(--text-main)', boxSizing: 'border-box'
+                }}
+            >
+                <svg
+                    attrs={{ width: "100%", height: "100%", viewBox: "0 0 300 300" }}
+                    style={{ display: 'block', margin: '0 auto', background: 'var(--bg-input)', borderRadius: '8px', boxShadow: 'inset 0 0 20px var(--bg-black)' }}
+                >
+                    <defs>
+                        <clipPath attrs={{ id: 'housing-clip' }}>
+                            <circle attrs={{ cx: "150", cy: "150", r: "100" }} />
+                        </clipPath>
+                    </defs>
+                    <path
+                        attrs={{
+                            id: 'fov-cone', fill: "var(--accent-gold)", stroke: "var(--accent-gold)", 'stroke-opacity': "0.3", 'fill-opacity': "0.15",
+                            d: `M150,150 L${150 - safeWidth},0 L${150 + safeWidth},0 Z`
+                        }}
+                    />
+                    <circle attrs={{ cx: "150", cy: "150", r: "105", fill: "var(--border-main)", stroke: "var(--border-focus)", 'stroke-width': "2" }} />
+                    <circle attrs={{ cx: "150", cy: "150", r: "100", fill: "var(--bg-dark)" }} />
+                    <g attrs={{ 'clip-path': "url(#housing-clip)" }}>{bladePaths}</g>
+                    <rect
+                        attrs={{
+                            x: (150 - sW / 2).toString(), y: (150 - sH / 2).toString(),
+                            width: sW.toString(), height: sH.toString(),
+                            fill: "rgba(255, 255, 255, 0.05)", stroke: "var(--accent)", 'stroke-width': "1.5", 'stroke-dasharray': "4,3"
+                        }}
+                    />
+                    <text
+                        attrs={{ x: "150", y: "150", 'text-anchor': "middle", 'dominant-baseline': "middle", fill: "var(--accent)", 'font-size': "10" }}
+                        style={{ pointerEvents: 'none', opacity: '0.8', textShadow: '0px 0px 3px var(--bg-black)', fontWeight: 'bold' }}
+                    >
+                        {sensorName.toUpperCase()}
+                    </text>
+                    <text attrs={{ x: "20", y: "280", 'text-anchor': "start", fill: "var(--accent)", 'font-size': "14" }}>
+                        {`f/${fStop} @ ${rawFocal}mm`}
+                    </text>
+                    <text
+                        attrs={{ x: "280", y: "280", 'text-anchor': "end", fill: "var(--accent-gold)", 'font-size': "14" }}
+                        style={{ fontWeight: 'bold', fontFamily: 'monospace' }}
+                    >
+                        {shutterTime.toString()}
+                    </text>
+                </svg>
+                <div
+                    style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px' }}
+                >
+                    {cameraThumbUrl ? (
+                        <img
+                            attrs={{ src: cameraThumbUrl }}
+                            style={{ width: '30%', height: 'auto', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+                        />
+                    ) : null}
+                    <div
+                        style={{ textAlign: 'left', fontFamily: 'monospace', color: 'var(--accent)', lineHeight: '1.5', fontSize: '0.9em' }}
+                        props={{ innerHTML: `${model}<br><small style="color: var(--text-muted);">ISO ${iso} • ${sensorName} • ${bladeCountVal} Blades</small>` }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
 }

@@ -17,4 +17,5 @@ export const patch = init([
 ]);
 
 export { h };
+export { jsx } from './lib/snabbdom/jsx.js';
 export { VNode } from './lib/snabbdom/vnode.js';

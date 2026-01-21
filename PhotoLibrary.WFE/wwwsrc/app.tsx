@@ -1,3 +1,4 @@
+/** @jsx jsx */
 declare var GoldenLayout: any;
 declare var $: any;
 
@@ -11,7 +12,7 @@ import { LibraryManager } from './LibraryManager.js';
 import { themes } from './themes.js';
 import { GridView } from './grid.js';
 import { constants } from './constants.js';
-import { patch, h, VNode } from './snabbdom-setup.js';
+import { patch, h, jsx, VNode } from './snabbdom-setup.js';
 import { PhotoCard } from './components/grid/PhotoCard.js';
 import { LibrarySidebar, LibrarySidebarProps } from './components/library/LibrarySidebar.js';
 import { LoupeView } from './components/loupe/LoupeView.js';
@@ -320,24 +321,28 @@ class App {
         const container = document.getElementById('modals-container');
         if (!container) return;
 
-        const shortcuts = ShortcutsDialog({
-            isVisible: this.isShortcutsVisible,
-            onClose: () => { this.isShortcutsVisible = false; this.renderModals(); }
-        });
+        const shortcuts = (
+            <ShortcutsDialog
+                isVisible={this.isShortcutsVisible}
+                onClose={() => { this.isShortcutsVisible = false; this.renderModals(); }}
+            />
+        );
 
-        const settings = SettingsModal({
-            isVisible: this.isSettingsVisible,
-            currentTheme: this.themeManager.getCurrentTheme(),
-            overlayFormat: this.themeManager.getOverlayFormat(),
-            appName: this.themeManager.getAppName(),
-            onClose: () => { this.isSettingsVisible = false; this.renderModals(); },
-            onThemeChange: (t) => { this.setTheme(t); this.renderModals(); },
-            onOverlayFormatChange: (f) => { this.setOverlayFormat(f); this.renderModals(); },
-            onAppNameChange: (n) => { this.themeManager.setAppName(n); this.renderModals(); },
-            onResetLayout: () => { this.resetLayout(); this.isSettingsVisible = false; this.renderModals(); }
-        });
+        const settings = (
+            <SettingsModal
+                isVisible={this.isSettingsVisible}
+                currentTheme={this.themeManager.getCurrentTheme()}
+                overlayFormat={this.themeManager.getOverlayFormat()}
+                appName={this.themeManager.getAppName()}
+                onClose={() => { this.isSettingsVisible = false; this.renderModals(); }}
+                onThemeChange={(t) => { this.setTheme(t); this.renderModals(); }}
+                onOverlayFormatChange={(f) => { this.setOverlayFormat(f); this.renderModals(); }}
+                onAppNameChange={(n) => { this.themeManager.setAppName(n); this.renderModals(); }}
+                onResetLayout={() => { this.resetLayout(); this.isSettingsVisible = false; this.renderModals(); }}
+            />
+        );
 
-        const vnode = h('div#modals-container', [shortcuts, settings]);
+        const vnode = <div id="modals-container">{shortcuts}{settings}</div>;
         this.modalsVNode = patch(this.modalsVNode || container, vnode);
     }
 
@@ -380,7 +385,7 @@ class App {
 
     private initPubSub() {
         hub.sub(ps.PHOTO_SELECTED, (data) => {
-            const id = data.id;
+            const id = data.fileEntryId;
             const mods = this.isLoupeMode ? { shift: false, ctrl: false } : (data.modifiers || { shift: false, ctrl: false });
 
             if (mods.shift) {
@@ -468,9 +473,9 @@ class App {
         hub.sub(ps.VIEW_MODE_CHANGED, (data) => {
             this.isLoupeMode = data.mode === 'loupe';
             this.updateViewModeUI();
-            if (data.mode === 'loupe' && data.id) {
-                hub.pub(ps.PHOTO_SELECTED, { id: data.id, photo: this.photoMap.get(data.id)! });
-                this.updateLoupeOverlay(data.id);
+            if (data.mode === 'loupe' && data.fileEntryId) {
+                hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
+                this.updateLoupeOverlay(data.fileEntryId);
             } else if (data.mode === 'loupe') {
                 this.renderLoupe();
             }
@@ -843,7 +848,7 @@ class App {
     private renderNotifications() {
         const container = document.getElementById('notifications-mount');
         if (!container) return;
-        this.notificationsVNode = patch(this.notificationsVNode || container, NotificationManager({ notifications: this.notifications }));
+        this.notificationsVNode = patch(this.notificationsVNode || container, <NotificationManager notifications={this.notifications} />);
     }
 
     private updateStatusUI() {
@@ -864,10 +869,14 @@ class App {
                 if (bw > 1024 * 1024) bwStr = (bw / 1024 / 1024).toFixed(1) + ' MB/s';
                 else bwStr = (bw / 1024).toFixed(0) + ' KB/s';
                 
-                content.push(h('span', { 
-                    style: { color: '#888', marginRight: '10px' },
-                    attrs: { title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' } 
-                }, `(${bwStr}) (${mem})`));
+                content.push(
+                    <span 
+                        style={{ color: '#888', marginRight: '10px' }}
+                        attrs={{ title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' }}
+                    >
+                        {`(${bwStr}) (${mem})`}
+                    </span>
+                );
             }
             content.push('Connected');
         } else {
@@ -877,16 +886,19 @@ class App {
 
             if (this.isConnecting) {
                 color = '#aaa';
-                content.push(h('span.spinner', { 
-                    style: { display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' } 
-                }));
+                content.push(
+                    <span 
+                        class={{ spinner: true }} 
+                        style={{ display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' }} 
+                    />
+                );
                 content.push(`Connecting... (${time} offline)`);
             } else {
                 content.push(`Disconnected (${time} ago)`);
             }
         }
 
-        const vnode = h('div#connection-status', { style: { color } }, content);
+        const vnode = <div id="connection-status" style={{ color }}>{content}</div>;
         this.statusVNode = patch(this.statusVNode || el, vnode);
     }
 
@@ -1074,14 +1086,14 @@ class App {
                 const p = this.photoMap.get(idFromUrl);
                 if (p) {
                     this.selectedId = idFromUrl;
-                    hub.pub(ps.PHOTO_SELECTED, { id: p.fileEntryId, photo: p });
+                    hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  p.fileEntryId, photo: p });
                 }
             } else if (!idFromUrl && this.selectedId) {
                 // Deselection via URL? Usually we want to keep selection unless explicit.
                 // But if URL has no ID, and we are in grid mode, maybe we should clear?
                 // For now, let's assume navigating to a folder view without ID means no selection.
                 // this.selectedId = null;
-                // hub.pub(ps.PHOTO_SELECTED, { id: '', photo: null as any }); 
+                // hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  '', photo: null as any }); 
             }
 
             this.updateHeaderUI();
@@ -1229,13 +1241,13 @@ class App {
         if (keepSelection && this.selectedId) {
             const photo = this.photoMap.get(this.selectedId);
             if (photo) {
-                hub.pub(ps.PHOTO_SELECTED, { id: this.selectedId, photo });
+                hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.selectedId, photo });
             } else {
                 // Selection no longer valid in new view, fallback to first
-                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].fileEntryId, photo: this.photos[0] });
+                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.photos[0].fileEntryId, photo: this.photos[0] });
             }
         } else if (!keepSelection && this.photos.length > 0) {
-            hub.pub(ps.PHOTO_SELECTED, { id: this.photos[0].fileEntryId, photo: this.photos[0] });
+            hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.photos[0].fileEntryId, photo: this.photos[0] });
         }
     }
 
@@ -2001,14 +2013,13 @@ class App {
         else if (this.isLoupeMode) this.renderLoupe();
     }
 
-    // REQ-WFE-00012
     enterLoupeMode(id: string) {
         this.prioritySession++;
         this.isLoupeMode = true;
         this.isLibraryMode = false;
         this.updateViewModeUI();
-        this.selectPhoto(id);
-        this.renderLoupe();
+        hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId: this.selectedId || undefined });
+        this.syncUrl();
     }
 
     // REQ-WFE-00012
@@ -2414,7 +2425,7 @@ class App {
             if (this.isLibraryMode && (key === 'enter' || key === ' ')) return; // Don't switch from library on space/enter
             e.preventDefault();
             if (this.isFullscreen) this.toggleFullscreen();
-            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id: this.selectedId || undefined });
+            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId:  this.selectedId || undefined });
             return;
         }
         if (key === '?' || key === '/') { 
@@ -2530,7 +2541,7 @@ class App {
             // If shift is pressed, we treat it as standard range selection from anchor
             // unless in Loupe mode where we enforce single selection.
             const mods = { shift: shift, ctrl: false }; 
-            hub.pub(ps.PHOTO_SELECTED, { id: target.fileEntryId, photo: target, modifiers: mods });
+            hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  target.fileEntryId, photo: target, modifiers: mods });
             this.gridViewManager.scrollToPhoto(target.fileEntryId);
         }
     }

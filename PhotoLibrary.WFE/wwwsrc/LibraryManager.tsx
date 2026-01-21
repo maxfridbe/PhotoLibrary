@@ -1,8 +1,9 @@
+/** @jsx jsx */
 import * as Res from './Responses.generated.js';
 import * as Api from './Functions.generated.js';
 import { hub } from './PubSub.js';
 import { constants } from './constants.js';
-import { h, VNode, patch } from './snabbdom-setup.js';
+import { h, jsx, VNode, patch } from './snabbdom-setup.js';
 import { LibraryStatistics } from './components/library/LibraryStatistics.js';
 import { LibraryLocations } from './components/library/LibraryLocations.js';
 import { LibraryImport } from './components/library/LibraryImport.js';

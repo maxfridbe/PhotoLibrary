@@ -1,4 +1,5 @@
-import { h, VNode } from '../../snabbdom-setup.js';
+/** @jsx jsx */
+import { jsx, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
 import { ApertureVisualizer, ExifTag } from '../aperature/ApertureVisualizer.js';
 
@@ -12,7 +13,7 @@ export interface MetadataPanelProps {
 export function MetadataPanel(props: MetadataPanelProps): VNode {
     const { photo, metadata, cameraThumbUrl, onSearch } = props;
 
-    if (!photo) return h('div.metadata-panel', 'No photo selected');
+    if (!photo) return <div class={{ 'metadata-panel': true }}>No photo selected</div>;
 
     const priorityTags = ['Exposure Time', 'Shutter Speed Value', 'F-Number', 'Aperture Value', 'Max Aperture Value', 'ISO Speed Rating', 'ISO', 'Focal Length', 'Focal Length 35', 'Lens Model', 'Lens', 'Model', 'Make', 'Exposure Bias Value', 'Exposure Mode', 'Exposure Program', 'Focus Mode', 'Image Stabilisation', 'Metering Mode', 'White Balance', 'Flash', 'Color Temperature', 'Quality', 'Created', 'Size', 'Image Width', 'Image Height', 'Exif Image Width', 'Exif Image Height', 'Software', 'Orientation', 'ID'];
     const groupOrder = ['File Info', 'Exif SubIF', 'Exif IFD0', 'Sony Maker', 'GPS', 'XMP'];
@@ -55,36 +56,48 @@ export function MetadataPanel(props: MetadataPanelProps): VNode {
     const hasAperture = flatMetadataTags.includes('F-Number') || flatMetadataTags.includes('Aperture Value');
     const hasFocal = flatMetadataTags.includes('Focal Length');
 
-    return h('div.metadata-panel', {
-        style: { height: '100%', overflowY: 'auto', boxSizing: 'border-box' }
-    }, [
-        h('h2', `${photo.fileName} ${pickText} ${starsText}`),
-        (hasAperture && hasFocal) ? ApertureVisualizer({ 
-            metadata: metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ directory: g.name, tag, value: value || '' } as ExifTag)) ), 
-            cameraThumbUrl 
-        }) : null,
-        ...sortedGroups.map(group => {
-            const items = Object.entries(group.items);
-            items.sort((a, b) => { 
-                let ia = priorityTags.indexOf(a[0]); 
-                let ib = priorityTags.indexOf(b[0]); 
-                if (ia === -1) ia = 999; 
-                if (ib === -1) ib = 999; 
-                if (ia !== ib) return ia - ib; 
-                return a[0].localeCompare(b[0]); 
-            });
+    return (
+        <div 
+            class={{ 'metadata-panel': true }}
+            style={{ height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}
+        >
+            <h2>{`${photo.fileName} ${pickText} ${starsText}`}</h2>
+            {(hasAperture && hasFocal) ? (
+                <ApertureVisualizer 
+                    metadata={metadata.flatMap(g => Object.entries(g.items).map(([tag, value]) => ({ directory: g.name, tag, value: value || '' } as ExifTag)) )}
+                    cameraThumbUrl={cameraThumbUrl}
+                />
+            ) : null}
+            {sortedGroups.map(group => {
+                const items = Object.entries(group.items);
+                items.sort((a, b) => { 
+                    let ia = priorityTags.indexOf(a[0]); 
+                    let ib = priorityTags.indexOf(b[0]); 
+                    if (ia === -1) ia = 999; 
+                    if (ib === -1) ib = 999; 
+                    if (ia !== ib) return ia - ib; 
+                    return a[0].localeCompare(b[0]); 
+                });
 
-            return h('div.meta-group', [
-                h('h3', group.name),
-                ...items.map(([tag, value]) => h('div.meta-row', [
-                    h('span.meta-key', tag),
-                    h('span.meta-val', value?.toString() || ''),
-                    h('span.meta-search-btn', { 
-                        attrs: { title: 'Search' },
-                        on: { click: () => onSearch(tag, value?.toString() || '') }
-                    }, '\uD83D\uDD0D')
-                ]))
-            ]);
-        })
-    ]);
+                return (
+                    <div class={{ 'meta-group': true }}>
+                        <h3>{group.name}</h3>
+                        {items.map(([tag, value]) => (
+                            <div class={{ 'meta-row': true }}>
+                                <span class={{ 'meta-key': true }}>{tag}</span>
+                                <span class={{ 'meta-val': true }}>{value?.toString() || ''}</span>
+                                <span 
+                                    class={{ 'meta-search-btn': true }}
+                                    attrs={{ title: 'Search' }}
+                                    on={{ click: () => onSearch(tag, value?.toString() || '') }}
+                                >
+                                    {'\uD83D\uDD0D'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                );
+            })}
+        </div>
+    );
 }

@@ -1,8 +1,9 @@
+/** @jsx jsx */
+import { jsx, patch, VNode } from './snabbdom-setup.js';
 import * as Res from './Responses.generated.js';
 import { hub } from './PubSub.js';
 import { server } from './CommunicationManager.js';
 import { constants } from './constants.js';
-import { patch, h, VNode } from './snabbdom-setup.js';
 import { PhotoCard } from './components/grid/PhotoCard.js';
 
 const ps = constants.pubsub;
@@ -77,11 +78,9 @@ export class GridView {
 
     private get filmstripCardWidth() {
         if (!this.$filmstripEl) return 210;
-        // height is 12.5em, card is 10.5em h, 12.5em w.
-        // Approx 200px wide + 10px gap.
         const fsHeight = this.$filmstripEl.clientHeight;
         if (fsHeight === 0) return 210;
-        return (fsHeight * 1.0) + 10; // width is same as container height approx
+        return (fsHeight * 1.0) + 10;
     }
 
     public setPhotos(photos: Photo[]) {
@@ -112,7 +111,6 @@ export class GridView {
         this.update(true);
     }
 
-    // REQ-WFE-00001
     public update(force: boolean = false) {
         if (!this.$gridViewEl) return;
         const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
@@ -139,7 +137,7 @@ export class GridView {
             this.render();
         }
 
-        if (this.$filmstripEl && window.app.isLoupeMode) {
+        if (this.$filmstripEl && (window as any).app.isLoupeMode) {
             this.renderFilmstrip();
         }
     }
@@ -153,29 +151,37 @@ export class GridView {
         for (let i = this.visibleRange.start; i < this.visibleRange.end; i++) {
             const photo = this.photos[i];
             if (photo) {
-                cards.push(PhotoCard({
-                    photo,
-                    isSelected: this.selectedIds.has(photo.fileEntryId),
-                    isGenerating: this.generatingIds.has(photo.fileEntryId),
-                    rotation: this.rotationMap.get(photo.fileEntryId) || 0,
-                    mode: 'grid',
-                    imageUrlCache: this.imageUrlCache,
-                    onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
-                    onDoubleClick: (id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', id }),
-                    onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
-                    onTogglePick: (p) => server.togglePick(p),
-                    onRate: (p, r) => server.setRating(p, r),
-                    onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })
-                }));
+                cards.push(
+                    <PhotoCard
+                        photo={photo}
+                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        rotation={this.rotationMap.get(photo.fileEntryId) || 0}
+                        mode="grid"
+                        imageUrlCache={this.imageUrlCache}
+                        onSelect={(id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { fileEntryId: id, photo: p, modifiers: mods })}
+                        onDoubleClick={(id) => hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId: id })}
+                        onContextMenu={(e, p) => (window as any).app.showPhotoContextMenu(e, p)}
+                        onTogglePick={(p) => server.togglePick(p)}
+                        onRate={(p, r) => server.setRating(p, r)}
+                        onRotate={(p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })}
+                    />
+                );
             }
         }
 
-        const newVNode = h('div#grid-view.grid-view', {
-            style: { 
-                transform: `translateY(${translateY}px)`,
-                position: 'absolute', top: '0', left: '0', right: '0'
-            }
-        }, cards);
+        const newVNode = (
+            <div 
+                id="grid-view" 
+                class={{ 'grid-view': true }}
+                style={{ 
+                    transform: `translateY(${translateY}px)`,
+                    position: 'absolute', top: '0', left: '0', right: '0'
+                }}
+            >
+                {cards}
+            </div>
+        );
 
         if (!this.gridVNode) this.gridVNode = this.$gridViewEl;
         this.gridVNode = patch(this.gridVNode, newVNode);
@@ -185,30 +191,37 @@ export class GridView {
     private renderFilmstrip() {
         if (!this.$filmstripEl) return;
 
-        const cards = this.photos.map(photo => PhotoCard({
-            photo,
-            isSelected: this.selectedIds.has(photo.fileEntryId),
-            isGenerating: this.generatingIds.has(photo.fileEntryId),
-            rotation: this.rotationMap.get(photo.fileEntryId) || 0,
-            mode: 'filmstrip',
-            imageUrlCache: this.imageUrlCache,
-            onSelect: (id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { id, photo: p, modifiers: mods }),
-            onDoubleClick: () => {},
-            onContextMenu: (e, p) => window.app.showPhotoContextMenu(e, p),
-            onTogglePick: (p) => server.togglePick(p),
-            onRate: (p, r) => server.setRating(p, r),
-            onRotate: (p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })
-        }));
+        const cards = this.photos.map(photo => (
+            <PhotoCard
+                photo={photo}
+                isSelected={this.selectedIds.has(photo.fileEntryId)}
+                isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                rotation={this.rotationMap.get(photo.fileEntryId) || 0}
+                mode="filmstrip"
+                imageUrlCache={this.imageUrlCache}
+                onSelect={(id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { fileEntryId: id, photo: p, modifiers: mods })}
+                onDoubleClick={() => {}}
+                onContextMenu={(e, p) => (window as any).app.showPhotoContextMenu(e, p)}
+                onTogglePick={(p) => server.togglePick(p)}
+                onRate={(p, r) => server.setRating(p, r)}
+                onRotate={(p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })}
+            />
+        ));
 
-        const newVNode = h('div#filmstrip-content', {
-            style: { 
-                display: 'flex',
-                height: '100%',
-                gap: '0.65em',
-                padding: '0 0.65em',
-                alignItems: 'center'
-            }
-        }, cards);
+        const newVNode = (
+            <div 
+                id="filmstrip-content"
+                style={{ 
+                    display: 'flex',
+                    height: '100%',
+                    gap: '0.65em',
+                    padding: '0 0.65em',
+                    alignItems: 'center'
+                }}
+            >
+                {cards}
+            </div>
+        );
 
         if (!this.filmstripVNode) {
             this.$filmstripEl.innerHTML = '';
@@ -223,7 +236,6 @@ export class GridView {
     public lazyLoadImage(id: string, img: HTMLImageElement, size: number) {
         const cacheKey = id + '-' + size;
         if (this.imageUrlCache.has(cacheKey)) {
-            // console.log(`[Grid] Cache hit for ${id}`);
             img.src = this.imageUrlCache.get(cacheKey)!;
             img.parentElement?.classList.add('loaded');
             const card = img.closest('.card');
@@ -236,11 +248,9 @@ export class GridView {
 
         const priority = this.priorityProvider(id);
         server.requestImage(id, size, priority).then((blob: Blob) => {
-            // console.log(`[Grid] Received blob for ${id}, size: ${blob.size}`);
             const url = URL.createObjectURL(blob);
             this.imageUrlCache.set(cacheKey, url);
             img.onload = () => {
-                // console.log(`[Grid] Image loaded ${id}`);
                 img.parentElement?.classList.add('loaded');
                 const card = img.closest('.card');
                 if (card) {
@@ -263,7 +273,6 @@ export class GridView {
         const index = this.photos.findIndex(p => p?.fileEntryId === id);
         if (index === -1) return;
 
-        // Grid Scroll
         if (this.$gridViewEl) {
             const row = Math.floor(index / this.cols);
             const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
@@ -281,7 +290,6 @@ export class GridView {
             }
         }
 
-        // Filmstrip Scroll
         if (this.$filmstripEl) {
             const el = this.$filmstripEl.querySelector(`.card[data-id="${id}"]`);
             if (el) {
@@ -289,7 +297,6 @@ export class GridView {
             }
         }
     }
-
 
     public refreshStats(id: string, photos: Photo[]) {
         this.photos = photos;
