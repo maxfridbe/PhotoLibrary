@@ -549,12 +549,12 @@ public static class WebServer
                                     if (reqObj != null)
                                     {
                                         double overall = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-                                        Console.WriteLine($"[FETCH] {shortId,-11} | Pri: {reqObj.Priority,12:F4} | Tot: {overall,9:F1}ms | Q: {reqObj.QueueMs,8:F1}ms | R: {reqObj.RetrievalMs,8:F1}ms | G: {reqObj.GeneratingMs,8:F1}ms | S: {sendingMs,4}ms");
+                                        Console.WriteLine($"[FETCH] {shortId,-11} | Priority: {reqObj.Priority,12:F4} | Tot: {overall,9:F1}ms | Q: {reqObj.QueueMs,8:F1}ms | Ret: {reqObj.RetrievalMs,8:F1}ms | Gen: {reqObj.GeneratingMs,8:F1}ms | Sen: {sendingMs,4}ms");
                                     }
                                     else if (immediateData != null)
                                     {
                                         double overall = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
-                                        Console.WriteLine($"[FETCH] {shortId,-11} | Pri: {req.priority,12:F4} | Tot: {overall,9:F1}ms | FASTPATH           | R: {fastRetrievalMs,8:F1}ms | {"",21} | S: {sendingMs,4}ms");
+                                        Console.WriteLine($"[FETCH] {shortId,-11} | Priority: {req.priority,12:F4} | Tot: {overall,9:F1}ms | FASTPATH           | Ret: {fastRetrievalMs,8:F1}ms | {"",21} | Sen: {sendingMs,4}ms");
                                     }
                                 }
                             }

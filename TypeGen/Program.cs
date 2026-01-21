@@ -33,7 +33,7 @@ namespace TypeGen
             CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
 
             var sb = new StringBuilder();
-            sb.AppendLine($"// Generated from {inputFile} via Roslyn at {DateTime.Now:O}");
+            sb.AppendLine($"// Generated from {inputFile} via Roslyn");
             sb.AppendLine("import * as Req from './Requests.generated.js';");
             sb.AppendLine("import * as Res from './Responses.generated.js';");
             sb.AppendLine();
@@ -101,7 +101,7 @@ namespace TypeGen
             var root = tree.GetCompilationUnitRoot();
 
             var sb = new StringBuilder();
-            sb.AppendLine($"// Generated from {inputFile} via Roslyn at {DateTime.Now:O}");
+            sb.AppendLine($"// Generated from {inputFile} via Roslyn");
             sb.AppendLine("import * as Req from './Requests.generated.js';");
             sb.AppendLine("import * as Res from './Responses.generated.js';");
             sb.AppendLine();
