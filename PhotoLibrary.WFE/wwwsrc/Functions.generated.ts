@@ -9,8 +9,8 @@ async function post<T>(url: string, data: any = {}): Promise<T> {
     return text ? JSON.parse(text) : {} as T;
 }
 
-export async function api_get_application_settings(data: any): Promise<any> {
-    return await post<any>('/api/get-application-settings', data);
+export async function api_get_application_settings(): Promise<any> {
+    return await post<any>('/api/get-application-settings');
 }
 
 export async function api_photos(data: Req.PagedPhotosRequest): Promise<Res.PagedPhotosResponse> {
@@ -21,16 +21,16 @@ export async function api_metadata(data: Req.FileIdRequest): Promise<Res.Metadat
     return await post<Res.MetadataGroupResponse[]>('/api/metadata', data);
 }
 
-export async function api_directories(data: any): Promise<Res.DirectoryNodeResponse[]> {
-    return await post<Res.DirectoryNodeResponse[]>('/api/directories', data);
+export async function api_directories(): Promise<Res.DirectoryNodeResponse[]> {
+    return await post<Res.DirectoryNodeResponse[]>('/api/directories');
 }
 
-export async function api_library_info(data: any): Promise<any> {
-    return await post<any>('/api/library/info', data);
+export async function api_library_info(): Promise<any> {
+    return await post<any>('/api/library/info');
 }
 
-export async function api_library_backup(data: any): Promise<any> {
-    return await post<any>('/api/library/backup', data);
+export async function api_library_backup(): Promise<any> {
+    return await post<any>('/api/library/backup');
 }
 
 export async function api_pick(data: Req.PickRequest): Promise<any> {
@@ -45,8 +45,8 @@ export async function api_search(data: Req.SearchRequest): Promise<string[]> {
     return await post<string[]>('/api/search', data);
 }
 
-export async function api_collections_list(data: any): Promise<Res.CollectionResponse[]> {
-    return await post<Res.CollectionResponse[]>('/api/collections/list', data);
+export async function api_collections_list(): Promise<Res.CollectionResponse[]> {
+    return await post<Res.CollectionResponse[]>('/api/collections/list');
 }
 
 export async function api_collections_create(data: Req.NameRequest): Promise<any> {
@@ -65,16 +65,16 @@ export async function api_collections_get_files(data: Req.CollectionIdRequest): 
     return await post<string[]>('/api/collections/get-files', data);
 }
 
-export async function api_picked_clear(data: any): Promise<any> {
-    return await post<any>('/api/picked/clear', data);
+export async function api_picked_clear(): Promise<any> {
+    return await post<any>('/api/picked/clear');
 }
 
-export async function api_picked_ids(data: any): Promise<string[]> {
-    return await post<string[]>('/api/picked/ids', data);
+export async function api_picked_ids(): Promise<string[]> {
+    return await post<string[]>('/api/picked/ids');
 }
 
-export async function api_stats(data: any): Promise<Res.StatsResponse> {
-    return await post<Res.StatsResponse>('/api/stats', data);
+export async function api_stats(): Promise<Res.StatsResponse> {
+    return await post<Res.StatsResponse>('/api/stats');
 }
 
 export async function api_fs_list(data: Req.NameRequest): Promise<any> {

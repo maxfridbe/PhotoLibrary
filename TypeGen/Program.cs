@@ -136,7 +136,7 @@ namespace TypeGen
                 else if (lambda is SimpleLambdaExpressionSyntax sLambda)
                     parameters = new[] { sLambda.Parameter };
 
-                if (parameters != null)
+                if (parameters != null && parameters.Any())
                 {
                     foreach (var param in parameters)
                     {
@@ -144,6 +144,10 @@ namespace TypeGen
                         if (pt.EndsWith("Request")) reqType = "Req." + pt.Replace("?", "");
                         else if (pt.StartsWith("string[]")) reqType = "string[]";
                     }
+                }
+                else
+                {
+                    reqType = "";
                 }
 
                 if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
@@ -153,8 +157,16 @@ namespace TypeGen
                 else if (route.Contains("stats")) resType = "Res.StatsResponse";
                 else if (route.Contains("picked/ids") || route.Contains("get-files") || route.Contains("search")) resType = "string[]";
 
-                sb.AppendLine($"export async function api_{funcName}(data: {reqType}): Promise<{resType}> {{");
-                sb.AppendLine($"    return await post<{resType}>('{route}', data);");
+                if (string.IsNullOrEmpty(reqType))
+                {
+                    sb.AppendLine($"export async function api_{funcName}(): Promise<{resType}> {{");
+                    sb.AppendLine($"    return await post<{resType}>('{route}');");
+                }
+                else
+                {
+                    sb.AppendLine($"export async function api_{funcName}(data: {reqType}): Promise<{resType}> {{");
+                    sb.AppendLine($"    return await post<{resType}>('{route}', data);");
+                }
                 sb.AppendLine("}");
                 sb.AppendLine();
             }

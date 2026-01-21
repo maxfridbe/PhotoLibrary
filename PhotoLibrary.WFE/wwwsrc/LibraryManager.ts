@@ -300,14 +300,14 @@ export class LibraryManager {
 
     public async loadLibraryInfo() {
         try {
-            const info = await Api.api_library_info({});
+            const info = await Api.api_library_info();
             if (!info) return;
             this.infoCache = info;
             this.isIndexing = info.isIndexing;
 
             // Fetch quick select roots (registered folders)
             try {
-                const roots = await Api.api_directories({});
+                const roots = await Api.api_directories();
                 this.quickSelectRoots = roots || [];
                 if (this.currentScanPath === '' && this.quickSelectRoots.length > 0) {
                     this.currentScanPath = this.quickSelectRoots[0].name || '';

@@ -891,12 +891,12 @@ class App {
     }
 
     async refreshStatsOnly() {
-        this.stats = await Api.api_stats({});
+        this.stats = await Api.api_stats();
         this.updateSidebarCountsOnly();
     }
 
     async refreshDirectories() {
-        this.roots = await Api.api_directories({});
+        this.roots = await Api.api_directories();
         this.updateFlatFolderList();
         this.renderLibrary();
     }
@@ -1134,9 +1134,9 @@ class App {
         try {
             this.updateSplash('Fetching Library Data...', 60);
             const [roots, colls, stats, expState, searchesState] = await Promise.all([
-                Api.api_directories({}),
-                Api.api_collections_list({}),
-                Api.api_stats({}),
+                Api.api_directories(),
+                Api.api_collections_list(),
+                Api.api_stats(),
                 Api.api_settings_get({ name: 'folder-expanded-state' }),
                 Api.api_settings_get({ name: 'saved-searches' })
             ]);
@@ -1189,7 +1189,7 @@ class App {
             rating: this.filterRating, 
             specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
         };
-        const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats({}) ]);
+        const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats() ]);
         
         this.allPhotosFlat = data.photos as Photo[];
         this.photoMap.clear();
@@ -1855,7 +1855,7 @@ class App {
             exportName = coll?.name || 'collection';
             fileIds = await Api.api_collections_get_files({ collectionId: collectionId });
         } else if (this.filterType === 'picked') {
-            fileIds = await Api.api_picked_ids({});
+            fileIds = await Api.api_picked_ids();
         }
 
         if (fileIds.length === 0) return;
@@ -1883,11 +1883,11 @@ class App {
         }
     }
 
-    async clearAllPicked() { await Api.api_picked_clear({}); this.refreshPhotos(); hub.pub(ps.UI_NOTIFICATION, { message: 'Picked photos cleared', type: 'info' }); }
+    async clearAllPicked() { await Api.api_picked_clear(); this.refreshPhotos(); hub.pub(ps.UI_NOTIFICATION, { message: 'Picked photos cleared', type: 'info' }); }
 
     // REQ-WFE-00017
     async storePickedToCollection(id: string | null, specificIds?: string[]) {
-        const fileIds = specificIds || await Api.api_picked_ids({});
+        const fileIds = specificIds || await Api.api_picked_ids();
         if (fileIds.length === 0) return;
         let name = '';
         if (id === null) {
@@ -1914,7 +1914,7 @@ class App {
         else await this.refreshCollections();
     }
 
-    async refreshCollections() { this.userCollections = await Api.api_collections_list({}); this.renderLibrary(); }
+    async refreshCollections() { this.userCollections = await Api.api_collections_list(); this.renderLibrary(); }
 
     // REQ-WFE-00015
     // REQ-WFE-00021
@@ -2541,7 +2541,7 @@ class App {
 
     private async checkRuntimeMode() {
         try {
-            const settings = await Api.api_get_application_settings({});
+            const settings = await Api.api_get_application_settings();
             this.runtimeMode = settings.runtimeMode || "WebHost";
             this.version = settings.version || "Unknown";
         } catch (e) {
