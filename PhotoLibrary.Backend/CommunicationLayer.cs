@@ -322,17 +322,32 @@ public class CommunicationLayer : ICommunicationLayer
         try
         {
             string absPath = PathUtils.ResolvePath(path);
-            if (!Directory.Exists(absPath)) return new List<string>();
+            _logger.LogInformation("[FindNew] Scanning path: {Path} (Resolved: {AbsPath})", path, absPath);
+
+            if (!Directory.Exists(absPath)) 
+            {
+                _logger.LogWarning("[FindNew] Directory does not exist: {AbsPath}", absPath);
+                return new List<string>();
+            }
             
-            var enumerator = Directory.EnumerateFiles(absPath, "*", SearchOption.AllDirectories)
+            // Use specific EnumerationOptions to ignore inaccessible files if possible (Available in .NET 6+)
+            var options = new EnumerationOptions { 
+                IgnoreInaccessible = true, 
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.Hidden | FileAttributes.System 
+            };
+
+            var enumerator = Directory.EnumerateFiles(absPath, "*", options)
                 .Where(f => TableConstants.SupportedExtensions.Contains(Path.GetExtension(f)));
 
             var newFiles = new List<string>();
             using var connection = new SqliteConnection($"Data Source={_db.DbPath}");
             connection.Open();
 
+            int checkedCount = 0;
             foreach (var file in enumerator)
             {
+                checkedCount++;
                 var fullFile = Path.GetFullPath(file);
                 if (!_db.FileExists(fullFile, connection))
                 {
@@ -341,11 +356,12 @@ public class CommunicationLayer : ICommunicationLayer
                 if (newFiles.Count >= limit) break;
             }
             
+            _logger.LogInformation("[FindNew] Scanned {Checked} files, found {New} new.", checkedCount, newFiles.Count);
             return newFiles;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[FindNew] Error");
+            _logger.LogError(ex, "[FindNew] Error scanning {Path}", path);
             return new List<string>();
         }
     }

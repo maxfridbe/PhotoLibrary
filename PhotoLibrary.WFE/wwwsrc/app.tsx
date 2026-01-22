@@ -1,7 +1,8 @@
 /** @jsx jsx */
-declare var GoldenLayout: any;
 declare var $: any;
 
+import { patch, h, jsx, VNode } from './snabbdom-setup.js';
+import { GoldenLayout, ComponentItemConfig, ItemType, LayoutConfig, RowOrColumn, Stack } from './lib/golden-layout.esm.js';
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
 import * as Api from './Functions.generated.js';
@@ -9,14 +10,13 @@ import { hub } from './PubSub.js';
 import { server, post } from './CommunicationManager.js';
 import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
-import { themes } from './themes.js';
+// import { themes } from './themes.js';
 import { GridView } from './grid.js';
 import { constants } from './constants.js';
-import { patch, h, jsx, VNode } from './snabbdom-setup.js';
-import { PhotoCard } from './components/grid/PhotoCard.js';
+// import { PhotoCard } from './components/grid/PhotoCard.js';
 import { LibrarySidebar, LibrarySidebarProps } from './components/library/LibrarySidebar.js';
 import { LoupeView } from './components/loupe/LoupeView.js';
-import { ApertureVisualizer } from './components/aperature/ApertureVisualizer.js';
+// import { ApertureVisualizer } from './components/aperature/ApertureVisualizer.js';
 import { MetadataPanel } from './components/metadata/MetadataPanel.js';
 import { ShortcutsDialog } from './components/common/ShortcutsDialog.js';
 import { SettingsModal } from './components/common/SettingsModal.js';
@@ -25,7 +25,7 @@ import { NotificationManager, Notification } from './components/common/Notificat
 const ps = constants.pubsub;
 
 type Photo = Res.PhotoResponse;
-import { visualizeLensData } from './aperatureVis.js';
+// import { visualizeLensData } from './aperatureVis.js';
 
 type MetadataGroup = Res.MetadataGroupResponse;
 type RootPath = Res.DirectoryNodeResponse;
@@ -55,21 +55,21 @@ declare global {
 
 // REQ-ARCH-00003
 class App {
-    public layout: any;
+    public layout: GoldenLayout | undefined | null;
     private themeManager: ThemeManager;
     public libraryManager: LibraryManager;
     public gridViewManager: GridView;
 
-    private allPhotosFlat: Photo[] = []; 
+    private allPhotosFlat: Photo[] = [];
     public photos: Photo[] = []; // Processed list
-    
+
     private photoMap: Map<string, Photo> = new Map();
     private roots: Res.DirectoryNodeResponse[] = [];
     public userCollections: Collection[] = [];
     public savedSearches: SavedSearch[] = [];
-    public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0,0,0,0,0] };
+    public stats: Stats = { totalCount: 0, pickedCount: 0, ratingCounts: [0, 0, 0, 0, 0] };
     public totalPhotos = 0;
-    
+
     private expandedFolders: Set<string> = new Set();
     private flatFolderList: string[] = [];
 
@@ -88,7 +88,7 @@ class App {
     public filterRating: number = 0;
     public stackingEnabled: boolean = false;
     public sortBy: SortOption = 'date-desc';
-    
+
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
     public searchTag: string | null = null;
@@ -108,7 +108,7 @@ class App {
     public isLibraryMode = false;
     public isIndexing = false;
     private overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
-    
+
     private isShortcutsVisible = false;
     private isSettingsVisible = false;
 
@@ -151,10 +151,10 @@ class App {
 
     public async togglePinSearch() {
         if (this.filterType !== 'search') return;
-        
+
         // Find if current search is already pinned
         const existing = this.savedSearches.find(s => s.tag === this.searchTag && s.value === this.searchValue && s.query === this.searchQuery);
-        
+
         if (existing) {
             await this.removeSavedSearch(existing.savedSearchId);
         } else {
@@ -191,7 +191,7 @@ class App {
             await Api.api_settings_set({ key: 'saved-searches', value: JSON.stringify(this.savedSearches) });
         } catch (e) { console.error("Failed to save searches", e); }
     }
-    
+
     // Connection State
     private runtimeStats: any = null;
     private statusVNode: VNode | HTMLElement | null = null;
@@ -300,7 +300,7 @@ class App {
             this.initPubSub();
             this.startStatusTimer();
             window.addEventListener('hashchange', () => this.applyUrlState());
-            
+
             // Check initial connection state
             if (server.isConnected) {
                 this.isConnected = true;
@@ -369,7 +369,7 @@ class App {
             .replace(/{Filename}/g, photo.fileName || '')
             .replace(/{Takendate}/g, dateStr)
             .replace(/{Takentime}/g, timeStr);
-        
+
         // Handle {MD:key} tags
         const mdRegex = /{MD:(.+?)}/g;
         text = text.replace(mdRegex, (match, tag) => {
@@ -378,7 +378,7 @@ class App {
             }
             return '';
         });
-        
+
         this.overlayText = text;
         this.renderLoupe();
     }
@@ -393,15 +393,15 @@ class App {
                 const anchor = this.anchorId || this.selectedId || id;
                 const startIdx = this.photos.findIndex(p => p.fileEntryId === anchor);
                 const endIdx = this.photos.findIndex(p => p.fileEntryId === id);
-                
+
                 if (startIdx !== -1 && endIdx !== -1) {
                     const low = Math.min(startIdx, endIdx);
                     const high = Math.max(startIdx, endIdx);
-                    
+
                     if (!mods.ctrl) {
                         this.selectedIds.clear();
                     }
-                    
+
                     for (let i = low; i <= high; i++) {
                         this.selectedIds.add(this.photos[i].fileEntryId);
                     }
@@ -429,7 +429,7 @@ class App {
                 // If we clicked something, it becomes active (anchor), even if we toggled it off?
                 // Standard: if we toggle off, anchor might move. But let's keep the clicked one as active/anchor.
                 this.selectedId = id;
-                
+
                 // If we toggled OFF the clicked one, selectedId refers to an unselected item.
                 // This is allowed in some apps (anchor is focus).
                 // But for metadata panel, we usually show the active item.
@@ -439,19 +439,19 @@ class App {
 
             // Sync Grid
             this.gridViewManager.setSelected(this.selectedId, this.selectedIds);
-            
+
             // Sync selection UI (legacy/filmstrip scrolling)
             // We only scroll to the active one
             if (this.selectedId) {
                 this.gridViewManager.scrollToPhoto(this.selectedId);
                 this.loadMetadata(this.selectedId);
                 if (this.isLoupeMode && this.selectedIds.has(this.selectedId)) {
-                     // Ensure loupe matches active selection
+                    // Ensure loupe matches active selection
                 }
             } else {
                 this.clearMetadata();
             }
-            
+
             // Fullscreen & Loupe updates
             if (this.selectedId) {
                 if (this.isFullscreen) {
@@ -465,7 +465,7 @@ class App {
                     this.updateLoupeOverlay(this.selectedId);
                 }
             }
-            
+
             if (this.$workspaceEl) this.$workspaceEl.focus();
             this.syncUrl();
         });
@@ -474,7 +474,7 @@ class App {
             this.isLoupeMode = data.mode === 'loupe';
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.fileEntryId) {
-                hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
+                hub.pub(ps.PHOTO_SELECTED, { fileEntryId: data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
                 this.updateLoupeOverlay(data.fileEntryId);
             } else if (data.mode === 'loupe') {
                 this.renderLoupe();
@@ -486,7 +486,7 @@ class App {
             // Update local map
             const updatedPhoto = { ...this.photoMap.get(data.fileEntryId), ...data.photo };
             this.photoMap.set(data.fileEntryId, updatedPhoto);
-            
+
             // Update flat list
             const flatIdx = this.allPhotosFlat.findIndex(p => p.fileEntryId === data.fileEntryId);
             if (flatIdx !== -1) this.allPhotosFlat[flatIdx] = updatedPhoto;
@@ -516,7 +516,7 @@ class App {
             this.rotationMap.set(data.fileEntryId, data.rotation);
             this.gridViewManager.refreshStats(data.fileEntryId, this.photos);
             this.savePhotoPreferences(data.fileEntryId, data.rotation);
-            
+
             // Update loupe
             if (this.selectedId === data.fileEntryId && this.isLoupeMode) {
                 this.renderLoupe();
@@ -569,7 +569,8 @@ class App {
             this.importedBatchTimer = setTimeout(() => {
                 this.showNotification(`Imported ${this.importedBatchCount} photos`, 'success');
                 this.importedBatchCount = 0;
-                this.loadData();
+                this.refreshStatsOnly();
+                this.refreshDirectories();
             }, 1000);
         });
 
@@ -630,7 +631,7 @@ class App {
 
     public async toggleHide(id: string) {
         if (!this.selectedRootId) return; // Only allow hiding in folder view for now
-        
+
         const photo = this.photoMap.get(id);
         if (!photo) return;
 
@@ -649,7 +650,7 @@ class App {
 
         if (changed) {
             this.saveHiddenSettings();
-            
+
             if (!this.showHidden) {
                 this.allPhotosFlat = this.allPhotosFlat.filter(p => !this.hiddenIds.has(p.fileEntryId));
                 this.processUIStacks();
@@ -669,7 +670,7 @@ class App {
         // But for global rotation hotkeys, we just want to save rotation.
         // If we want to preserve zoom/pan, we'd need to fetch -> update -> save.
         // But since we are likely not in loupe view or just rotating, reset zoom/pan makes sense or keep defaults.
-        
+
         const prefs = {
             rotation: rotation,
             zoom: 1,
@@ -677,16 +678,16 @@ class App {
             panT: 0
         };
 
-        Api.api_settings_set({ 
-            key: `${photo.hash}-pref-img`, 
-            value: JSON.stringify(prefs) 
+        Api.api_settings_set({
+            key: `${photo.hash}-pref-img`,
+            value: JSON.stringify(prefs)
         });
     }
 
     private handlePhotoUpdate(photo: Photo) {
         this.photoMap.set(photo.fileEntryId, photo);
         const updateTargets = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [photo.fileEntryId];
-        
+
         this.allPhotosFlat.forEach(p => {
             if (p && updateTargets.includes(p.fileEntryId)) {
                 p.isPicked = photo.isPicked;
@@ -695,12 +696,12 @@ class App {
         });
 
         this.processUIStacks();
-        
+
         const rep = this.photos.find(p => p.fileEntryId === photo.fileEntryId || (p.stackFileIds && p.stackFileIds.includes(photo.fileEntryId)));
         if (rep) {
             this.gridViewManager.refreshStats(rep.fileEntryId, this.photos);
         }
-        
+
         if (this.selectedId === photo.fileEntryId) this.loadMetadata(photo.fileEntryId);
     }
 
@@ -729,7 +730,7 @@ class App {
     private async processImportQueue() {
         const queue = [...this.importedQueue];
         this.importedQueue = [];
-        
+
         const idsToFetch: string[] = [];
         for (const data of queue) {
             let matches = false;
@@ -766,9 +767,9 @@ class App {
 
         if (!this.stackingEnabled) {
             result = this.allPhotosFlat.map(p => ({
-                ...p, 
-                stackCount: 1, 
-                stackFileIds: [p.fileEntryId], 
+                ...p,
+                stackCount: 1,
+                stackFileIds: [p.fileEntryId],
                 stackExtensions: p.fileName!.split('.').pop()?.toUpperCase()
             }));
         } else {
@@ -798,7 +799,7 @@ class App {
                 rep.stackFileIds = group.map(p => p.fileEntryId);
                 rep.isPicked = group.some(p => p.isPicked);
                 rep.rating = Math.max(...group.map(p => p.rating));
-                
+
                 const exts = Array.from(new Set(group.map(p => p.fileName!.split('.').pop()?.toUpperCase())));
                 exts.sort();
                 rep.stackExtensions = exts.join(',');
@@ -822,7 +823,7 @@ class App {
         this.photos = result;
         this.totalPhotos = this.photos.length;
         this.gridViewManager.setPhotos(this.photos);
-        
+
         this.updateWatermark();
         this.renderGrid();
         if (this.isLoupeMode) this.renderFilmstrip();
@@ -864,13 +865,13 @@ class App {
                 const s = this.runtimeStats;
                 const mem = (s.memoryBytes / 1024 / 1024 / 1024).toFixed(2).replace(/^0+/, '') + 'g';
                 const bw = s.recvBytesPerSec;
-                
+
                 let bwStr = '';
                 if (bw > 1024 * 1024) bwStr = (bw / 1024 / 1024).toFixed(1) + ' MB/s';
                 else bwStr = (bw / 1024).toFixed(0) + ' KB/s';
-                
+
                 content.push(
-                    <span 
+                    <span
                         style={{ color: '#888', marginRight: '10px' }}
                         attrs={{ title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' }}
                     >
@@ -887,9 +888,9 @@ class App {
             if (this.isConnecting) {
                 color = '#aaa';
                 content.push(
-                    <span 
-                        class={{ spinner: true }} 
-                        style={{ display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' }} 
+                    <span
+                        class={{ spinner: true }}
+                        style={{ display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' }}
                     />
                 );
                 content.push(`Connecting... (${time} offline)`);
@@ -920,21 +921,21 @@ class App {
         this.flatFolderList = [];
         this.parentMap.clear();
         this.folderNodeMap.clear();
-        
+
         const walk = (nodes: Res.DirectoryNodeResponse[], parentId: string | null) => {
             const sorted = [...nodes].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            
+
             sorted.forEach(node => {
                 this.flatFolderList.push(node.directoryId);
                 this.folderNodeMap.set(node.directoryId, node);
                 if (parentId) this.parentMap.set(node.directoryId, parentId);
-                
+
                 if (node.children && node.children.length > 0) {
                     walk(node.children, node.directoryId);
                 }
             });
         };
-        
+
         walk(this.roots, null);
     }
 
@@ -947,14 +948,14 @@ class App {
         if (pickedCountEl) pickedCountEl.textContent = this.stats.pickedCount.toString();
         for (let i = 1; i <= 5; i++) {
             const countEl = this.$libraryEl.querySelector(`.tree-item[data-type="rating-${i}"] .count`);
-            if (countEl) countEl.textContent = this.stats.ratingCounts[i-1].toString();
+            if (countEl) countEl.textContent = this.stats.ratingCounts[i - 1].toString();
         }
     }
 
     // REQ-WFE-00008
     private syncUrl() {
         if (this.isApplyingUrl) return;
-        
+
         let mode = 'grid';
         if (this.isLoupeMode) mode = 'loupe';
         else if (this.isLibraryMode) mode = 'library';
@@ -979,10 +980,10 @@ class App {
         }
     }
 
-    private async applyUrlState() {
+    private async applyUrlState(forceRefresh: boolean = false) {
         const hash = window.location.hash;
         if (!hash.startsWith('#!/')) return;
-        
+
         this.isApplyingUrl = true;
         try {
             const [pathPart, queryPart] = hash.substring(3).split('?');
@@ -991,7 +992,7 @@ class App {
 
             const mode = parts[0];
             const type = parts[1];
-            
+
             this.isLoupeMode = (mode === 'loupe');
             this.isLibraryMode = (mode === 'library');
 
@@ -1023,7 +1024,7 @@ class App {
                     if (newHidden !== this.showHidden) { this.showHidden = newHidden; stackChanged = true; }
                 }
             }
-            
+
             let newFilterType = this.filterType;
             let newRootId: string | null = null;
             let newCollectionId: string | null = null;
@@ -1051,14 +1052,14 @@ class App {
 
             const filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
 
-            if (filterChanged) {
+            if (filterChanged || forceRefresh) {
                 this.prioritySession++;
                 this.filterType = newFilterType as 'all' | 'picked' | 'rating' | 'search' | 'collection';
                 this.selectedRootId = newRootId;
                 this.selectedCollectionId = newCollectionId;
                 this.filterRating = newRating;
                 this.searchTitle = newSearchTitle;
-                
+
                 if (this.filterType === 'collection' && this.selectedCollectionId) {
                     this.collectionFiles = await Api.api_collections_get_files({ collectionId: this.selectedCollectionId });
                 } else if (this.filterType === 'search') {
@@ -1074,6 +1075,9 @@ class App {
                 await this.refreshPhotos(true);
             } else if (sortChanged || stackChanged) {
                 this.processUIStacks();
+            } else {
+                // Ensure grid is rendered even if no filter change
+                this.renderGrid();
             }
 
             // Selected ID is usually the last part if it exists and looks like a GUID or similar
@@ -1081,12 +1085,12 @@ class App {
             let idFromUrl = '';
             if (['all', 'picked'].includes(type)) idFromUrl = parts[2];
             else idFromUrl = parts[3];
-            
+
             if (idFromUrl && idFromUrl !== this.selectedId) {
                 const p = this.photoMap.get(idFromUrl);
                 if (p) {
                     this.selectedId = idFromUrl;
-                    hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  p.fileEntryId, photo: p });
+                    hub.pub(ps.PHOTO_SELECTED, { fileEntryId: p.fileEntryId, photo: p });
                 }
             } else if (!idFromUrl && this.selectedId) {
                 // Deselection via URL? Usually we want to keep selection unless explicit.
@@ -1169,10 +1173,10 @@ class App {
                     this.savedSearches = JSON.parse(searchesState.value);
                 } catch (e) { console.error("Failed to parse saved searches", e); }
             }
-            
+
             this.updateSplash('Synchronizing View State...', 80);
             if (window.location.hash.startsWith('#!/')) {
-                await this.applyUrlState();
+                await this.applyUrlState(true);
             } else {
                 await this.refreshPhotos();
             }
@@ -1181,37 +1185,37 @@ class App {
             const minDelay = 2000;
             const remaining = Math.max(0, minDelay - elapsed);
             setTimeout(() => this.hideSplash(), remaining);
-        } catch (e) { 
-            console.error("Load failed", e); 
+        } catch (e) {
+            console.error("Load failed", e);
             this.updateSplash('Load Failed', 100);
             setTimeout(() => this.hideSplash(), 1000);
         }
     }
 
-    async refreshPhotos(keepSelection: boolean = false) {
-        this.allPhotosFlat = [];
-        this.photos = [];
-        this.gridViewManager.clearCache();
+    async refreshPhotos(keepSelection: boolean = false, clearCache: boolean = false) {
+        if (clearCache) {
+            this.gridViewManager.clearCache();
+        }
         this.isLoadingChunk.clear();
-        
-        const params: Req.PagedPhotosRequest = { 
-            limit: 100000, offset: 0, 
-            rootId: this.selectedRootId || undefined, 
-            pickedOnly: this.filterType === 'picked', 
-            rating: this.filterRating, 
-            specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined)) 
+
+        const params: Req.PagedPhotosRequest = {
+            limit: 100000, offset: 0,
+            rootId: this.selectedRootId || undefined,
+            pickedOnly: this.filterType === 'picked',
+            rating: this.filterRating,
+            specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined))
         };
-        const [data, stats] = await Promise.all([ Api.api_photos(params), Api.api_stats() ]);
-        
+        const [data, stats] = await Promise.all([Api.api_photos(params), Api.api_stats()]);
+
         this.allPhotosFlat = data.photos as Photo[];
         this.photoMap.clear();
         this.allPhotosFlat.forEach(p => {
             this.photoMap.set(p.fileEntryId, p);
             if (p.rotation) this.rotationMap.set(p.fileEntryId, p.rotation);
         });
-        
+
         this.stats = stats;
-        
+
         // Filter hidden items
         if (this.selectedRootId && this.hiddenIds.size === 0) {
             // Lazy load if not already loaded
@@ -1241,13 +1245,13 @@ class App {
         if (keepSelection && this.selectedId) {
             const photo = this.photoMap.get(this.selectedId);
             if (photo) {
-                hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.selectedId, photo });
+                hub.pub(ps.PHOTO_SELECTED, { fileEntryId: this.selectedId, photo });
             } else {
                 // Selection no longer valid in new view, fallback to first
-                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.photos[0].fileEntryId, photo: this.photos[0] });
+                if (this.photos.length > 0) hub.pub(ps.PHOTO_SELECTED, { fileEntryId: this.photos[0].fileEntryId, photo: this.photos[0] });
             }
         } else if (!keepSelection && this.photos.length > 0) {
-            hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  this.photos[0].fileEntryId, photo: this.photos[0] });
+            hub.pub(ps.PHOTO_SELECTED, { fileEntryId: this.photos[0].fileEntryId, photo: this.photos[0] });
         }
     }
 
@@ -1264,21 +1268,32 @@ class App {
     }
 
     private initLayout() {
-        const config = {
+        const config: LayoutConfig = {
             settings: { showPopoutIcon: false },
             dimensions: { headerHeight: 45 },
-            content: [{
+            root: {
                 type: 'row',
                 content: [
-                    { type: 'component', componentName: 'library', width: 20, title: 'Library', isClosable: false },
-                    { type: 'component', componentName: 'workspace', width: 60, title: 'Photos', isClosable: false },
-                    { type: 'component', componentName: 'metadata', width: 20, title: 'Metadata' }
+                    {
+                        type: 'stack',
+                        width: 20,
+                        content: [{ type: 'component', componentType: 'library', title: 'Library', isClosable: true, reorderEnabled: true }]
+                    },
+                    { type: 'component', componentType: 'workspace', width: 60, title: 'Photos', isClosable: true, reorderEnabled: true },
+                    {
+                        type: 'stack',
+                        width: 20,
+                        content: [{ type: 'component', componentType: 'metadata', title: 'Metadata', isClosable: true, reorderEnabled: true }]
+                    }
                 ]
-            }]
+            }
         };
-        this.layout = new GoldenLayout(config, '#layout-container');
+        var $el = document.getElementById('layout-container') as HTMLElement;
+        // @ts-ignore
+        this.layout = new GoldenLayout($el);
+        this.layout.resizeWithContainerAutomatically = true;
         const self = this;
-        this.layout.registerComponent('library', function(container: any) {
+        this.layout.registerComponentFactoryFunction('library', function (container: any) {
             const wrapper = document.createElement('div');
             wrapper.style.display = 'flex';
             wrapper.style.flexDirection = 'column';
@@ -1291,11 +1306,11 @@ class App {
             libHeader.style.justifyContent = 'space-between';
             libHeader.style.alignItems = 'center';
             libHeader.style.background = 'var(--bg-header)';
-            
+
             const title = document.createElement('span');
             title.textContent = 'Library';
             title.style.fontWeight = 'bold';
-            
+
             const collapseBtn = document.createElement('span');
             collapseBtn.innerHTML = '&#171;'; // <<
             collapseBtn.style.cursor = 'pointer';
@@ -1311,32 +1326,39 @@ class App {
             self.$libraryEl.className = 'tree-view';
             self.$libraryEl.style.flex = '1';
             self.$libraryEl.style.overflowY = 'auto';
-            
+
             wrapper.appendChild(self.$libraryEl);
-            container.getElement().append(wrapper);
-            
+            container.element.append(wrapper);
+
             // Hide the expand button in workspace if library is visible
             const expandBtn = document.getElementById('lib-expand-btn');
             if (expandBtn) expandBtn.style.display = 'none';
 
-            if (self.photos.length > 0) self.renderLibrary();
+            self.renderLibrary();
         });
-        this.layout.registerComponent('workspace', function(container: any) {
-            console.log('[App] Workspace component initializing...');
+        this.layout.registerComponentFactoryFunction('workspace', function (container: any) {
             self.$workspaceEl = document.createElement('div');
             self.$workspaceEl.className = 'gl-component';
             self.$workspaceEl.style.overflow = 'hidden';
             self.$workspaceEl.style.position = 'relative'; // Ensure relative for watermark
 
+            // Monitor size changes to update grid columns
+            const resizeObserver = new ResizeObserver(() => {
+                if (self.gridViewManager) {
+                    self.gridViewManager.update(true);
+                }
+            });
+            resizeObserver.observe(self.$workspaceEl);
+
             const watermark = document.createElement('div');
             watermark.className = 'grid-watermark';
             self.$watermarkEl = watermark;
             self.$workspaceEl.appendChild(watermark);
-            
+
             const header = document.createElement('div');
             header.id = 'grid-header';
             header.className = 'grid-header';
-            
+
             const headerLeft = document.createElement('div');
             headerLeft.style.display = 'flex';
             headerLeft.style.alignItems = 'center';
@@ -1351,14 +1373,14 @@ class App {
             expandLibBtn.style.fontWeight = 'bold';
             expandLibBtn.title = 'Show Library (B)';
             expandLibBtn.onclick = () => self.toggleLibraryPanel();
-            
+
             const headerText = document.createElement('span');
             headerText.id = 'header-text';
             headerText.textContent = 'All Photos';
 
             headerLeft.appendChild(expandLibBtn);
             headerLeft.appendChild(headerText);
-            
+
             const headerRight = document.createElement('div');
             headerRight.style.display = 'flex';
             headerRight.style.alignItems = 'center';
@@ -1390,7 +1412,7 @@ class App {
             const sortSelect = document.createElement('select');
             sortSelect.id = 'grid-sort-select';
             sortSelect.style.background = '#111'; sortSelect.style.color = '#ccc'; sortSelect.style.border = '1px solid #444'; sortSelect.style.fontSize = '0.9em';
-            const options: {val: SortOption, text: string}[] = [
+            const options: { val: SortOption, text: string }[] = [
                 { val: 'date-desc', text: 'Date (Newest)' },
                 { val: 'date-asc', text: 'Date (Oldest)' },
                 { val: 'name-asc', text: 'Name (A-Z)' },
@@ -1408,20 +1430,25 @@ class App {
             sortLabel.appendChild(sortSelect);
 
             const stackLabel = document.createElement('label');
-            stackLabel.className = 'control-item';
+            stackLabel.className = 'control-item custom-checkbox';
             stackLabel.title = 'Stack JPG/RAW files with same name';
             const stackCheck = document.createElement('input');
             stackCheck.id = 'grid-stack-check';
             stackCheck.type = 'checkbox';
             stackCheck.checked = self.stackingEnabled;
             stackCheck.onchange = (e) => self.toggleStacking((e.target as HTMLInputElement).checked);
+            
+            const stackMark = document.createElement('span');
+            stackMark.className = 'checkmark';
+
             const stackSpan = document.createElement('span');
             stackSpan.textContent = 'Stacked';
             stackLabel.appendChild(stackCheck);
+            stackLabel.appendChild(stackMark);
             stackLabel.appendChild(stackSpan);
 
             const hiddenLabel = document.createElement('label');
-            hiddenLabel.className = 'control-item';
+            hiddenLabel.className = 'control-item custom-checkbox';
             hiddenLabel.title = 'Show hidden photos';
             const hiddenCheck = document.createElement('input');
             hiddenCheck.id = 'grid-hidden-check';
@@ -1431,15 +1458,20 @@ class App {
                 self.showHidden = (e.target as HTMLInputElement).checked;
                 self.refreshPhotos(true);
             };
+
+            const hiddenMark = document.createElement('span');
+            hiddenMark.className = 'checkmark';
+
             const hiddenSpan = document.createElement('span');
             hiddenSpan.textContent = 'Hidden';
             hiddenLabel.appendChild(hiddenCheck);
+            hiddenLabel.appendChild(hiddenMark);
             hiddenLabel.appendChild(hiddenSpan);
 
             const headerCount = document.createElement('span');
             headerCount.id = 'header-count';
             headerCount.textContent = '0 items';
-            
+
             headerRight.appendChild(scaleLabel);
             headerRight.appendChild(sortLabel);
             headerRight.appendChild(stackLabel);
@@ -1454,6 +1486,7 @@ class App {
             gridContainer.id = 'grid-container';
             gridContainer.style.flex = '1';
             gridContainer.style.overflowY = 'auto';
+            gridContainer.style.overflowX = 'hidden';
             (gridContainer.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
             gridContainer.style.position = 'relative';
             const sentinel = document.createElement('div');
@@ -1472,32 +1505,32 @@ class App {
             console.log('[App] Assigning gridViewEl to manager');
             self.gridViewManager.$gridViewEl = $gridView;
             self.gridViewManager.$scrollSentinel = sentinel;
-            if (self.photos.length > 0) self.gridViewManager.update(true);
+            self.gridViewManager.update(true);
 
             self.$loupeView = document.createElement('div');
             self.loupeVNode = null;
             self.$loupeView.id = 'loupe-view-container';
             self.$loupeView.className = 'loupe-view';
             self.$loupeView.style.display = 'none';
-            self.$loupeView.style.height = '100%';
+            self.$loupeView.style.flex = '1';
             self.$loupeView.style.position = 'relative';
-            
+
             const resizer = document.createElement('div');
             resizer.className = 'filmstrip-resizer';
             resizer.style.display = 'none';
-            
+
             const $filmstrip = document.createElement('div');
             $filmstrip.id = 'filmstrip';
             $filmstrip.className = 'filmstrip';
             $filmstrip.style.display = 'none';
             ($filmstrip.style as CSSStyleDeclaration & { scrollbarGutter: string }).scrollbarGutter = 'stable';
-            
+
             self.$workspaceEl.appendChild(self.$loupeView);
             self.$workspaceEl.appendChild(resizer);
             self.$workspaceEl.appendChild($filmstrip);
 
-            container.getElement().append(self.$workspaceEl);
-            
+            container.element.append(self.$workspaceEl);
+
             self.$gridHeader = header;
             self.$gridView = $gridView;
             self.$scrollSentinel = sentinel;
@@ -1505,7 +1538,7 @@ class App {
             self.gridViewManager.$filmstripEl = $filmstrip;
 
             gridContainer.onscroll = () => self.gridViewManager.update();
-            
+
             // Filmstrip Resizer Logic
             let isResizing = false;
             resizer.onmousedown = (e) => { isResizing = true; e.preventDefault(); };
@@ -1527,28 +1560,29 @@ class App {
             document.addEventListener('mouseup', () => { isResizing = false; });
 
             self.$workspaceEl.tabIndex = 0;
-            if (self.photos.length > 0) self.renderGrid();
+            self.renderGrid();
             if (self.isLoupeMode) self.renderLoupe();
         });
-        this.layout.registerComponent('metadata', function(container: any) {
+        this.layout.registerComponentFactoryFunction('metadata', function (container: any) {
             self.$metadataEl = document.createElement('div');
             self.metadataVNode = null;
             self.$metadataEl.className = 'metadata-panel gl-component';
-            container.getElement().append(self.$metadataEl);
-            if (self.selectedId) self.renderMetadata();
+            container.element.append(self.$metadataEl);
+            self.renderMetadata();
         });
-        
-        this.layout.init();
-        
+
+        // @ts-ignore
+        this.layout.loadLayout(config);
+
         // REQ-WFE-00011: Initial renders to ensure content is attached
         this.renderLibrary();
         this.renderGrid();
         this.renderMetadata();
 
-        window.addEventListener('resize', () => { 
+        window.addEventListener('resize', () => {
             if (this.layout?.isInitialised) {
-                this.layout.updateSize(); 
-                hub.pub(ps.UI_LAYOUT_CHANGED, {}); 
+                // this.layout.updateSize(); 
+                hub.pub(ps.UI_LAYOUT_CHANGED, {});
             }
         });
         this.layout.on('stateChanged', () => hub.pub(ps.UI_LAYOUT_CHANGED, {}));
@@ -1560,7 +1594,7 @@ class App {
         // oldSel?.forEach(e => e.classList.remove('selected'));
         // const newSel = this.$workspaceEl?.querySelectorAll(`.card[data-id="${id}"]`);
         // newSel?.forEach(e => e.classList.add('selected'));
-        
+
         if (this.isLoupeMode) {
             const stripItem = this.$filmstrip?.querySelector(`.card[data-id="${id}"]`);
             if (stripItem) stripItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
@@ -1569,7 +1603,7 @@ class App {
 
     private ensureSelectedFolderVisible() {
         if (!this.selectedRootId) return;
-        
+
         // Only auto-expand if the selection has actually changed
         // This allows users to manually collapse the currently selected folder
         if (this.selectedRootId === this.lastSelectedRootId) {
@@ -1579,7 +1613,7 @@ class App {
             }, 100);
             return;
         }
-        
+
         let changed = false;
         let currentId: string | undefined = this.selectedRootId;
 
@@ -1604,9 +1638,9 @@ class App {
         }
 
         if (changed) {
-            Api.api_settings_set({ 
-                key: 'folder-expanded-state', 
-                value: JSON.stringify(Array.from(this.expandedFolders)) 
+            Api.api_settings_set({
+                key: 'folder-expanded-state',
+                value: JSON.stringify(Array.from(this.expandedFolders))
             });
         }
 
@@ -1729,42 +1763,42 @@ class App {
         const menu = document.getElementById('context-menu')!;
         menu.innerHTML = '';
         const addItem = (text: string, cb: () => void) => {
-            const el = document.createElement('div'); 
-            el.className = 'context-menu-item'; 
-            el.textContent = text; 
-            el.onclick = (e) => { 
-                e.stopPropagation(); 
-                cb(); 
-                menu.style.display = 'none'; 
-            }; 
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = (e) => {
+                e.stopPropagation();
+                cb();
+                menu.style.display = 'none';
+            };
             menu.appendChild(el);
         };
 
-                            addItem('Generate Thumbnails (This Folder)', () => {
-                                Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false })
-                                    .catch(err => {
-                                        console.error('Failed to start thumbnail generation', err);
-                                        this.showNotification('Failed to start thumbnail generation', 'error');
-                                    });
-                                this.showNotification('Thumbnail generation started', 'info');
-                            });
-                            addItem('Generate Thumbnails (Recursive)', () => {
-                                Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false })
-                                    .catch(err => {
-                                        console.error('Failed to start recursive thumbnail generation', err);
-                                        this.showNotification('Failed to start recursive thumbnail generation', 'error');
-                                    });
-                                this.showNotification('Recursive thumbnail generation started', 'info');
-                            });
-                            addItem('Generate Thumbnails (Force)', () => {
-                                if (!confirm('Are you sure you want to force regenerate thumbnails for this folder? This will delete existing thumbnails and regenerate them.')) return;
-                                Api.api_library_generate_thumbnails({ rootId, recursive: false, force: true })
-                                    .catch(err => {
-                                        console.error('Failed to start forced thumbnail generation', err);
-                                        this.showNotification('Failed to start forced thumbnail generation', 'error');
-                                    });
-                                this.showNotification('Forced thumbnail generation started', 'info');
-                            });
+        addItem('Generate Thumbnails (This Folder)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false })
+                .catch(err => {
+                    console.error('Failed to start thumbnail generation', err);
+                    this.showNotification('Failed to start thumbnail generation', 'error');
+                });
+            this.showNotification('Thumbnail generation started', 'info');
+        });
+        addItem('Generate Thumbnails (Recursive)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false })
+                .catch(err => {
+                    console.error('Failed to start recursive thumbnail generation', err);
+                    this.showNotification('Failed to start recursive thumbnail generation', 'error');
+                });
+            this.showNotification('Recursive thumbnail generation started', 'info');
+        });
+        addItem('Generate Thumbnails (Force)', () => {
+            if (!confirm('Are you sure you want to force regenerate thumbnails for this folder? This will delete existing thumbnails and regenerate them.')) return;
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: true })
+                .catch(err => {
+                    console.error('Failed to start forced thumbnail generation', err);
+                    this.showNotification('Failed to start forced thumbnail generation', 'error');
+                });
+            this.showNotification('Forced thumbnail generation started', 'info');
+        });
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';
@@ -1778,7 +1812,7 @@ class App {
         };
 
         addItem('Add to New Collection...', () => this.storePickedToCollection(null, [p.fileEntryId]));
-        
+
         if (this.selectedRootId) {
             const isHidden = this.hiddenIds.has(p.fileEntryId);
             addItem(isHidden ? 'Unhide Photo (h)' : 'Hide Photo (h)', () => this.toggleHide(p.fileEntryId));
@@ -1790,7 +1824,7 @@ class App {
                 this.setFilter('all', 0, p.rootPathId!, true);
             });
         }
-        
+
         if (this.userCollections.length > 0) {
             const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);
             this.userCollections.forEach(c => {
@@ -1823,7 +1857,7 @@ class App {
         const d = document.createElement('div'); d.className = 'context-menu-divider'; menu.appendChild(d);
         addItem('Store to new collection...', () => this.storePickedToCollection(null));
         this.userCollections.forEach(c => addItem(`Store to '${c.name}'`, () => this.storePickedToCollection(c.collectionId)));
-        
+
         const d2 = document.createElement('div'); d2.className = 'context-menu-divider'; menu.appendChild(d2);
         addItem('Download ZIP (Previews)', () => this.downloadZip('previews'));
         addItem('Download ZIP (Originals)', () => this.downloadZip('originals'));
@@ -1858,7 +1892,7 @@ class App {
     // REQ-WFE-00018
     private async downloadZip(type: 'previews' | 'originals', collectionId?: string) {
         hub.pub(ps.UI_NOTIFICATION, { message: 'Preparing download...', type: 'info' });
-        
+
         let fileIds: string[] = [];
         let exportName = 'picked';
 
@@ -1935,8 +1969,8 @@ class App {
         this.searchTag = tag;
         this.searchValue = value;
         this.searchQuery = query || null;
-        this.selectedSavedSearchId = null; 
-        
+        this.selectedSavedSearchId = null;
+
         if (!query && !tag) {
             this.searchResultIds = [];
             this.searchTitle = '';
@@ -1945,7 +1979,7 @@ class App {
         }
         const spinner = document.querySelector('.search-loading');
         if (spinner) spinner.classList.add('active');
-        
+
         try {
             this.searchResultIds = await Api.api_search({ tag, value, query });
             this.searchTitle = query ? `Query: ${query}` : `${tag}: ${value}`;
@@ -2037,7 +2071,7 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.updateViewModeUI();
-        this.libraryManager.initLayout('library-view', () => {});
+        this.libraryManager.initLayout('library-view', () => { });
         this.libraryManager.loadLibraryInfo();
         this.syncUrl();
     }
@@ -2045,7 +2079,7 @@ class App {
     private updateViewModeUI() {
         const layoutCont = document.getElementById('layout-container')!;
         const libraryView = document.getElementById('library-view')!;
-        
+
         document.querySelectorAll('.lr-nav-item').forEach(el => el.classList.remove('active'));
 
         if (this.isLibraryMode) {
@@ -2055,7 +2089,7 @@ class App {
         } else {
             layoutCont.style.display = 'block';
             libraryView.style.display = 'none';
-            
+
             const gridCont = (this.$workspaceEl?.querySelector('#grid-container') as HTMLElement);
             const resizer = (this.$workspaceEl?.querySelector('.filmstrip-resizer') as HTMLElement);
             if (this.isLoupeMode) {
@@ -2080,13 +2114,13 @@ class App {
 
     private updateFullscreenImage(id: string) {
         if (!this.$fullscreenImgPlaceholder || !this.$fullscreenImgHighRes || !this.$fullscreenSpinner || !this.$fullscreenOverlay) return;
-        
+
         this.$fullscreenImgHighRes.classList.remove('loaded');
         this.$fullscreenImgHighRes.src = '';
         this.$fullscreenImgPlaceholder.style.display = 'none';
         this.$fullscreenImgPlaceholder.src = '';
         this.$fullscreenSpinner.style.display = 'block';
-        
+
         const rot = this.rotationMap.get(id) || 0;
         this.$fullscreenImgHighRes.style.transform = `rotate(${rot}deg)`;
         this.$fullscreenImgPlaceholder.style.transform = `rotate(${rot}deg)`;
@@ -2100,12 +2134,12 @@ class App {
         const lowResKey = id + '-1024';
         const thumbKey = id + '-300';
         const highResKey = id + '-0';
-        
+
         const requestFullRes = () => {
             if (this.imageUrlCache.has(highResKey)) {
                 const url = this.imageUrlCache.get(highResKey)!;
                 this.$fullscreenImgHighRes!.src = url;
-                
+
                 const photo = this.photoMap.get(id);
                 if (dlJpg && photo) {
                     dlJpg.href = url;
@@ -2136,7 +2170,7 @@ class App {
                     const url = URL.createObjectURL(blob);
                     this.imageUrlCache.set(highResKey, url);
                     this.$fullscreenImgHighRes!.src = url;
-                    
+
                     const photo = this.photoMap.get(id);
                     if (dlJpg && photo) {
                         dlJpg.href = url;
@@ -2164,7 +2198,7 @@ class App {
         } else {
             this.$fullscreenImgPlaceholder.style.display = 'none';
         }
-        
+
         requestFullRes();
     }
 
@@ -2176,7 +2210,7 @@ class App {
             this.$fullscreenImgHighRes = null;
             this.$fullscreenSpinner = null;
             this.isFullscreen = false;
-            
+
             // Refresh loupe if we are returning to it
             if (this.isLoupeMode && this.selectedId) {
                 this.renderLoupe();
@@ -2186,16 +2220,16 @@ class App {
         }
 
         if (!this.selectedId) return;
-        
+
         this.isFullscreen = true;
         const overlay = document.createElement('div');
         overlay.className = 'fullscreen-overlay';
-        
-        const spinner = document.createElement('div'); spinner.className = 'spinner'; 
+
+        const spinner = document.createElement('div'); spinner.className = 'spinner';
         overlay.appendChild(spinner);
         this.$fullscreenSpinner = spinner;
 
-        const imgP = document.createElement('img'); 
+        const imgP = document.createElement('img');
         imgP.className = 'fullscreen-img placeholder';
         overlay.appendChild(imgP);
         this.$fullscreenImgPlaceholder = imgP;
@@ -2204,10 +2238,10 @@ class App {
         imgH.className = 'fullscreen-img highres';
         overlay.appendChild(imgH);
         this.$fullscreenImgHighRes = imgH;
-        
+
         document.body.appendChild(overlay);
         this.$fullscreenOverlay = overlay;
-        
+
         const closeBtn = document.createElement('div');
         closeBtn.className = 'fullscreen-close';
         closeBtn.innerHTML = '&times;';
@@ -2216,13 +2250,13 @@ class App {
 
         const actions = document.createElement('div');
         actions.className = 'fullscreen-actions';
-        
+
         const dlJpg = document.createElement('a');
         dlJpg.className = 'fullscreen-btn';
         dlJpg.title = 'Download High-Res JPG Render';
         dlJpg.textContent = 'JPG';
         dlJpg.onclick = (e) => e.stopPropagation();
-        
+
         const dlOrig = document.createElement('a');
         dlOrig.className = 'fullscreen-btn';
         dlOrig.title = 'Download Original Source File';
@@ -2308,7 +2342,7 @@ class App {
                 if (group.items['Model']) { model = group.items['Model']; break; }
                 if (group.items['Camera Model Name']) { model = group.items['Camera Model Name']; break; }
             }
-            
+
             if (model && !this.cameraThumbCache.has(model)) {
                 const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
                 const img = new Image();
@@ -2325,7 +2359,7 @@ class App {
                 this.renderMetadata();
             }
 
-        } catch (err) { 
+        } catch (err) {
             console.error(err);
         }
     }
@@ -2333,65 +2367,112 @@ class App {
     // REQ-WFE-00014
     private toggleLibraryPanel() {
         if (!this.layout) return;
-        const libraryItem = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'library')[0];
-        const expandBtn = document.getElementById('lib-expand-btn');
         
+        const findComponent = (item: any, type: string): any => {
+            if (item.isComponent && item.componentType === type) return item;
+            if (item.contentItems) {
+                for (const child of item.contentItems) {
+                    const found = findComponent(child, type);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+
+        const libraryItem = findComponent(this.layout.rootItem, 'library');
+        const expandBtn = document.getElementById('lib-expand-btn');
+
         if (libraryItem) {
-            libraryItem.remove();
+            libraryItem.close(); // Use close() which handles parent stack removal if empty
             if (expandBtn) expandBtn.style.display = 'inline-block';
         } else {
             // Restore Library
-            if (this.layout.root.contentItems.length > 0) {
-                const rootRow = this.layout.root.contentItems[0];
-                rootRow.addChild({
+            if (this.layout.rootItem) {
+                // Assuming root is a Row. Add to the beginning.
+                // We wrap in a Stack to be consistent
+                const componentConfig = {
                     type: 'component',
-                    componentName: 'library',
+                    componentType: 'library',
                     width: 20,
                     title: 'Library',
-                    isClosable: false
-                }, 0); // index 0 to put it on left
+                    isClosable: true,
+                    reorderEnabled: true
+                } as ComponentItemConfig;
+
+                const stackConfig = {
+                    type: 'stack',
+                    width: 20,
+                    content: [componentConfig]
+                };
+
+                (this.layout.rootItem as RowOrColumn).addItem(stackConfig as any, 0);
+                if (expandBtn) expandBtn.style.display = 'none';
             }
-            if (expandBtn) expandBtn.style.display = 'none';
         }
     }
 
     // REQ-WFE-00014
     private toggleMetadataPanel() {
         if (!this.layout) return;
-        const metadataItems = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'metadata');
-        
-        if (metadataItems.length > 0) {
-            // Already exists, close it
-            metadataItems[0].remove();
-        } else {
-            // Missing, find workspace and add next to it
-            const workspaceItems = this.layout.root.getItemsByFilter((item: any) => item.config.componentName === 'workspace');
-            if (workspaceItems.length > 0) {
-                const parent = workspaceItems[0].parent;
-                parent.addChild({
-                    type: 'component',
-                    componentName: 'metadata',
-                    width: 20,
-                    title: 'Metadata'
-                });
-            } else {
-                // Fallback: add to root
-                if (this.layout.root.contentItems.length > 0) {
-                    this.layout.root.contentItems[0].addChild({
-                        type: 'component',
-                        componentName: 'metadata',
-                        width: 20,
-                        title: 'Metadata'
-                    });
+
+        const findComponent = (item: any, type: string): any => {
+            if (item.isComponent && item.componentType === type) return item;
+            if (item.contentItems) {
+                for (const child of item.contentItems) {
+                    const found = findComponent(child, type);
+                    if (found) return found;
                 }
             }
+            return null;
+        };
+
+        const metadataItem = findComponent(this.layout.rootItem, 'metadata');
+
+        if (metadataItem) {
+            metadataItem.close();
+            return;
+        }
+
+        // Missing, find workspace and add next to it
+        const workspaceItem = findComponent(this.layout.rootItem, 'workspace');
+
+        const componentConfig = {
+            type: 'component',
+            componentType: 'metadata',
+            width: 20,
+            title: 'Metadata',
+            isClosable: true,
+            reorderEnabled: true
+        } as ComponentItemConfig;
+
+        const stackConfig = {
+            type: 'stack',
+            width: 20,
+            content: [componentConfig]
+        };
+
+        if (workspaceItem) {
+            // Add after workspace. Workspace is likely in a Stack.
+            // We want to add the Metadata Stack *after* the Workspace Stack (or Component).
+            // If Workspace is in a Stack, we want to add to the parent Row/Column of that Stack.
+            
+            let targetParent = workspaceItem.parent;
+            // Traverse up to find the Row that holds the workspace stack (or workspace)
+            // Ideally we want to be a sibling of the workspace's container if it's a row.
+            
+            // Simplified: Just add to root, or try to be smart?
+            // If we add to rootItem (Row), we can just append.
+            (this.layout.rootItem as RowOrColumn).addItem(stackConfig as any);
+        } else {
+            // Fallback: add to root
+             (this.layout.rootItem as RowOrColumn).addItem(stackConfig as any);
         }
     }
 
     private handleKey(e: KeyboardEvent) {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
         if ((e.target as HTMLElement).isContentEditable) return;
-        
+
         // Block hotkeys if dialogs are open
         if (this.isShortcutsVisible || this.isSettingsVisible) {
             if (e.key === 'Escape') {
@@ -2406,11 +2487,11 @@ class App {
         // Block hotkeys if context menu is open
         const ctxMenu = document.getElementById('context-menu');
         if (ctxMenu && ctxMenu.style.display === 'block') {
-             if (e.key === 'Escape') {
+            if (e.key === 'Escape') {
                 ctxMenu.style.display = 'none';
                 e.preventDefault();
-             }
-             return;
+            }
+            return;
         }
 
         const key = e.key.toLowerCase();
@@ -2425,24 +2506,24 @@ class App {
             if (this.isLibraryMode && (key === 'enter' || key === ' ')) return; // Don't switch from library on space/enter
             e.preventDefault();
             if (this.isFullscreen) this.toggleFullscreen();
-            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId:  this.selectedId || undefined });
+            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId: this.selectedId || undefined });
             return;
         }
-        if (key === '?' || key === '/') { 
-            if (key === '?' || (key === '/' && e.shiftKey)) { 
-                e.preventDefault(); 
-                hub.pub(ps.SHORTCUTS_SHOW, {}); 
+        if (key === '?' || key === '/') {
+            if (key === '?' || (key === '/' && e.shiftKey)) {
+                e.preventDefault();
+                hub.pub(ps.SHORTCUTS_SHOW, {});
                 return;
-            } 
+            }
         }
 
         // If in Library mode, disable all other hotkeys
         if (this.isLibraryMode) return;
-        
+
         if (key === 'escape') {
             if (this.isFullscreen) this.toggleFullscreen();
         }
-        
+
         if (key === 'f') {
             e.preventDefault();
             this.toggleFullscreen();
@@ -2505,15 +2586,15 @@ class App {
 
     private navigateFolders(direction: 'next' | 'prev') {
         if (this.flatFolderList.length === 0) return;
-        
+
         let index = this.selectedRootId ? this.flatFolderList.indexOf(this.selectedRootId) : -1;
-        
+
         if (direction === 'next') index++;
         else index--;
 
         index = Math.max(0, Math.min(this.flatFolderList.length - 1, index));
         const targetId = this.flatFolderList[index];
-        
+
         if (targetId && targetId !== this.selectedRootId) {
             this.setFilter('all', 0, targetId);
             // Scrolling is handled by renderFolderTree which is triggered by setFilter -> refreshPhotos
@@ -2522,26 +2603,26 @@ class App {
 
     private navigate(key: string, shift: boolean = false) {
         if (this.photos.length === 0) return;
-        
+
         let index = this.selectedId ? this.photos.findIndex(p => p?.fileEntryId === this.selectedId) : -1;
-        
-        if (key === 'ArrowRight') index++; 
+
+        if (key === 'ArrowRight') index++;
         else if (key === 'ArrowLeft') index--;
         else if (key === 'ArrowDown' || key === 'ArrowUp') {
             if (this.isLoupeMode || this.isFullscreen) { if (key === 'ArrowDown') index++; else index--; }
-            else { 
+            else {
                 const cols = this.gridViewManager.getColumnCount();
-                if (key === 'ArrowDown') index += cols; else index -= cols; 
+                if (key === 'ArrowDown') index += cols; else index -= cols;
             }
         }
-        
+
         index = Math.max(0, Math.min(this.photos.length - 1, index));
         const target = this.photos[index];
         if (target) {
             // If shift is pressed, we treat it as standard range selection from anchor
             // unless in Loupe mode where we enforce single selection.
-            const mods = { shift: shift, ctrl: false }; 
-            hub.pub(ps.PHOTO_SELECTED, { fileEntryId:  target.fileEntryId, photo: target, modifiers: mods });
+            const mods = { shift: shift, ctrl: false };
+            hub.pub(ps.PHOTO_SELECTED, { fileEntryId: target.fileEntryId, photo: target, modifiers: mods });
             this.gridViewManager.scrollToPhoto(target.fileEntryId);
         }
     }
@@ -2564,5 +2645,4 @@ class App {
 const app = new App();
 window.app = app;
 hub.pub(ps.UI_LAYOUT_CHANGED, {}); hub.pub(ps.CONNECTION_CHANGED, { connected: false, connecting: true });
-        
-        
+

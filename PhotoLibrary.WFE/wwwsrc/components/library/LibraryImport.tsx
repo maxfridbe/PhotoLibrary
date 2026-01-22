@@ -36,7 +36,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
 
             <div style={{ display: 'flex', gap: '0.5em', alignItems: 'center' }}>
                 <input
-                    type="text"
+                    attrs={{ type: 'text' }}
                     props={{ readonly: true, value: currentScanPath, placeholder: 'Select a directory...' }}
                     style={{ flex: '1', background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.6em', borderRadius: '4px', fontSize: '0.9em' }}
                 />

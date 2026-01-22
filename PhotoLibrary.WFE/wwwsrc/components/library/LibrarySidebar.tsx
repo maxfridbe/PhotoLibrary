@@ -48,6 +48,7 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
 
     const collectionItems = props.userCollections.map(c => (
         <TreeItem
+            key={c.collectionId}
             text={c.name}
             count={c.count}
             isSelected={props.selectedCollectionId === c.collectionId}
@@ -60,6 +61,7 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
 
     const savedSearchItems = props.savedSearches.map(s => (
         <TreeItem
+            key={s.savedSearchId}
             text={s.title}
             isSelected={props.selectedSavedSearchId === s.savedSearchId}
             typeAttr={'saved-search-' + s.savedSearchId}
@@ -73,6 +75,7 @@ export function LibrarySidebar(props: LibrarySidebarProps): VNode {
     for (let i = 5; i >= 1; i--) {
         ratingItems.push(
             <TreeItem
+                key={'rating-' + i}
                 text={'\u2605'.repeat(i)}
                 count={props.stats.ratingCounts[i-1]}
                 isSelected={props.filterType === 'rating' && props.filterRating === i}

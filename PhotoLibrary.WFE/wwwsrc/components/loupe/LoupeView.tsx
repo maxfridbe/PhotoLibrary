@@ -59,21 +59,18 @@ export function LoupeView(props: LoupeViewProps): VNode {
                     class={{ 'preview-area': true }} 
                     style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '1' }}
                 >
-                    <div id="preview-spinner" class={{ spinner: true, 'center-spinner': true }} style={{ display: 'none' }} />
+                    <div class={{ spinner: true, 'center-spinner': true, 'preview-spinner': true }} style={{ display: 'none' }} />
                     <div 
-                        id="loupe-overlay" 
-                        class={{ 'loupe-overlay': true }} 
+                        class={{ 'loupe-overlay': true, 'loupe-overlay-text': true }} 
                         props={{ textContent: overlayText }}
                         style={{ position: 'absolute', top: '10px', left: '10px', color: 'white', textShadow: '1px 1px 2px black', zIndex: '10', pointerEvents: 'none', whiteSpace: 'pre-wrap', fontSize: '0.9em' }}
                     />
                     <img 
-                        id="loupe-preview-placeholder" 
-                        class={{ 'loupe-img': true, placeholder: true, 'is-portrait-rotated': rotation % 180 !== 0 }}
+                        class={{ 'loupe-img': true, placeholder: true, 'is-portrait-rotated': rotation % 180 !== 0, 'loupe-preview-placeholder': true }}
                         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                     />
                     <img 
-                        id="main-preview" 
-                        class={{ 'loupe-img': true, highres: true, 'is-portrait-rotated': rotation % 180 !== 0 }}
+                        class={{ 'loupe-img': true, highres: true, 'is-portrait-rotated': rotation % 180 !== 0, 'main-preview': true }}
                         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', position: 'absolute', opacity: '0', transition: 'opacity 0.3s' }}
                     />
                     
@@ -131,9 +128,9 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     if (!photo) return { destroy: () => {}, updateProps: () => {} };
 
     const $previewArea = $el.querySelector('.preview-area') as HTMLElement;
-    const $imgP = $el.querySelector('#loupe-preview-placeholder') as HTMLImageElement;
-    const $imgH = $el.querySelector('#main-preview') as HTMLImageElement;
-    const $spinner = $el.querySelector('#preview-spinner') as HTMLElement;
+    const $imgP = $el.querySelector('.loupe-preview-placeholder') as HTMLImageElement;
+    const $imgH = $el.querySelector('.main-preview') as HTMLImageElement;
+    const $spinner = $el.querySelector('.preview-spinner') as HTMLElement;
     const $zoomToolbar = $el.querySelector('.zoom-toolbar') as HTMLElement;
     const $zoomLevel = $el.querySelector('.zoom-level') as HTMLElement;
     const $btnPlus = $el.querySelector('.btn-plus') as HTMLElement;
@@ -143,7 +140,19 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     const $btnRotateRight = $el.querySelector('.btn-rotate-right') as HTMLElement;
 
     if (!$previewArea || !$imgP || !$imgH || !$spinner || !$zoomToolbar || !$zoomLevel || !$btnPlus || !$btnMinus || !$btn1to1 || !$btnRotateLeft || !$btnRotateRight) {
-        console.warn('[LoupeView] Some DOM elements missing, skipping logic setup');
+        console.warn('[LoupeView] Missing elements:', {
+            previewArea: !!$previewArea,
+            imgP: !!$imgP,
+            imgH: !!$imgH,
+            spinner: !!$spinner,
+            zoomToolbar: !!$zoomToolbar,
+            zoomLevel: !!$zoomLevel,
+            btnPlus: !!$btnPlus,
+            btnMinus: !!$btnMinus,
+            btn1to1: !!$btn1to1,
+            btnRotateLeft: !!$btnRotateLeft,
+            btnRotateRight: !!$btnRotateRight
+        });
         return { destroy: () => {}, updateProps: () => {} };
     }
     let scale = 1;

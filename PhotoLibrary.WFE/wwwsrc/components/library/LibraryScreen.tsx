@@ -49,10 +49,8 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1em' }}>
                             <div style={{ display: 'flex', gap: '0.5em' }}>
                                 <input
-                                    id="scan-path-input"
+                                    attrs={{ id: 'scan-path-input', type: 'text', placeholder: 'Path to scan...' }}
                                     key="scan-input"
-                                    type="text"
-                                    attrs={{ placeholder: 'Path to scan...' }}
                                     props={{ value: currentScanPath }}
                                     hook={{
                                         insert: (vnode) => { 
@@ -78,7 +76,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1em', fontSize: '0.95em', color: 'var(--text-muted)' }}>
                                 <span>Limit:</span>
                                 <select 
-                                    id="scan-limit-select"
+                                    attrs={{ id: 'scan-limit-select' }}
                                     style={{ background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '4px' }}
                                 >
                                     <option attrs={{ value: '100' }}>100</option>
@@ -256,13 +254,21 @@ function renderImportControls(isIndexing: boolean, isCancelling: boolean, result
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: '2em', paddingTop: '2em', borderTop: '1px solid var(--border-main)', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '1.5em' }}>
-                <label>
-                    <input id="gen-low-check" type="checkbox" props={{ checked: true }} />
-                    {' Low Previews'}
+                <label class={{ 'custom-checkbox': true }}>
+                    <input 
+                        attrs={{ id: 'gen-low-check', type: 'checkbox' }}
+                        hook={{ insert: (vnode) => (vnode.elm as HTMLInputElement).checked = true }} 
+                    />
+                    <span class={{ 'checkmark': true }}></span>
+                    <span class={{ 'label-text': true }}>Low Previews</span>
                 </label>
-                <label>
-                    <input id="gen-med-check" type="checkbox" props={{ checked: true }} />
-                    {' Medium Previews'}
+                <label class={{ 'custom-checkbox': true }}>
+                    <input 
+                        attrs={{ id: 'gen-med-check', type: 'checkbox' }}
+                        hook={{ insert: (vnode) => (vnode.elm as HTMLInputElement).checked = true }} 
+                    />
+                    <span class={{ 'checkmark': true }}></span>
+                    <span class={{ 'label-text': true }}>Medium Previews</span>
                 </label>
             </div>
             <button

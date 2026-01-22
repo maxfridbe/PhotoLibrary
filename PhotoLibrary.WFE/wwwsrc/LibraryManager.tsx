@@ -9,8 +9,9 @@ import { LibraryLocations } from './components/library/LibraryLocations.js';
 import { LibraryImport } from './components/library/LibraryImport.js';
 import { FSNode } from './components/import/FileSystemBrowser.js';
 import { post } from './CommunicationManager.js';
+import { GoldenLayout } from './lib/golden-layout.esm.js';
 
-declare var GoldenLayout: any;
+// declare var GoldenLayout: any;
 
 const ps = constants.pubsub;
 
@@ -108,52 +109,58 @@ export class LibraryManager {
         const config = {
             settings: { showPopoutIcon: false },
             dimensions: { headerHeight: 45 },
-            content: [{
+            root: {
                 type: 'row',
                 content: [
-                    { type: 'component', componentName: 'statistics', title: 'Library Statistics', width: 30 },
+                    { 
+                        type: 'stack', 
+                        width: 30,
+                        content: [{ type: 'component', componentType: 'statistics', title: 'Library Statistics', isClosable: true, reorderEnabled: true }]
+                    },
                     { 
                         type: 'stack', 
                         width: 70,
                         content: [
-                            { type: 'component', componentName: 'locations', title: 'Index Locations' },
-                            { type: 'component', componentName: 'import', title: 'Import and Index' }
+                            { type: 'component', componentType: 'locations', title: 'Index Locations', isClosable: true, reorderEnabled: true },
+                            { type: 'component', componentType: 'import', title: 'Import and Index', isClosable: true, reorderEnabled: true }
                         ]
                     }
                 ]
-            }]
+            }
         };
 
-        this.layout = new GoldenLayout(config, container);
+        // @ts-ignore
+        this.layout = new GoldenLayout(container);
         const self = this;
 
-        this.layout.registerComponent('statistics', function(container: any) {
+        this.layout.registerComponentFactoryFunction('statistics', function(container: any) {
             const el = document.createElement('div');
             el.className = 'gl-component';
-            container.getElement().append(el);
+            container.element.append(el);
             self.statsVNode = el;
             self._renderStats();
         });
 
-        this.layout.registerComponent('locations', function(container: any) {
+        this.layout.registerComponentFactoryFunction('locations', function(container: any) {
             const el = document.createElement('div');
             el.className = 'gl-component';
-            container.getElement().append(el);
+            container.element.append(el);
             self.locationsVNode = el;
             self._renderLocations();
         });
 
-        this.layout.registerComponent('import', function(container: any) {
+        this.layout.registerComponentFactoryFunction('import', function(container: any) {
             const el = document.createElement('div');
             el.className = 'gl-component';
-            container.getElement().append(el);
+            container.element.append(el);
             self.importVNode = el;
             self._renderImport();
         });
 
-        this.layout.init();
+        // @ts-ignore
+        this.layout.loadLayout(config);
         window.addEventListener('resize', () => { 
-            this.layout.updateSize(); 
+            if (container) this.layout.updateSize(container.offsetWidth, container.offsetHeight); 
         });
 
         this.loadLibraryInfo();
@@ -407,8 +414,8 @@ export class LibraryManager {
         this.render();
         try {
             const res = await Api.api_fs_find_files({ name: path });
-            if (res && res.files) {
-                this.localScanResults = res.files;
+            if (Array.isArray(res)) {
+                this.localScanResults = res;
             }
         } catch (e) {
             console.error("Failed to find local files", e);
@@ -426,8 +433,8 @@ export class LibraryManager {
             this.render();
 
             const res = await Api.api_library_find_new_files({ name: `${path}|${limit}` });
-            if (res && res.files) {
-                this.scanResults = res.files.map((f: string) => ({ path: f, status: 'pending' as const }));
+            if (Array.isArray(res)) {
+                this.scanResults = res.map((f: string) => ({ path: f, status: 'pending' as const }));
             }
         } catch (e) {
             console.error('Error searching path', e);

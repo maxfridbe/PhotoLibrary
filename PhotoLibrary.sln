@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.Contracts", "P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.WFE", "PhotoLibrary.WFE\PhotoLibrary.WFE.csproj", "{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoLibrary.Backend.Tests", "PhotoLibrary.Backend.Tests\PhotoLibrary.Backend.Tests.csproj", "{7CDACA4B-D044-4975-B627-F31984395391}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,6 +40,10 @@ Global
 		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6C3E88B5-A2DC-43E0-9953-60FFCE136B46}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7CDACA4B-D044-4975-B627-F31984395391}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7CDACA4B-D044-4975-B627-F31984395391}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7CDACA4B-D044-4975-B627-F31984395391}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7CDACA4B-D044-4975-B627-F31984395391}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

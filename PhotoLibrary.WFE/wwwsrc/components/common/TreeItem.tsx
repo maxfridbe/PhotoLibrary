@@ -9,11 +9,13 @@ export interface TreeItemProps {
     onClick: () => void;
     onContextMenu?: (e: MouseEvent) => void;
     icon?: string | VNode;
+    key?: string | number;
 }
 
 export function TreeItem(props: TreeItemProps): VNode {
     return (
         <div 
+            key={props.key}
             class={{ 'tree-item': true, selected: props.isSelected }}
             dataset={{ type: props.typeAttr }}
             on={{

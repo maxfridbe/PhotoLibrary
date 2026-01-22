@@ -39,7 +39,7 @@ export function SettingsModal(props: SettingsModalProps): VNode {
                 <div class={{ 'shortcut-row': true }}>
                     <span class={{ 'shortcut-desc': true }}>Application Name</span>
                     <input
-                        type="text"
+                        attrs={{ type: 'text' }}
                         props={{ value: appName }}
                         style={{ background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.2em 0.5em', borderRadius: '4px', flex: '1', marginLeft: '1em' }}
                         on={{ change: (e: Event) => onAppNameChange((e.target as HTMLInputElement).value) }}
@@ -53,7 +53,7 @@ export function SettingsModal(props: SettingsModalProps): VNode {
                     >
                         {Object.keys(themes).map(name => (
                             <option
-                                value={name}
+                                attrs={{ value: name }}
                                 props={{ selected: currentTheme === name }}
                             >
                                 {name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
@@ -64,7 +64,7 @@ export function SettingsModal(props: SettingsModalProps): VNode {
                 <div class={{ 'shortcut-row': true }}>
                     <span class={{ 'shortcut-desc': true }}>Loupe Overlay Format</span>
                     <input
-                        type="text"
+                        attrs={{ type: 'text' }}
                         props={{ value: overlayFormat }}
                         style={{ background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.2em 0.5em', borderRadius: '4px', flex: '1', marginLeft: '1em' }}
                         on={{ change: (e: Event) => onOverlayFormatChange((e.target as HTMLInputElement).value) }}
