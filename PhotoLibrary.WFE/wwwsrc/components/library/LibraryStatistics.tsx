@@ -6,7 +6,7 @@ export function LibraryStatistics(info: Res.LibraryInfoResponse | null, isBackin
     return (
         <div 
             class={{ 'lib-pane': true }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'auto', boxSizing: 'border-box', height: '100%', padding: '1em' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'overlay' as any, boxSizing: 'border-box', height: '100%', padding: '1em' }}
         >
             {info ? renderStats(info, isBackingUp, onBackup) : <div>Loading statistics...</div>}
         </div>

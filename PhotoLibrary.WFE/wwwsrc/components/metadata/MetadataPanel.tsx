@@ -59,7 +59,7 @@ export function MetadataPanel(props: MetadataPanelProps): VNode {
     return (
         <div 
             class={{ 'metadata-panel': true }}
-            style={{ height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}
+            style={{ height: '100%', overflowY: 'overlay' as any, boxSizing: 'border-box' }}
         >
             <h2>{`${photo.fileName} ${pickText} ${starsText}`}</h2>
             {(hasAperture && hasFocal) ? (

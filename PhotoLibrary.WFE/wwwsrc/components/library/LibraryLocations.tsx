@@ -32,7 +32,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
     return (
         <div 
             class={{ 'lib-pane': true }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '2em', height: '100%', overflowY: 'auto', padding: '1em' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '2em', height: '100%', overflowY: 'overlay' as any, padding: '1em' }}
         >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1em' }}>
                 <div 
@@ -40,7 +40,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                     style={{ 
                         border: '1px solid var(--border-main)', borderRadius: '4px', 
                         background: 'var(--bg-panel-alt)', maxHeight: '300px', minHeight: '100px',
-                        overflowY: 'auto'
+                        overflowY: 'overlay' as any
                     }}
                 >
                     {roots && roots.length > 0 ? renderHierarchicalFolderList(roots, expandedFolders, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask) : []}
@@ -109,7 +109,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                     style={{ 
                         border: '1px solid var(--border-main)', borderRadius: '4px', 
                         background: 'var(--bg-panel-alt)', height: '15em', 
-                        overflowY: 'auto', position: 'relative' 
+                        overflowY: 'overlay' as any, position: 'relative' 
                     }}
                 >
                     {isScanning ? (

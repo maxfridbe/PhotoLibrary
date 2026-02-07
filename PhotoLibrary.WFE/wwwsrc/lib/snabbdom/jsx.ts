@@ -86,15 +86,48 @@ export function jsx(
     // tag is a function component
     return tag(data, flatChildren);
   } else {
+    const snabbdomData: VNodeData = {};
+    if (data) {
+      const {
+        key,
+        class: className,
+        style,
+        on,
+        props,
+        attrs,
+        dataset,
+        hooks,
+        hook,
+        ns,
+        ...otherData
+      } = data as any;
+
+      if (key !== undefined) snabbdomData.key = key;
+      if (className !== undefined) snabbdomData.class = className;
+      if (style !== undefined) snabbdomData.style = style;
+      if (on !== undefined) snabbdomData.on = on;
+      if (props !== undefined) snabbdomData.props = props;
+      if (attrs !== undefined) snabbdomData.attrs = attrs;
+      if (dataset !== undefined) snabbdomData.dataset = dataset;
+      if (hooks !== undefined) snabbdomData.hooks = hooks;
+      if (hook !== undefined) snabbdomData.hook = hook;
+      if (ns !== undefined) snabbdomData.ns = ns;
+
+      // Move anything else into attrs
+      if (Object.keys(otherData).length > 0) {
+        snabbdomData.attrs = { ...snabbdomData.attrs, ...otherData };
+      }
+    }
+
     if (
       flatChildren.length === 1 &&
       !flatChildren[0].sel &&
       flatChildren[0].text
     ) {
       // only child is a simple text node, pass as text for a simpler vtree
-      return h(tag, data, flatChildren[0].text);
+      return h(tag, snabbdomData, flatChildren[0].text);
     } else {
-      return h(tag, data, flatChildren);
+      return h(tag, snabbdomData, flatChildren);
     }
   }
 }

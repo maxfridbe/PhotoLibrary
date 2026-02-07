@@ -57,7 +57,7 @@ export function FolderTree(props: FolderTreeProps): VNode {
                 );
             }
 
-            const percent = Math.min(100, Math.max(0, (thumbnailed / total) * 100));
+            const percent = total > 0 ? Math.min(100, Math.max(0, (thumbnailed / total) * 100)) : 0;
             
             return (
                 <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>

@@ -61,7 +61,7 @@ export function FileSystemBrowser(props: FileSystemBrowserProps): VNode {
         <div 
             class={{ 'fs-browser': true }}
             style={{ 
-                overflowY: 'auto', 
+                overflowY: 'overlay' as any,
                 height: '350px', 
                 border: '1px solid var(--border-main)', 
                 background: 'var(--bg-panel-alt)',

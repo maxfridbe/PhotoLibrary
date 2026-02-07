@@ -871,12 +871,10 @@ class App {
                 else bwStr = (bw / 1024).toFixed(0) + ' KB/s';
 
                 content.push(
-                    <span
-                        style={{ color: '#888', marginRight: '10px' }}
-                        attrs={{ title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' }}
-                    >
-                        {`(${bwStr}) (${mem})`}
-                    </span>
+                    h('span', {
+                        style: { color: '#888', marginRight: '10px' },
+                        attrs: { title: 'Network Bandwidth / Memory Usage', 'aria-label': 'System Stats' }
+                    }, `(${bwStr}) (${mem})`)
                 );
             }
             content.push('Connected');
@@ -888,10 +886,10 @@ class App {
             if (this.isConnecting) {
                 color = '#aaa';
                 content.push(
-                    <span
-                        class={{ spinner: true }}
-                        style={{ display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' }}
-                    />
+                    h('span', {
+                        class: { spinner: true },
+                        style: { display: 'inline-block', width: '10px', height: '10px', verticalAlign: 'middle', marginRight: '5px' }
+                    })
                 );
                 content.push(`Connecting... (${time} offline)`);
             } else {
@@ -2469,11 +2467,30 @@ class App {
         }
     }
 
+    public showShortcuts() {
+        this.isShortcutsVisible = true;
+        this.renderModals();
+    }
+
     private handleKey(e: KeyboardEvent) {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
         if ((e.target as HTMLElement).isContentEditable) return;
 
-        // Block hotkeys if dialogs are open
+        // Help should always work, even if other modals are open (it can toggle them)
+        if (e.key === '?' || (e.key === '/' && e.shiftKey) || (e.code === 'Slash' && e.shiftKey) || e.key === 'Help') {
+            e.preventDefault();
+            this.showShortcuts();
+            return;
+        }
+
+        // Allow '/' as a fallback for help/search context
+        if (e.key === '/' && !e.shiftKey) {
+            e.preventDefault();
+            this.showShortcuts();
+            return;
+        }
+
+        // Block other hotkeys if dialogs are open
         if (this.isShortcutsVisible || this.isSettingsVisible) {
             if (e.key === 'Escape') {
                 this.isShortcutsVisible = false;
@@ -2508,13 +2525,6 @@ class App {
             if (this.isFullscreen) this.toggleFullscreen();
             hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId: this.selectedId || undefined });
             return;
-        }
-        if (key === '?' || key === '/') {
-            if (key === '?' || (key === '/' && e.shiftKey)) {
-                e.preventDefault();
-                hub.pub(ps.SHORTCUTS_SHOW, {});
-                return;
-            }
         }
 
         // If in Library mode, disable all other hotkeys

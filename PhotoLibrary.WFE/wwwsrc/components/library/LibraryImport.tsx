@@ -23,7 +23,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
     return (
         <div 
             class={{ 'lib-pane': true }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '1.5em', height: '100%', overflowY: 'auto', padding: '1em' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '1.5em', height: '100%', overflowY: 'overlay' as any, padding: '1em' }}
         >
             <h3 style={{ marginTop: '0', color: 'var(--text-bright)' }}>Local Directory Browser</h3>
             
@@ -64,7 +64,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                     style={{ 
                         border: '1px solid var(--border-main)', borderRadius: '4px', 
                         background: 'var(--bg-panel-alt)', height: '20em', 
-                        overflowY: 'auto', position: 'relative' 
+                        overflowY: 'overlay' as any, position: 'relative' 
                     }}
                 >
                     {isScanning ? (

@@ -12,6 +12,32 @@
     <style>
         body { margin: 0; background: var(--bg-main); color: var(--text-main); font-family: 'Segoe UI', sans-serif; height: 100vh; overflow: hidden; user-select: none; }
         
+        /* Scrollbars */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--text-dim) transparent;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background-color: var(--text-dim);
+            border-radius: 10px;
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: var(--text-muted);
+        }
+
         /* Lightroom Header */
         .lr-header { height: 2.5em; background: var(--bg-header); display: flex; align-items: center; padding: 0 1.25em; border-bottom: 1px solid var(--border-dim); user-select: none; }
         .lr-logo { font-size: 1.1em; color: var(--text-header); letter-spacing: 1px; margin-right: 2.5em; display: flex; align-items: center; gap: 0.5em; }
@@ -31,7 +57,7 @@
         /* Grid */
         .grid-header { background: var(--bg-grid-header); padding: 0.35em 1em; font-size: 0.85em; border-bottom: 1px solid var(--border-light); color: var(--text-label); display: flex; align-items: center; justify-content: space-between; }
         .grid-header b { color: var(--text-bright); }
-        .grid-view { flex: 1; overflow-y: auto; padding: 0.65em; display: grid; grid-template-columns: repeat(var(--grid-cols, 5), 1fr); gap: 0.65em; align-content: start; box-sizing: border-box; }
+        .grid-view { flex: 1; overflow-y: auto; overflow-y: overlay; padding: 0.65em; display: grid; grid-template-columns: repeat(var(--grid-cols, 5), 1fr); gap: 0.65em; align-content: start; box-sizing: border-box; }
         #grid-container { overflow-x: hidden !important; scrollbar-gutter: auto !important; }
         
         /* Controls area */
@@ -57,10 +83,10 @@
         .filmstrip-resizer { height: 4px; background: transparent; cursor: ns-resize; z-index: 100; transition: background 0.2s; margin-top: -2px; }
         .filmstrip-resizer:hover { background: var(--accent); }
         
-        .filmstrip { height: 12.5em; background: var(--bg-panel); border-top: 1px solid var(--border-main); display: flex; overflow-x: auto; align-items: center; padding: 0 0.65em; gap: 0.65em; flex-shrink: 0; }
+        .filmstrip { height: 12.5em; background: var(--bg-panel); border-top: 1px solid var(--border-main); display: flex; overflow-x: auto; overflow-x: overlay; align-items: center; padding: 0 0.65em; gap: 0.65em; flex-shrink: 0; }
 
         /* Sidebar/Tree */
-        .tree-view { padding: 0; overflow-y: auto; }
+        .tree-view { padding: 0; overflow-y: auto; overflow-y: overlay; }
         .tree-section-header { padding: 0.65em 0.65em 0.35em 0.65em; font-size: 0.75em; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
         .tree-item { padding: 0.4em 1em; cursor: pointer; white-space: nowrap; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center; }
         .tree-item:hover { background: var(--bg-hover); }
@@ -116,7 +142,7 @@
         .meta-search-btn:hover { color: var(--text-bright); }
 
         /* Metadata */
-        .metadata-panel { padding: 1em; overflow-y: auto; background: var(--bg-panel); user-select: text; }
+        .metadata-panel { padding: 1em; overflow-y: auto; overflow-y: overlay; background: var(--bg-panel); user-select: text; }
         .meta-group { margin-bottom: 1em; }
         .meta-group h3 { font-size: 0.85em; color: var(--text-label); margin: 0 0 0.35em 0; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
         .meta-row { display: flex; font-size: 0.85em; padding: 0.15em 0; border-bottom: 1px solid var(--border-main); }
@@ -393,6 +419,7 @@
                 <div class="lr-nav-item" id="nav-library" onclick="app.enterLibraryMode()">LIBRARY</div>
                 <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
                 <div class="lr-nav-item" id="nav-loupe" onclick="if(app.selectedId) app.enterLoupeMode(app.selectedId)">LOUPE</div>
+                <div class="lr-nav-item" id="nav-help" onclick="app.showShortcuts()">HELP</div>
             </div>
             <div class="lr-status">
                 <span id="connection-status">Disconnected</span>

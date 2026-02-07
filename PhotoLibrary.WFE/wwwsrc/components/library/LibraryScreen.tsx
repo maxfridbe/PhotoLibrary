@@ -33,7 +33,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                 {/* Left Column: Stats */}
                 <div 
                     class={{ 'lib-pane': true }}
-                    style={{ flex: '0 0 300px', display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'auto', boxSizing: 'border-box', height: '100%' }}
+                    style={{ flex: '0 0 300px', display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'overlay' as any, boxSizing: 'border-box', height: '100%' }}
                 >
                     {info ? renderStats(info) : <div>Loading statistics...</div>}
                 </div>
@@ -41,7 +41,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                 {/* Right Column: One big scrollable area */}
                 <div 
                     id="lib-right-column"
-                    style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '2em', minWidth: '0', boxSizing: 'border-box', overflowY: 'auto' }}
+                    style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '2em', minWidth: '0', boxSizing: 'border-box', overflowY: 'overlay' as any }}
                 >
                     {/* Section 1: Find New Files */}
                     <div class={{ 'lib-pane': true }} style={{ display: 'flex', flexDirection: 'column', gap: '1em' }}>
@@ -101,7 +101,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                             style={{ 
                                 border: '1px solid var(--border-main)', borderRadius: '4px', 
                                 background: 'var(--bg-panel-alt)', minHeight: '150px', maxHeight: '350px', 
-                                overflowY: 'auto'
+                                overflowY: 'overlay' as any
                             }}
                         >
                             {quickSelectRoots && quickSelectRoots.length > 0 ? renderHierarchicalFolderList(quickSelectRoots, onPathChange) : []}
@@ -115,7 +115,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                             style={{ 
                                 border: '1px solid var(--border-main)', borderRadius: '4px', 
                                 background: 'var(--bg-panel-alt)', minHeight: '100px', maxHeight: '10em', 
-                                overflowY: 'auto', position: 'relative' 
+                                overflowY: 'overlay' as any, position: 'relative' 
                             }}
                         >
                             {isScanning ? (
