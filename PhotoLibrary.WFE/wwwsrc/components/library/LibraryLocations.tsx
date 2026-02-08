@@ -140,6 +140,9 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
 }
 
 function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expanded: Set<string>, activePath: string, onPathChange: (path: string) => void, onToggle: (id: string) => void, onFolderContextMenu: (e: MouseEvent, id: string) => void, onAnnotationSave: (id: string, annotation: string, color?: string) => void, onCancelTask: (id: string) => void) {
+    const normalize = (p: string) => p.replace(/[/\\]+$/, '').replace(/\\/g, '/');
+    const normalizedActive = normalize(activePath);
+
     const contrastColor = (hexcolor: string) => {
         const hex = hexcolor.replace('#', '');
         const r = parseInt(hex.substr(0, 2), 16);
@@ -153,7 +156,7 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
         const indent = depth * 1.5 + 'em';
         const isExpanded = expanded.has(node.directoryId);
         const hasChildren = node.children && node.children.length > 0;
-        const isActive = node.path === activePath;
+        const isActive = normalize(node.path) === normalizedActive;
 
         return (
             <div>

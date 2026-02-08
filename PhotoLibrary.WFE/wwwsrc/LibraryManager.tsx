@@ -667,20 +667,25 @@ export class LibraryManager {
         } catch (e) { console.error("Failed to load library info", e); }
     }
 
+    private normalizePath(p: string): string {
+        if (!p) return '';
+        return p.replace(/[/\\]+$/, '').replace(/\\/g, '/');
+    }
+
     private expandLibraryToPath(targetPath: string) {
         if (!targetPath) return;
 
-        const targetP = targetPath.replace(/[/\\]+$/, '');
+        const normalizedTarget = this.normalizePath(targetPath);
         const idsToExpand: string[] = [];
 
-        const findNode = (nodes: Res.DirectoryNodeResponse[], path: string): boolean => {
+        const findNode = (nodes: Res.DirectoryNodeResponse[]): boolean => {
             for (const node of nodes) {
-                const nodeP = node.path.replace(/[/\\]+$/, '');
-                if (nodeP === targetP) {
+                const normalizedNode = this.normalizePath(node.path);
+                if (normalizedNode === normalizedTarget) {
                     return true;
                 }
-                if (targetP.startsWith(nodeP + '/') || targetP.startsWith(nodeP + '\\')) {
-                    if (findNode(node.children || [], path)) {
+                if (normalizedTarget.startsWith(normalizedNode + '/')) {
+                    if (findNode(node.children || [])) {
                         idsToExpand.push(node.directoryId);
                         return true;
                     }
@@ -689,11 +694,33 @@ export class LibraryManager {
             return false;
         };
 
-        if (findNode(this.quickSelectRoots, targetP)) {
-            idsToExpand.forEach(id => this.locationsExpanded.add(id));
+        if (findNode(this.quickSelectRoots)) {
+            let changed = false;
+            idsToExpand.forEach(id => {
+                if (!this.locationsExpanded.has(id)) {
+                    this.locationsExpanded.add(id);
+                    changed = true;
+                }
+            });
+            
             this.render();
-            // Scroll to the row matching this path
-            setTimeout(() => this.scrollToSelector(`.folder-list-container [data-path="${targetPath}"]`), 200);
+            
+            const scroll = () => {
+                const allRows = document.querySelectorAll('.folder-list-container [data-path]');
+                for (let i = 0; i < allRows.length; i++) {
+                    const row = allRows[i] as HTMLElement;
+                    if (this.normalizePath(row.getAttribute('data-path') || '') === normalizedTarget) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            // Attempt scroll multiple times to account for rendering/expansion delay
+            setTimeout(scroll, 100);
+            setTimeout(scroll, 500);
+            setTimeout(scroll, 1000);
         }
     }
 

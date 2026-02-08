@@ -37,32 +37,31 @@ class Program
         ResourceLimits.Area = 1024UL * 1024 * 1024;    // 1GB
         OpenCL.IsEnabled = false;
 
-        var rootCommand = new Command("photo-library", "PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
+        var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
 
-        var libraryOption = new Option<string?>("--library", "Path to the SQLite database file");
-        var updateMdOption = new Option<string?>("--updatemd", "Directory to scan and update metadata for");
-        var testOneOption = new Option<bool>("--testone", "Only process one file and exit");
-        var updatePreviewsOption = new Option<bool>("--updatepreviews", "Generate previews for the scanned files");
-        var previewDbOption = new Option<string?>("--previewdb", "Path to the SQLite database for previews");
+        var libraryOption = new Option<string?>("--library") { Description = "Path to the SQLite database file" };
+        var updateMdOption = new Option<string?>("--updatemd") { Description = "Directory to scan and update metadata for" };
+        var testOneOption = new Option<bool>("--testone") { Description = "Only process one file and exit" };
+        var updatePreviewsOption = new Option<bool>("--updatepreviews") { Description = "Generate previews for the scanned files" };
+        var previewDbOption = new Option<string?>("--previewdb") { Description = "Path to the SQLite database for previews" };
         
-        var longEdgeOption = new Option<int[]>("--longedge", "Long edge size for previews (can be specified multiple times)")
+        var longEdgeOption = new Option<int[]>("--longedge")
         {
+            Description = "Long edge size for previews (can be specified multiple times)",
             AllowMultipleArgumentsPerToken = true
         };
 
-        var hostOption = new Option<int?>("--host", "Port to host the web viewer on (e.g., 8080)");
+        var hostOption = new Option<int?>("--host") { Description = "Port to host the web viewer on (e.g., 8080)" };
+        var modeOption = new Option<string>("--mode") { Description = "Runtime mode: WebHost or PhotinoNet" };
         
-        var modeOption = new Option<string>("--mode", "Runtime mode: WebHost or PhotinoNet");
-        // No SetDefaultValue needed if we handle it in action, but let's see if we can use it
-        
-        rootCommand.Options.Add(libraryOption);
-        rootCommand.Options.Add(updateMdOption);
-        rootCommand.Options.Add(testOneOption);
-        rootCommand.Options.Add(updatePreviewsOption);
-        rootCommand.Options.Add(previewDbOption);
-        rootCommand.Options.Add(longEdgeOption);
-        rootCommand.Options.Add(hostOption);
-        rootCommand.Options.Add(modeOption);
+        rootCommand.Add(libraryOption);
+        rootCommand.Add(updateMdOption);
+        rootCommand.Add(testOneOption);
+        rootCommand.Add(updatePreviewsOption);
+        rootCommand.Add(previewDbOption);
+        rootCommand.Add(longEdgeOption);
+        rootCommand.Add(hostOption);
+        rootCommand.Add(modeOption);
 
         rootCommand.SetAction(async (parseResult, ct) =>
         {
