@@ -28,4 +28,25 @@ public static class PathUtils
 
         return Path.GetFullPath(resolved);
     }
+
+    public static bool IsPathInside(string root, string path)
+    {
+        if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(path)) return false;
+
+        try
+        {
+            string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(path);
+
+            // On Windows, drive letters and case matter. On Linux, case usually matters.
+            // Using StartsWith with the appropriate comparison.
+            return fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || 
+                   fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                   fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

@@ -221,13 +221,13 @@ class App {
 
     private $metaTitleEl: HTMLElement | null = null;
     public $metaVisEl: HTMLElement | null = null;
-    private apertureVNode: VNode | HTMLElement | null = null;
-    private libraryVNode: VNode | HTMLElement | null = null;
-    private loupeVNode: VNode | HTMLElement | null = null;
-    private metadataVNode: VNode | HTMLElement | null = null;
-    private modalsVNode: VNode | HTMLElement | null = null;
-    private notificationsVNode: VNode | HTMLElement | null = null;
-    private popoverVNode: VNode | HTMLElement | null = null;
+    private $apertureVNode: VNode | HTMLElement | null = null;
+    private $libraryVNode: VNode | HTMLElement | null = null;
+    private $loupeVNode: VNode | HTMLElement | null = null;
+    private $metadataVNode: VNode | HTMLElement | null = null;
+    private $modalsVNode: VNode | HTMLElement | null = null;
+    private $notificationsVNode: VNode | HTMLElement | null = null;
+    private $popoverVNode: VNode | HTMLElement | null = null;
     private popoverState: { isVisible: boolean, type: string, x: number, y: number, data: any } = { isVisible: false, type: '', x: 0, y: 0, data: null };
     private showQueryBuilder = false;
     private overlayText = '';
@@ -321,8 +321,8 @@ class App {
     }
 
     private renderModals() {
-        const container = document.getElementById('modals-container');
-        if (!container) return;
+        const $container = document.getElementById('modals-container');
+        if (!$container) return;
 
         const shortcuts = (
             <ShortcutsDialog
@@ -363,31 +363,31 @@ class App {
         }
 
         const vnode = <div id="modals-container">{shortcuts}{settings}{templateEditor}</div>;
-        this.modalsVNode = patch(this.modalsVNode || container, vnode);
+        this.$modalsVNode = patch(this.$modalsVNode || $container, vnode);
     }
 
     private renderPopover() {
-        let container = document.getElementById('popover-mount');
-        if (!container) {
-            container = document.createElement('div');
-            container.id = 'popover-mount';
+        let $container = document.getElementById('popover-mount');
+        if (!$container) {
+            $container = document.createElement('div');
+            $container.id = 'popover-mount';
             // Wrapper to ensure z-index context
-            container.style.position = 'fixed';
-            container.style.top = '0';
-            container.style.left = '0';
-            container.style.width = '100%';
-            container.style.height = '0'; // Min height, allow overflow
-            container.style.overflow = 'visible';
-            container.style.zIndex = '999999';
+            $container.style.position = 'fixed';
+            $container.style.top = '0';
+            $container.style.left = '0';
+            $container.style.width = '100%';
+            $container.style.height = '0'; // Min height, allow overflow
+            $container.style.overflow = 'visible';
+            $container.style.zIndex = '999999';
             
-            document.body.appendChild(container);
+            document.body.appendChild($container);
 
             // Close on click outside
             document.addEventListener('click', (e) => {
                 if (this.popoverState.isVisible) {
-                    const el = document.getElementById('popover-content');
+                    const $el = document.getElementById('popover-content');
                     // Check if click is inside the popover
-                    if (el && el.contains(e.target as Node)) return;
+                    if ($el && $el.contains(e.target as Node)) return;
                     
                     // If not inside, close it
                     this.popoverState.isVisible = false;
@@ -397,10 +397,10 @@ class App {
         }
         
         // Ensure container is attached
-        if (!document.body.contains(container)) document.body.appendChild(container);
+        if (!document.body.contains($container)) document.body.appendChild($container);
 
         if (!this.popoverState.isVisible) {
-            this.popoverVNode = patch(this.popoverVNode || container, <div id="popover-mount" />);
+            this.$popoverVNode = patch(this.$popoverVNode || $container, <div id="popover-mount" />);
             return;
         }
 
@@ -425,7 +425,7 @@ class App {
         let content: VNode = <div id="popover-content" />;
         // Specific popover content logic removed as templates moved to modal
 
-        this.popoverVNode = patch(this.popoverVNode || container, <div id="popover-mount">{content}</div>);
+        this.$popoverVNode = patch(this.$popoverVNode || $container, <div id="popover-mount">{content}</div>);
     }
 
     public setTheme(name: string) { this.themeManager.setTheme(name); }
@@ -451,6 +451,29 @@ class App {
             .replace(/{Filename}/g, photo.fileName || '')
             .replace(/{Takendate}/g, dateStr)
             .replace(/{Takentime}/g, timeStr);
+
+        // Shorthands for high-value EXIF
+        const shorthands: { [key: string]: string } = {
+            '{ISO}': 'ISOSpeedRatings',
+            '{Exposure}': 'ExposureTime',
+            '{Aperture}': 'FNumber',
+            '{Lens}': 'LensModel',
+            '{Camera}': 'Model',
+            '{FocalLength}': 'FocalLength'
+        };
+
+        for (const [key, tag] of Object.entries(shorthands)) {
+            if (text.includes(key)) {
+                let foundValue = '';
+                for (const group of this.selectedMetadata) {
+                    if (group.items[tag]) {
+                        foundValue = group.items[tag];
+                        break;
+                    }
+                }
+                text = text.replace(new RegExp(key, 'g'), foundValue);
+            }
+        }
 
         // Handle {MD:key} tags
         const mdRegex = /{MD:(.+?)}/g;
@@ -944,7 +967,7 @@ class App {
     private renderNotifications() {
         const container = document.getElementById('notifications-mount');
         if (!container) return;
-        this.notificationsVNode = patch(this.notificationsVNode || container, <NotificationManager notifications={this.notifications} />);
+        this.$notificationsVNode = patch(this.$notificationsVNode || container, <NotificationManager notifications={this.notifications} />);
     }
 
     private updateStatusUI() {
@@ -1415,7 +1438,7 @@ class App {
             wrapper.appendChild(libHeader);
 
             self.$libraryEl = document.createElement('div');
-            self.libraryVNode = null;
+            self.$libraryVNode = null;
             self.$libraryEl.className = 'tree-view';
             self.$libraryEl.style.flex = '1';
             self.$libraryEl.style.overflowY = 'auto';
@@ -1601,7 +1624,7 @@ class App {
             self.gridViewManager.update(true);
 
             self.$loupeView = document.createElement('div');
-            self.loupeVNode = null;
+            self.$loupeVNode = null;
             self.$loupeView.id = 'loupe-view-container';
             self.$loupeView.className = 'loupe-view';
             self.$loupeView.style.display = 'none';
@@ -1658,7 +1681,7 @@ class App {
         });
         this.layout.registerComponentFactoryFunction('metadata', function (container: any) {
             self.$metadataEl = document.createElement('div');
-            self.metadataVNode = null;
+            self.$metadataVNode = null;
             self.$metadataEl.className = 'metadata-panel gl-component';
             container.element.append(self.$metadataEl);
             self.renderMetadata();
@@ -1808,8 +1831,8 @@ class App {
             onCancelTask: (id: string) => Api.api_library_cancel_task({ taskId: `thumbnails-${id}` })
         };
 
-        if (!this.libraryVNode) {
-            this.libraryVNode = this.$libraryEl;
+        if (!this.$libraryVNode) {
+            this.$libraryVNode = this.$libraryEl;
             // Global click listener to hide query builder
             document.addEventListener('click', (e) => {
                 const searchBox = this.$libraryEl?.querySelector('.search-box');
@@ -1820,7 +1843,7 @@ class App {
             });
         }
 
-        this.libraryVNode = patch(this.libraryVNode, LibrarySidebar(props));
+        this.$libraryVNode = patch(this.$libraryVNode, LibrarySidebar(props));
     }
 
     // REQ-WFE-00016
@@ -2145,8 +2168,8 @@ class App {
             }
         };
 
-        this.loupeVNode = patch(this.loupeVNode || this.$loupeView, LoupeView(props));
-        this.$loupeView = (this.loupeVNode as VNode).elm as HTMLElement;
+        this.$loupeVNode = patch(this.$loupeVNode || this.$loupeView, LoupeView(props));
+        this.$loupeView = (this.$loupeVNode as VNode).elm as HTMLElement;
     }
 
     selectPhoto(id: string) {
@@ -2402,8 +2425,8 @@ class App {
             onSearch: (tag: string, val: string) => hub.pub(ps.SEARCH_TRIGGERED, { tag, value: val })
         };
 
-        this.metadataVNode = patch(this.metadataVNode || this.$metadataEl, MetadataPanel(props));
-        this.$metadataEl = (this.metadataVNode as VNode).elm as HTMLElement;
+        this.$metadataVNode = patch(this.$metadataVNode || this.$metadataEl, MetadataPanel(props));
+        this.$metadataEl = (this.$metadataVNode as VNode).elm as HTMLElement;
     }
 
     // REQ-WFE-00013

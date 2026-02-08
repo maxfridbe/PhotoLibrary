@@ -6,6 +6,7 @@ export interface PhotoResponse {
     fileEntryId: string;
     rootPathId?: string | null;
     fileName?: string | null;
+    baseName?: string | null;
     size: number;
     createdAt: string;
     modifiedAt: string;

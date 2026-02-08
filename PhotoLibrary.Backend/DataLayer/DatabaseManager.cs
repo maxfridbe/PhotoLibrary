@@ -485,9 +485,10 @@ public class DatabaseManager : IDatabaseManager
                 SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, f.{Column.FileEntry.Hash},
                        CASE WHEN (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id}) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
                        COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating,
-                       COALESCE(json_extract(s.Value, '$.rotation'), 0) as Rotation
+                       COALESCE(json_extract(s.Value, '$.rotation'), 0) as Rotation,
+                       f.{Column.FileEntry.BaseName}
                 FROM {TableName.FileEntry} f
-                LEFT JOIN Settings s ON s.Key = f.{Column.FileEntry.Hash} || '-pref-img'
+                LEFT JOIN {TableName.Settings} s ON s.Key = f.{Column.FileEntry.Hash} || '-pref-img'
                 {where}
                 ORDER BY f.{Column.FileEntry.CreatedAt} DESC 
                 LIMIT $Limit OFFSET $Offset";
@@ -511,7 +512,8 @@ public class DatabaseManager : IDatabaseManager
                     IsPicked = reader.GetInt32(7) == 1,
                     Rating = reader.GetInt32(8),
                     Rotation = reader.GetInt32(9),
-                    StackCount = 1
+                    StackCount = 1,
+                    BaseName = reader.IsDBNull(10) ? null : reader.GetString(10)
                 });
             }
         }
@@ -1521,12 +1523,12 @@ public class DatabaseManager : IDatabaseManager
         {
             using (var tCmd = connection.CreateCommand())
             {
-                tCmd.CommandText = "CREATE TEMP TABLE IF NOT EXISTS TempRoots (Id TEXT PRIMARY KEY)";
+                tCmd.CommandText = $"CREATE TEMP TABLE IF NOT EXISTS {TableName.TempRoots} (Id TEXT PRIMARY KEY)";
                 tCmd.ExecuteNonQuery();
             }
             using (var tCmd = connection.CreateCommand())
             {
-                tCmd.CommandText = "DELETE FROM TempRoots";
+                tCmd.CommandText = $"DELETE FROM {TableName.TempRoots}";
                 tCmd.ExecuteNonQuery();
             }
             using (var transaction = connection.BeginTransaction())
@@ -1535,7 +1537,7 @@ public class DatabaseManager : IDatabaseManager
                 {
                     using var ins = connection.CreateCommand();
                     ins.Transaction = transaction;
-                    ins.CommandText = "INSERT OR IGNORE INTO TempRoots (Id) VALUES (@id)";
+                    ins.CommandText = $"INSERT OR IGNORE INTO {TableName.TempRoots} (Id) VALUES (@id)";
                     ins.Parameters.AddWithValue("@id", r);
                     ins.ExecuteNonQuery();
                 }
@@ -1561,7 +1563,7 @@ public class DatabaseManager : IDatabaseManager
                     cmd.CommandText = $@"
                         SELECT {Column.FileEntry.FileName} 
                         FROM {TableName.FileEntry} 
-                        WHERE {Column.FileEntry.RootPathId} IN (SELECT Id FROM TempRoots) 
+                        WHERE {Column.FileEntry.RootPathId} IN (SELECT Id FROM {TableName.TempRoots}) 
                         AND {Column.FileEntry.FileName} IN ({string.Join(",", nameParams)})";
                 }
                 else

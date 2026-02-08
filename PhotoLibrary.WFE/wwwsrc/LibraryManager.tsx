@@ -32,10 +32,9 @@ export class LibraryManager {
     private containerId: string | null = null;
     private layout: any = null;
     
-    private statsVNode: VNode | HTMLElement | null = null;
-    private locationsVNode: VNode | HTMLElement | null = null;
-    private importVNode: VNode | HTMLElement | null = null;
-    private importStatusVNode: VNode | HTMLElement | null = null;
+    private $statsVNode: VNode | HTMLElement | null = null;
+    private $locationsVNode: VNode | HTMLElement | null = null;
+    private $importVNode: VNode | HTMLElement | null = null;
 
     private localScanResults: Res.ScanFileResult[] = [];
     private selectedLocalFiles: Set<string> = new Set();
@@ -48,7 +47,7 @@ export class LibraryManager {
         list: string[];
         progress: Map<string, ImportStatus>;
         friendlyName: string;
-        vnode?: VNode | HTMLElement;
+        $vnode?: VNode | HTMLElement;
     }> = new Map();
 
     private importSettings: {
@@ -229,7 +228,7 @@ export class LibraryManager {
             const el = document.createElement('div');
             el.className = 'gl-component';
             container.element.append(el);
-            self.statsVNode = el;
+            self.$statsVNode = el;
             self._renderStats();
         });
 
@@ -237,7 +236,7 @@ export class LibraryManager {
             const el = document.createElement('div');
             el.className = 'gl-component';
             container.element.append(el);
-            self.locationsVNode = el;
+            self.$locationsVNode = el;
             self._renderLocations();
         });
 
@@ -245,7 +244,7 @@ export class LibraryManager {
             const el = document.createElement('div');
             el.className = 'gl-component';
             container.element.append(el);
-            self.importVNode = el;
+            self.$importVNode = el;
             self._renderImport();
         });
 
@@ -257,7 +256,7 @@ export class LibraryManager {
             
             const session = self.importSessions.get(taskId);
             if (session) {
-                session.vnode = el;
+                session.$vnode = el;
                 self._renderImportSession(taskId);
             }
             
@@ -295,9 +294,9 @@ export class LibraryManager {
 
     private _renderImportSession(taskId: string) {
         const session = this.importSessions.get(taskId);
-        if (!session || !session.vnode) return;
+        if (!session || !session.$vnode) return;
         
-        session.vnode = patch(session.vnode, ImportStatusTab({
+        session.$vnode = patch(session.$vnode, ImportStatusTab({
             importList: session.list,
             progress: session.progress,
             friendlyName: session.friendlyName,
@@ -312,8 +311,8 @@ export class LibraryManager {
     }
 
     private _renderStats() {
-        if (!this.statsVNode) return;
-        this.statsVNode = patch(this.statsVNode, LibraryStatistics(
+        if (!this.$statsVNode) return;
+        this.$statsVNode = patch(this.$statsVNode, LibraryStatistics(
             this.infoCache, 
             this.isBackingUp,
             async () => {
@@ -322,7 +321,7 @@ export class LibraryManager {
                 this.render();
                 
                 try {
-                    const res = await post('/api/library/backup', {});
+                    const res = await Api.api_library_backup();
                     if (res && res.success) {
                         hub.pub(constants.pubsub.UI_NOTIFICATION, { message: `Backup created at ${res.path}`, type: 'success' });
                         await this.loadLibraryInfo();
@@ -340,7 +339,7 @@ export class LibraryManager {
     }
 
     private _renderLocations() {
-        if (!this.locationsVNode) return;
+        if (!this.$locationsVNode) return;
         
         const pendingCount = this.scanResults.filter(r => r.status === 'pending').length;
         const estimatedRemainingTime = this.averageDuration * pendingCount;
@@ -348,9 +347,14 @@ export class LibraryManager {
         const props = {
             roots: this.quickSelectRoots,
             expandedFolders: this.locationsExpanded,
+            currentScanPath: this.currentScanPath,
+            activePath: this.currentScanPath,
+            scanLimit: this.currentScanLimit,
             onPathChange: (path: string) => {
                 console.log(`[LibraryManager] Path changed to: ${path}`);
                 this.currentScanPath = path;
+                localStorage.setItem('import-source-path', path);
+                this.expandLibraryToPath(path);
                 this.render();
             },
             onToggle: (id: string) => this.toggleLocationExpanded(id),
@@ -361,18 +365,7 @@ export class LibraryManager {
                 window.app.showFolderContextMenu(e, id);
             },
             onAnnotationSave: async (id: string, annotation: string, color?: string) => {
-                const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
-                    for (const node of nodes) {
-                        if (node.directoryId === targetId) return node;
-                        if (node.children) {
-                            const found = findNodeById(node.children, targetId);
-                            if (found) return found;
-                        }
-                    }
-                    return null;
-                };
-
-                const node = findNodeById(this.quickSelectRoots, id);
+                const node = this.findDirectoryNodeById(this.quickSelectRoots, id);
                 if (!node) return;
                 const targetColor = color || node.color;
                 await Api.api_library_set_annotation({ folderId: id, annotation, color: targetColor || undefined });
@@ -389,9 +382,6 @@ export class LibraryManager {
             estimatedRemainingTime: estimatedRemainingTime,
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
-            currentScanPath: this.currentScanPath,
-            activePath: this.currentScanPath,
-            scanLimit: this.currentScanLimit,
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
             onClearResults: () => {
@@ -419,23 +409,23 @@ export class LibraryManager {
             }
         };
 
-        this.locationsVNode = patch(this.locationsVNode, LibraryLocations(props));
+        this.$locationsVNode = patch(this.$locationsVNode, LibraryLocations(props));
     }
 
     private _renderImport() {
-        if (!this.importVNode) return;
+        if (!this.$importVNode) return;
         
         const props = {
             fsRoots: this.fsRoots,
             onFsToggle: (node: FSNode) => this.toggleFsNode(node),
             onSelect: (path: string) => {
                 this.currentScanPath = path;
-                try { localStorage.setItem('import-source-path', path); } catch(e) {}
+                localStorage.setItem('import-source-path', path);
                 this.render();
             },
             onScanPathChange: (path: string) => {
                 this.currentScanPath = path;
-                try { localStorage.setItem('import-source-path', path); } catch(e) {}
+                localStorage.setItem('import-source-path', path);
                 this.render();
             },
             currentScanPath: this.currentScanPath,
@@ -445,13 +435,25 @@ export class LibraryManager {
             scanResults: this.localScanResults,
             selectedFiles: this.selectedLocalFiles,
             existingFiles: this.existingFiles,
-            onToggleFile: (path: string) => this.toggleLocalFileSelection(path),
-            onSelectAll: () => this.selectAllLocalFiles(),
-
+            onToggleFile: (path: string) => {
+                if (this.selectedLocalFiles.has(path)) this.selectedLocalFiles.delete(path);
+                else this.selectedLocalFiles.add(path);
+                this.render();
+            },
+            onSelectAll: (all: boolean) => {
+                if (all) {
+                    this.localScanResults.forEach(r => {
+                        if (!this.existingFiles.has(r.path)) this.selectedLocalFiles.add(r.path);
+                    });
+                } else {
+                    this.selectedLocalFiles.clear();
+                }
+                this.render();
+            },
             settings: this.importSettings,
             onSettingsChange: (s: any) => {
                 this.importSettings = s;
-                try { localStorage.setItem('import-settings', JSON.stringify(s)); } catch(e) {}
+                localStorage.setItem('import-settings', JSON.stringify(s));
                 this.validateImport();
                 this.render();
             },
@@ -462,52 +464,7 @@ export class LibraryManager {
             isImporting: this.isLocalImporting
         };
 
-        this.importVNode = patch(this.importVNode, LibraryImport(props));
-    }
-
-    private async validateImport() {
-        if (this.localScanResults.length === 0 || !this.importSettings.targetRootId) {
-            this.existingFiles.clear();
-            this.render();
-            return;
-        }
-
-        this.isValidating = true;
-        this.render();
-
-        const items: { [key: string]: string } = {};
-        for (const file of this.localScanResults) {
-            items[file.path] = this.calculateDestPath(file);
-        }
-        
-        console.log('[Validate] Checking import for', Object.keys(items).length, 'items');
-
-        try {
-            const res = await Api.api_library_validate_import({
-                targetRootId: this.importSettings.targetRootId,
-                items: items
-            });
-            console.log('[Validate] Result:', res);
-            if (res && res.existingSourceFiles) {
-                this.existingFiles = new Set(res.existingSourceFiles);
-                
-                // Auto-deselect existing files to prevent accidental import
-                let changed = false;
-                for (const existing of this.existingFiles) {
-                    if (this.selectedLocalFiles.has(existing)) {
-                        this.selectedLocalFiles.delete(existing);
-                        changed = true;
-                    }
-                }
-            } else {
-                this.existingFiles.clear();
-            }
-        } catch (e) {
-            console.error("Validation failed", e);
-        } finally {
-            this.isValidating = false;
-            this.render();
-        }
+        this.$importVNode = patch(this.$importVNode, LibraryImport(props));
     }
 
     private calculateDestPath(file: Res.ScanFileResult): string {
@@ -536,17 +493,6 @@ export class LibraryManager {
         return subDir ? subDir + '/' + fileName : fileName;
     }
 
-    private findDirectoryNodeById(nodes: Res.DirectoryNodeResponse[], id: string): Res.DirectoryNodeResponse | null {
-        for (const node of nodes) {
-            if (node.directoryId === id) return node;
-            if (node.children && node.children.length > 0) {
-                const found = this.findDirectoryNodeById(node.children, id);
-                if (found) return found;
-            }
-        }
-        return null;
-    }
-
     private async performImport() {
         if (this.selectedLocalFiles.size === 0 || !this.importSettings.targetRootId) return;
         
@@ -559,7 +505,7 @@ export class LibraryManager {
         this.render();
 
         try {
-            const res = await post('/api/library/import-local', {
+            const res = await Api.api_library_import_local({
                 sourceRoot: this.currentScanPath,
                 sourceFiles: Array.from(this.selectedLocalFiles),
                 targetRootId: this.importSettings.targetRootId,
@@ -773,19 +719,16 @@ export class LibraryManager {
 
             if (!foundNode) break;
 
-            // If found, expand it
-            if (!foundNode.isExpanded) {
-                foundNode.isExpanded = true;
+            if (!foundNode.children) {
                 foundNode.isLoading = true;
                 this.render();
-                
                 try {
                     const res = await Api.api_fs_list({ name: foundNode.path });
                     if (Array.isArray(res)) {
                         foundNode.children = res.map((d: any) => ({
                             path: d.path,
                             name: d.name,
-                            isExpanded: false,
+                            isExpanded: true,
                             children: undefined
                         }));
                     } else {
@@ -892,36 +835,24 @@ export class LibraryManager {
         this.render();
     }
 
-    private toggleLocalFileSelection(path: string) {
-        if (this.selectedLocalFiles.has(path)) {
-            this.selectedLocalFiles.delete(path);
-        } else {
-            this.selectedLocalFiles.add(path);
+    private findDirectoryNodeById(nodes: Res.DirectoryNodeResponse[], id: string): Res.DirectoryNodeResponse | null {
+        for (const node of nodes) {
+            if (node.directoryId === id) return node;
+            if (node.children && node.children.length > 0) {
+                const found = this.findDirectoryNodeById(node.children, id);
+                if (found) return found;
+            }
         }
-        this.render();
-    }
-
-    private selectAllLocalFiles() {
-        const validCandidates = this.localScanResults
-            .map(r => r.path)
-            .filter(path => !this.existingFiles.has(path));
-
-        const allValidSelected = validCandidates.length > 0 && validCandidates.every(path => this.selectedLocalFiles.has(path));
-
-        if (allValidSelected) {
-            this.selectedLocalFiles.clear();
-        } else {
-            this.selectedLocalFiles = new Set(validCandidates);
-        }
-        this.render();
+        return null;
     }
 
     private async findLocalFiles(path: string) {
         if (!path) return;
-        this.isLocalScanning = true;
-        this.selectedLocalFiles.clear();
-        this.render();
+        
         try {
+            this.isLocalScanning = true;
+            this.render();
+
             const res = await Api.api_fs_find_files({ name: path });
             if (Array.isArray(res)) {
                 this.localScanResults = res;
@@ -932,6 +863,73 @@ export class LibraryManager {
         } finally {
             this.isLocalScanning = false;
             this.render();
+        }
+    }
+
+    private async validateImport() {
+        if (this.localScanResults.length === 0 || !this.importSettings.targetRootId) {
+            this.existingFiles.clear();
+            this.render();
+            return;
+        }
+
+        this.isValidating = true;
+        this.render();
+
+        const items: { [key: string]: string } = {};
+        for (const file of this.localScanResults) {
+            items[file.path] = this.calculateDestPath(file);
+        }
+        
+        console.log('[Validate] Checking import for', Object.keys(items).length, 'items');
+
+        try {
+            const res = await Api.api_library_validate_import({
+                targetRootId: this.importSettings.targetRootId,
+                items: items
+            });
+            console.log('[Validate] Result:', res);
+            if (res && res.existingSourceFiles) {
+                this.existingFiles = new Set(res.existingSourceFiles);
+                
+                // Auto-deselect existing files to prevent accidental import
+                let changed = false;
+                for (const existing of this.existingFiles) {
+                    if (this.selectedLocalFiles.has(existing)) {
+                        this.selectedLocalFiles.delete(existing);
+                        changed = true;
+                    }
+                }
+            } else {
+                this.existingFiles.clear();
+            }
+        } catch (e) {
+            console.error("Validation failed", e);
+        } finally {
+            this.isValidating = false;
+            this.render();
+        }
+    }
+
+    private async triggerScan(path: string, low: boolean, med: boolean) {
+        if (!path || this.scanResults.length === 0) return;
+
+        this.isIndexing = true;
+        this.lastImportTime = Date.now();
+        this.lastItemDuration = 0;
+        this.importDurations = [];
+        this.averageDuration = 0;
+        this.render();
+
+        const res = await Api.api_library_import_batch({ 
+            rootPath: path, 
+            relativePaths: this.scanResults.map(r => r.path),
+            generateLow: low, 
+            generateMedium: med
+        });
+        
+        if (res) {
+            hub.pub(ps.UI_NOTIFICATION, { message: "Batch indexing started", type: "success" });
         }
     }
 
@@ -956,28 +954,6 @@ export class LibraryManager {
         } finally {
             this.isScanning = false;
             this.render();
-        }
-    }
-
-    private async triggerScan(path: string, low: boolean, med: boolean) {
-        if (!path || this.scanResults.length === 0) return;
-
-        this.isIndexing = true;
-        this.lastImportTime = Date.now();
-        this.lastItemDuration = 0;
-        this.importDurations = [];
-        this.averageDuration = 0;
-        this.render();
-
-        const res = await Api.api_library_import_batch({ 
-            rootPath: path, 
-            relativePaths: this.scanResults.map(r => r.path),
-            generateLow: low, 
-            generateMedium: med
-        });
-        
-        if (res) {
-            hub.pub(ps.UI_NOTIFICATION, { message: "Batch indexing started", type: "success" });
         }
     }
 }

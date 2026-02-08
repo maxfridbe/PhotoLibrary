@@ -68,8 +68,11 @@ export function SearchBox(props: SearchBoxProps): VNode {
                     <span 
                         class={{ 'query-add-btn': true }}
                         on={{ click: () => {
-                            const val = (document.getElementById('qb-path') as HTMLInputElement).value;
-                            if (val) props.onSearch(appendSegment(props.query, `path:${val}`));
+                            const $el = (document.getElementById('qb-path') as HTMLInputElement);
+                            if ($el.value) {
+                                props.onSearch(appendSegment(props.query, `path:${$el.value}`));
+                                $el.value = '';
+                            }
                         } }}
                     >
                         +
@@ -81,8 +84,11 @@ export function SearchBox(props: SearchBoxProps): VNode {
                     <span 
                         class={{ 'query-add-btn': true }}
                         on={{ click: () => {
-                            const val = (document.getElementById('qb-tag') as HTMLInputElement).value;
-                            if (val) props.onSearch(appendSegment(props.query, `tag:${val}`));
+                            const $el = (document.getElementById('qb-tag') as HTMLInputElement);
+                            if ($el.value) {
+                                props.onSearch(appendSegment(props.query, `tag:${$el.value}`));
+                                $el.value = '';
+                            }
                         } }}
                     >
                         +
@@ -99,8 +105,11 @@ export function SearchBox(props: SearchBoxProps): VNode {
                         class={{ 'query-add-btn': true }}
                         on={{ click: () => {
                             const op = (document.getElementById('qb-size-op') as HTMLSelectElement).value;
-                            const val = (document.getElementById('qb-size-val') as HTMLInputElement).value;
-                            if (val) props.onSearch(appendSegment(props.query, `size ${op} ${val}`));
+                            const $el = (document.getElementById('qb-size-val') as HTMLInputElement);
+                            if ($el.value) {
+                                props.onSearch(appendSegment(props.query, `size ${op} ${$el.value}`));
+                                $el.value = '';
+                            }
                         } }}
                     >
                         +

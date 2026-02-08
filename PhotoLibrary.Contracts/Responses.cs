@@ -8,6 +8,7 @@ public record PhotoResponse
     public string FileEntryId { get; init; } = "";
     public string? RootPathId { get; init; }
     public string? FileName { get; init; }
+    public string? BaseName { get; init; }
     public long Size { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime ModifiedAt { get; init; }

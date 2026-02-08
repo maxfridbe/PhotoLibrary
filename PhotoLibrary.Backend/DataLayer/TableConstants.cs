@@ -25,6 +25,8 @@ public static class TableConstants
         public const string CollectionFiles = "CollectionFiles";
         public const string Settings = "Settings";
         public const string Previews = "Previews";
+        public const string TempRoots = "TempRoots";
+        public const string TempFileNames = "TempFileNames";
     }
 
     public static class Column

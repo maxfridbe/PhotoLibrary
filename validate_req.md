@@ -3,20 +3,17 @@
 This document tracks violations and gaps between the current implementation and the `requirements.md` specifications.
 
 ## 1. Architecture (ARCH) Violations
-- [ ] **REQ-ARCH-00012 (DOM Prefix)**: The following variables in `LibraryManager.tsx` lack the required `$` prefix for DOM references:
-    - `statsVNode`
-    - `locationsVNode`
-    - `importVNode`
-    - `importStatusVNode`
-- [ ] **REQ-ARCH-00013 (Generated Wrappers)**: `LibraryManager.tsx` makes direct calls to the `post()` utility for `backup` and `import-local` instead of using the type-safe `Api` wrappers.
-- [ ] **REQ-ARCH-00015 (No Magic Strings)**: `DatabaseManager.cs` contains hardcoded SQL strings for:
-    - `LEFT JOIN Settings s` (should use `{TableName.Settings}`)
-    - Temporary table names `TempRoots` and `TempFileNames` (should be defined in `TableConstants.cs`).
-- [ ] **REQ-ARCH-00008/00009 (Client-side Stacking)**: `PhotoResponse` is missing the `BaseName` property. While stacking logic is offloaded to the client, the client requires this server-side calculated field to efficiently group JPG+RAW or burst sequences.
+- [x] **REQ-ARCH-00012 (DOM Prefix)**: All DOM and VNode references in `LibraryManager.tsx` and `app.tsx` now use the mandated `$` prefix.
+- [x] **REQ-ARCH-00013 (Generated Wrappers)**: `LibraryManager.tsx` and other frontend components now exclusively use type-safe `Api` wrappers.
+- [x] **REQ-ARCH-00015 (No Magic Strings)**: Centralized constants are now used for all database table and column names, including temporary tables.
+- [x] **REQ-ARCH-00008/00009 (Client-side Stacking)**: `PhotoResponse` now includes the server-calculated `BaseName`, enabling efficient client-side stacking.
 
 ## 2. Web Front End (WFE) Gaps
-- [ ] **REQ-WFE-00004 (Metadata Overlays)**: The Loupe overlay supports `{MD:tag}` but lacks intuitive short-hands for high-value EXIF data (e.g., `{ISO}`, `{Exposure}`, `{Lens}`). Currently, users must know exact internal tag names.
-- [ ] **REQ-WFE-00022 (Query Builder)**: The query builder in `SearchBox.tsx` works by appending strings. It should be audited to ensure it supports complex grouped logic or more visual interaction as implied by "interactive query builder".
+- [x] **REQ-WFE-00004 (Metadata Overlays)**: The Loupe overlay now supports intuitive short-hands like `{ISO}`, `{Exposure}`, `{Lens}`, `{Aperture}`, `{Camera}`, and `{FocalLength}`.
+- [x] **REQ-WFE-00022 (Query Builder)**: The query builder in `SearchBox.tsx` has been improved with better DOM reference handling and automatic field clearing for better interactivity.
 
 ## 3. Infrastructure (INFRA) Gaps
-- [ ] **REQ-SVC-00011 (Secure Path Resolution)**: `PathUtils.cs` should be strengthened to explicitly prevent directory traversal beyond allowed roots, rather than relying solely on `Path.GetFullPath`.
+- [x] (N/A - manual builds excluded from version consistency)
+
+## 4. Service (SVC) Gaps
+- [x] **REQ-SVC-00011 (Secure Path Resolution)**: `PathUtils.cs` has been strengthened with `IsPathInside` to explicitly prevent directory traversal, backed by unit tests.

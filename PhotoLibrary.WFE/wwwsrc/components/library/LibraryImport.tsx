@@ -30,7 +30,7 @@ export interface LibraryImportProps {
     selectedFiles: Set<string>;
     existingFiles: Set<string>;
     onToggleFile: (path: string) => void;
-    onSelectAll: () => void;
+    onSelectAll: (all: boolean) => void;
     
     // Settings
     settings: ImportSettings;
@@ -145,7 +145,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                             {scanResults.length > 0 ? (
                                 <button
                                     style={{ padding: '4px 12px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}
-                                    on={{ click: onSelectAll }}
+                                    on={{ click: () => onSelectAll(!allSelected) }}
                                 >
                                     {allSelected ? 'Deselect All' : 'Select All'}
                                 </button>
