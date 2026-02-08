@@ -623,9 +623,6 @@ public class CommunicationLayer : ICommunicationLayer
                     if (cts.Token.IsCancellationRequested) break;
                     try
                     {
-                        // Simulation delay
-                        await Task.Delay(1000);
-
                         string absSource = Path.Combine(absSourceRoot, sourceFile);
                         if (!File.Exists(absSource)) 
                         {
@@ -902,7 +899,7 @@ public class CommunicationLayer : ICommunicationLayer
         
         _logger.LogInformation("[EXPORT] Starting export for {Count} files", req.fileEntryIds.Length);
 
-        using (var archive = new ZipArchive(outputStream, ZipArchiveMode.Create))
+        using (var archive = new ZipArchive(outputStream, ZipArchiveMode.Create, leaveOpen: true))
         {
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var id in req.fileEntryIds)

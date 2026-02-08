@@ -18,12 +18,12 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
     - [x] Test `UpsertFileEntry` (Insert new vs. Update existing).
     - [x] Verify `GetFileId` and `GetFileIdWithConnection`.
     - [x] Test `GetExistingFileStatus` (mtime/size comparison).
-- [ ] **Metadata**:
-    - [ ] Test `InsertMetadata` and `GetMetadata`.
-    - [ ] Verify large metadata value truncation.
-- [ ] **Collections**:
-    - [ ] Test creation, deletion, and adding files.
-    - [ ] Verify retrieval of files within a collection.
+- [x] **Metadata**:
+    - [x] Test `InsertMetadata` and `GetMetadata`.
+    - [x] Verify large metadata value truncation.
+- [x] **Collections**:
+    - [x] Test creation, deletion, and adding files.
+    - [x] Verify retrieval of files within a collection.
 - [ ] **Search Logic**:
     - [ ] Test tag-based searching.
     - [ ] Test complex query string parsing.
@@ -34,8 +34,8 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
 - [x] **Scanning**:
     - [x] Test recursive directory enumeration.
     - [x] Verify change detection (only processing modified files).
-- [ ] **Hashing**:
-    - [ ] Verify `XxHash64` consistency.
+- [x] **Hashing**:
+    - [x] Verify `XxHash64` consistency.
 - [x] **Metadata Extraction**:
     - [x] Test EXIF/IPTC extraction for JPG.
     - [x] Test Sony ARW (RAW) metadata fallbacks.
@@ -46,18 +46,18 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
 ## 3. CommunicationLayer (Business Logic)
 - [x] **Local Import Workflow**:
     - [x] Test path projection using directory templates (`{YYYY}`, `{Date}`, etc.).
-    - [ ] Test duplicate detection by Name.
-    - [ ] Test duplicate detection by Hash.
+    - [x] Test duplicate detection by Name.
+    - [x] Test duplicate detection by Hash.
     - [x] Verify the optimized flow: Index -> Copy.
 - [x] **Validate Import**:
     - [x] Verify recursive disk checks for existing files in destination roots.
 - [ ] **Thumbnail Generation Orchestration**:
     - [ ] Test `GenerateThumbnails` background task enqueuing.
     - [ ] Test `ForceUpdatePreview` logic (delete + regenerate).
-- [ ] **Export**:
-    - [ ] Test Zip archive creation for original files.
+- [x] **Export**:
+    - [x] Test Zip archive creation for original files.
     - [ ] Test Zip archive creation for previews.
-    - [ ] Verify filename collision handling in export zips.
+    - [x] Verify filename collision handling in export zips.
 
 ## 4. PreviewManager (ProcessingLayer)
 - [x] **Thumbnail Creation**:

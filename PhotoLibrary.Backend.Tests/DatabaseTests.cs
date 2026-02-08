@@ -120,4 +120,63 @@ public class DatabaseTests : TestBase
         Assert.Null(db.GetFileId(childId, "child.jpg"));
         Assert.Empty(db.GetMetadata(rootFileId!));
     }
+
+    [Fact]
+    public void Collections_Lifecycle_ShouldWork()
+    {
+        // Arrange
+        var db = CreateDb();
+        string rootId = db.GetOrCreateBaseRoot("/test");
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "f1.jpg", Hash = "h1" });
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "f2.jpg", Hash = "h2" });
+        var f1 = db.GetFileId(rootId, "f1.jpg")!;
+        var f2 = db.GetFileId(rootId, "f2.jpg")!;
+
+        // Act: Create
+        string colId = db.CreateCollection("My Trip");
+        var collections = db.GetCollections().ToList();
+        
+        // Assert: Created
+        Assert.Contains(collections, c => c.Name == "My Trip" && c.CollectionId == colId);
+
+        // Act: Add Files
+        db.AddFilesToCollection(colId, new[] { f1, f2 });
+        var files = db.GetCollectionFiles(colId).ToList();
+
+        // Assert: Files Added
+        Assert.Equal(2, files.Count);
+        Assert.Contains(f1, files);
+        Assert.Contains(f2, files);
+
+        // Act: Delete
+        db.DeleteCollection(colId);
+        collections = db.GetCollections().ToList();
+
+        // Assert: Deleted
+        Assert.DoesNotContain(collections, c => c.CollectionId == colId);
+        Assert.Empty(db.GetCollectionFiles(colId));
+    }
+
+    [Fact]
+    public void Metadata_Truncation_ShouldWork()
+    {
+        // Arrange
+        var db = CreateDb();
+        string rootId = db.GetOrCreateBaseRoot("/test");
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "meta.jpg" });
+        var fileId = db.GetFileId(rootId, "meta.jpg")!;
+
+        string longValue = new string('A', 200);
+
+        // Act
+        db.InsertMetadata(fileId, new[] { 
+            new MetadataItem { Directory = "Custom", Tag = "LongTag", Value = longValue } 
+        });
+
+        // Assert
+        var metadata = db.GetMetadata(fileId).ToList();
+        var item = metadata.FirstOrDefault(m => m.Tag == "LongTag");
+        Assert.NotNull(item);
+        Assert.Equal(100, item.Value!.Length);
+    }
 }
