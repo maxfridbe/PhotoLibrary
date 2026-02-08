@@ -112,6 +112,12 @@ namespace TypeGen
             sb.AppendLine("    return text ? JSON.parse(text) : {} as T;");
             sb.AppendLine("}");
             sb.AppendLine();
+            sb.AppendLine("async function postBlob(url: string, data: any = {}): Promise<Blob> {");
+            sb.AppendLine("    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });");
+            sb.AppendLine("    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);");
+            sb.AppendLine("    return await res.blob();");
+            sb.AppendLine("}");
+            sb.AppendLine();
 
             var mapPosts = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
                 .Where(i => i.Expression.ToString().Contains("MapPost"));
@@ -150,22 +156,27 @@ namespace TypeGen
                     reqType = "";
                 }
 
+                bool isBlob = route.Contains("thumbnail") || route.Contains("download");
+                string postFunc = isBlob ? "postBlob" : "post";
+
                 if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
                 else if (route.Contains("metadata")) resType = "Res.MetadataGroupResponse[]";
                 else if (route.Contains("directories")) resType = "Res.DirectoryNodeResponse[]";
                 else if (route.Contains("collections/list")) resType = "Res.CollectionResponse[]";
                 else if (route.Contains("stats")) resType = "Res.StatsResponse";
                 else if (route.Contains("picked/ids") || route.Contains("get-files") || route.Contains("search")) resType = "string[]";
+                
+                if (isBlob) resType = "Blob";
 
                 if (string.IsNullOrEmpty(reqType))
                 {
                     sb.AppendLine($"export async function api_{funcName}(): Promise<{resType}> {{");
-                    sb.AppendLine($"    return await post<{resType}>('{route}');");
+                    sb.AppendLine($"    return await {postFunc}('{route}');");
                 }
                 else
                 {
                     sb.AppendLine($"export async function api_{funcName}(data: {reqType}): Promise<{resType}> {{");
-                    sb.AppendLine($"    return await post<{resType}>('{route}', data);");
+                    sb.AppendLine($"    return await {postFunc}('{route}', data);");
                 }
                 sb.AppendLine("}");
                 sb.AppendLine();

@@ -2481,17 +2481,14 @@ class App {
             }
 
             if (model && !this.cameraThumbCache.has(model)) {
-                const thumbUrl = `/api/camera/thumbnail/${encodeURIComponent(model)}`;
-                const img = new Image();
-                img.onload = () => {
-                    this.cameraThumbCache.set(model, thumbUrl);
+                Api.api_camera_thumbnail({ name: model }).then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    this.cameraThumbCache.set(model, url);
                     this.renderMetadata();
-                };
-                img.onerror = () => {
+                }).catch(() => {
                     this.cameraThumbCache.set(model, '');
                     this.renderMetadata();
-                };
-                img.src = thumbUrl;
+                });
             } else {
                 this.renderMetadata();
             }

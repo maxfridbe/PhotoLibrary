@@ -124,8 +124,8 @@ public static class WebServer
 
         app.MapPost("/api/get-application-settings", () => Results.Ok(_commLayer?.GetApplicationSettings()));
 
-        app.MapGet("/api/camera/thumbnail/{model}", (string model) => {
-            var res = _commLayer?.GetCameraThumbnail(model);
+        app.MapPost("/api/camera/thumbnail", (NameRequest req) => {
+            var res = _commLayer?.GetCameraThumbnail(req.name);
             return res == null ? Results.NotFound() : Results.Bytes(res.Data, "image/webp");
         });
 
