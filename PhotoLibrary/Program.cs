@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
-using System.CommandLine.Invocation;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -38,57 +37,48 @@ class Program
         ResourceLimits.Area = 1024UL * 1024 * 1024;    // 1GB
         OpenCL.IsEnabled = false;
 
-        var rootCommand = new RootCommand("PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
+        var rootCommand = new Command("photo-library", "PhotoLibrary CLI - Scans and indexes photo metadata, and hosts a viewer");
 
-        var libraryOption = new Option<string?>(
-            name: "--library",
-            description: "Path to the SQLite database file");
-
-        var updateMdOption = new Option<string?>(
-            name: "--updatemd",
-            description: "Directory to scan and update metadata for");
-
-        var testOneOption = new Option<bool>(
-            name: "--testone",
-            description: "Only process one file and exit");
-
-        var updatePreviewsOption = new Option<bool>(
-            name: "--updatepreviews",
-            description: "Generate previews for the scanned files");
-
-        var previewDbOption = new Option<string?>(
-            name: "--previewdb",
-            description: "Path to the SQLite database for previews");
-
-        var longEdgeOption = new Option<int[]>(
-            name: "--longedge",
-            description: "Long edge size for previews (can be specified multiple times)")
-        { AllowMultipleArgumentsPerToken = true };
-
-        var hostOption = new Option<int?>(
-            name: "--host",
-            description: "Port to host the web viewer on (e.g., 8080)");
-
-        var modeOption = new Option<string>(
-            name: "--mode",
-            description: "Runtime mode: WebHost or PhotinoNet",
-            getDefaultValue: () => "WebHost");
-
-        rootCommand.AddOption(libraryOption);
-        rootCommand.AddOption(updateMdOption);
-        rootCommand.AddOption(testOneOption);
-        rootCommand.AddOption(updatePreviewsOption);
-        rootCommand.AddOption(previewDbOption);
-        rootCommand.AddOption(longEdgeOption);
-        rootCommand.AddOption(hostOption);
-        rootCommand.AddOption(modeOption);
-
-        rootCommand.SetHandler(async (libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode) =>
+        var libraryOption = new Option<string?>("--library", "Path to the SQLite database file");
+        var updateMdOption = new Option<string?>("--updatemd", "Directory to scan and update metadata for");
+        var testOneOption = new Option<bool>("--testone", "Only process one file and exit");
+        var updatePreviewsOption = new Option<bool>("--updatepreviews", "Generate previews for the scanned files");
+        var previewDbOption = new Option<string?>("--previewdb", "Path to the SQLite database for previews");
+        
+        var longEdgeOption = new Option<int[]>("--longedge", "Long edge size for previews (can be specified multiple times)")
         {
-            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode);
-        }, libraryOption, updateMdOption, testOneOption, updatePreviewsOption, previewDbOption, longEdgeOption, hostOption, modeOption);
+            AllowMultipleArgumentsPerToken = true
+        };
 
-        return await rootCommand.InvokeAsync(args);
+        var hostOption = new Option<int?>("--host", "Port to host the web viewer on (e.g., 8080)");
+        
+        var modeOption = new Option<string>("--mode", "Runtime mode: WebHost or PhotinoNet");
+        // No SetDefaultValue needed if we handle it in action, but let's see if we can use it
+        
+        rootCommand.Options.Add(libraryOption);
+        rootCommand.Options.Add(updateMdOption);
+        rootCommand.Options.Add(testOneOption);
+        rootCommand.Options.Add(updatePreviewsOption);
+        rootCommand.Options.Add(previewDbOption);
+        rootCommand.Options.Add(longEdgeOption);
+        rootCommand.Options.Add(hostOption);
+        rootCommand.Options.Add(modeOption);
+
+        rootCommand.SetAction(async (parseResult, ct) =>
+        {
+            var libraryPath = parseResult.GetValue(libraryOption);
+            var scanDir = parseResult.GetValue(updateMdOption);
+            var testOne = parseResult.GetValue(testOneOption);
+            var updatePreviews = parseResult.GetValue(updatePreviewsOption);
+            var previewDb = parseResult.GetValue(previewDbOption);
+            var longEdges = parseResult.GetValue(longEdgeOption) ?? Array.Empty<int>();
+            var hostPort = parseResult.GetValue(hostOption);
+            var mode = parseResult.GetValue(modeOption) ?? "WebHost";
+
+            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode);
+        });
+
+        return await rootCommand.Parse(args).InvokeAsync();
     }
 
     static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort, string mode)
