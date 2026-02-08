@@ -7,7 +7,7 @@
 - REQ-ARCH-00004: The backend shall be built on .NET 8 to leverage modern performance features and high concurrency support.
 - REQ-ARCH-00005: The system shall use SQLite for lightweight, file-based relational data storage with WAL mode enabled for concurrency.
 - REQ-ARCH-00006: The system shall implement an automated type-generation pipeline to keep frontend interfaces in sync with backend models.
-- REQ-ARCH-00007: All HTTP API endpoints shall use the POST method and JSON payloads for request data, avoiding query string parameters.
+- REQ-ARCH-00007: All HTTP API endpoints shall use the POST method and JSON payloads for request data, avoiding query string parameters (excluding binary download and stream endpoints).
 - REQ-ARCH-00008: The server shall remain stateless, offloading grouping, stacking, and display logic to the client to ensure high scalability.
 - REQ-ARCH-00009: Stacking (e.g., JPG+RAW grouping) shall be handled exclusively by the client to maintain backend simplicity and performance.
 - REQ-ARCH-00010: The system shall support multiple concurrent frontend instances by tracking client identifiers to route private responses while broadcasting global library events.
@@ -18,7 +18,7 @@
 - REQ-ARCH-00015: The system shall not use magic strings for database table or column names; all references must use centralized constants (e.g., TableConstants) to ensure schema consistency and prevent runtime errors.
 - REQ-ARCH-00016: The '/wwwroot' directory shall be treated as a transient, build-generated artifact; all web source files, assets, and original templates must reside in '/wwwsrc', which serves as the authoritative source of truth for the frontend.
 - REQ-ARCH-00017: The system shall enforce a strict multi-project architecture to ensure layer separation: core business logic and image processing (Backend) must remain decoupled from the web server/API surface (Presentation), and data access (DataLayer) must be abstracted from processing logic.
-- REQ-ARCH-00018: The application version shall be maintained in a single 'version.txt' file (format 1.2.YY.MMDD) and propagated to the UI, binary assembly metadata, and package manifests during the build process to ensure consistency.
+- REQ-ARCH-00018: The application version shall be maintained in a single 'version.txt' file (format 1.2.YY.MMDD) and propagated to the UI, binary assembly metadata, and package manifests during the deployable build process to ensure consistency (manual dotnet builds are excluded from this requirement).
 - REQ-ARCH-00019: The backend logic shall be exposed via a dedicated CommunicationLayer using an RPC-style pattern, ensuring that core processing and data retrieval are entirely decoupled from web-specific transport details (e.g., HTTP results, content-type mapping).
 - REQ-ARCH-00020: All service-layer components (CommunicationLayer, DatabaseManager, ImageIndexer, PreviewManager, CameraManager) shall be defined by interfaces in the .Contracts project (or local to the implementation if specific dependencies like SQLite are required) to facilitate decoupling and testability via dependency injection.
 - REQ-ARCH-00021: The system shall utilize explicit callback registration methods (e.g., RegisterHandler) instead of standard C# events for passing data or notifications across architectural boundaries, ensuring clearer ownership and easier lifecycle management.
