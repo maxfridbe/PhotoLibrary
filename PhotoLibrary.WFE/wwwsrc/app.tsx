@@ -20,6 +20,7 @@ import { LoupeView } from './components/loupe/LoupeView.js';
 import { MetadataPanel } from './components/metadata/MetadataPanel.js';
 import { ShortcutsDialog } from './components/common/ShortcutsDialog.js';
 import { SettingsModal } from './components/common/SettingsModal.js';
+import { TemplateEditorModal } from './components/common/TemplateEditorModal.js';
 import { NotificationManager, Notification } from './components/common/NotificationManager.js';
 
 const ps = constants.pubsub;
@@ -226,6 +227,8 @@ class App {
     private metadataVNode: VNode | HTMLElement | null = null;
     private modalsVNode: VNode | HTMLElement | null = null;
     private notificationsVNode: VNode | HTMLElement | null = null;
+    private popoverVNode: VNode | HTMLElement | null = null;
+    private popoverState: { isVisible: boolean, type: string, x: number, y: number, data: any } = { isVisible: false, type: '', x: 0, y: 0, data: null };
     private showQueryBuilder = false;
     private overlayText = '';
     private notifications: Notification[] = [];
@@ -342,8 +345,87 @@ class App {
             />
         );
 
-        const vnode = <div id="modals-container">{shortcuts}{settings}</div>;
+        let templateEditor = null;
+        if (this.popoverState.isVisible && this.popoverState.type === 'directory-template') {
+             templateEditor = TemplateEditorModal({
+                 isVisible: true,
+                 currentTemplate: this.popoverState.data.current,
+                 onClose: () => { 
+                     this.popoverState.isVisible = false; 
+                     this.renderModals(); 
+                 },
+                 onSave: (val) => {
+                     this.popoverState.data.current = val;
+                     if (this.popoverState.data.onSelect) this.popoverState.data.onSelect(val);
+                     this.renderModals();
+                 }
+             });
+        }
+
+        const vnode = <div id="modals-container">{shortcuts}{settings}{templateEditor}</div>;
         this.modalsVNode = patch(this.modalsVNode || container, vnode);
+    }
+
+    private renderPopover() {
+        let container = document.getElementById('popover-mount');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'popover-mount';
+            // Wrapper to ensure z-index context
+            container.style.position = 'fixed';
+            container.style.top = '0';
+            container.style.left = '0';
+            container.style.width = '100%';
+            container.style.height = '0'; // Min height, allow overflow
+            container.style.overflow = 'visible';
+            container.style.zIndex = '999999';
+            
+            document.body.appendChild(container);
+
+            // Close on click outside
+            document.addEventListener('click', (e) => {
+                if (this.popoverState.isVisible) {
+                    const el = document.getElementById('popover-content');
+                    // Check if click is inside the popover
+                    if (el && el.contains(e.target as Node)) return;
+                    
+                    // If not inside, close it
+                    this.popoverState.isVisible = false;
+                    this.renderPopover();
+                }
+            });
+        }
+        
+        // Ensure container is attached
+        if (!document.body.contains(container)) document.body.appendChild(container);
+
+        if (!this.popoverState.isVisible) {
+            this.popoverVNode = patch(this.popoverVNode || container, <div id="popover-mount" />);
+            return;
+        }
+
+        // Clamp coordinates to viewport
+        let { x, y } = this.popoverState;
+        const h = window.innerHeight;
+        const w = window.innerWidth;
+        const estHeight = 260; 
+        const estWidth = 220;
+
+        console.log(`[App] Popover Req: ${x},${y} Win: ${w}x${h}`);
+
+        // Force fit into window
+        if (y + estHeight > h) y = h - estHeight - 10;
+        if (x + estWidth > w) x = w - estWidth - 10;
+        
+        x = Math.max(10, x);
+        y = Math.max(10, y);
+        
+        console.log(`[App] Popover Adj: ${x},${y}`);
+
+        let content: VNode = <div id="popover-content" />;
+        // Specific popover content logic removed as templates moved to modal
+
+        this.popoverVNode = patch(this.popoverVNode || container, <div id="popover-mount">{content}</div>);
     }
 
     public setTheme(name: string) { this.themeManager.setTheme(name); }
@@ -472,10 +554,13 @@ class App {
 
         hub.sub(ps.VIEW_MODE_CHANGED, (data) => {
             this.isLoupeMode = data.mode === 'loupe';
+            this.isLibraryMode = data.mode === 'library';
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.fileEntryId) {
                 hub.pub(ps.PHOTO_SELECTED, { fileEntryId: data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
                 this.updateLoupeOverlay(data.fileEntryId);
+            } else if (data.mode === 'grid' && data.fileEntryId) {
+                this.selectPhoto(data.fileEntryId);
             } else if (data.mode === 'loupe') {
                 this.renderLoupe();
             }
@@ -554,6 +639,16 @@ class App {
         });
 
         hub.sub(ps.UI_NOTIFICATION, (data) => this.showNotification(data.message, data.type));
+
+        hub.sub(ps.UI_SHOW_POPOVER, (data) => {
+            if (data.type === 'directory-template') {
+                this.popoverState = { isVisible: true, type: data.type, x: 0, y: 0, data: data };
+                this.renderModals();
+            } else {
+                this.popoverState = { isVisible: true, type: data.type, x: data.x, y: data.y, data: data };
+                this.renderPopover();
+            }
+        });
 
         hub.sub(ps.LIBRARY_UPDATED, () => {
             this.isIndexing = false;
@@ -2036,7 +2131,7 @@ class App {
     }
 
     selectPhoto(id: string) {
-        if (this.selectedId === id) return;
+        const changed = this.selectedId !== id;
         this.selectedId = id;
         this.updateSelectionUI(id);
         this.loadMetadata(id);
@@ -2069,7 +2164,9 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.updateViewModeUI();
-        this.libraryManager.initLayout('library-view', () => { });
+        if (!this.libraryManager.isInitialized()) {
+            this.libraryManager.initLayout('library-view', () => { });
+        }
         this.libraryManager.loadLibraryInfo();
         this.syncUrl();
     }

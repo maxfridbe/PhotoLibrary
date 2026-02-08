@@ -27,9 +27,11 @@ public interface ICommunicationLayer
     IEnumerable<string> GetPickedIds();
     StatsResponse GetStats();
     List<DirectoryResponse> ListFileSystem(NameRequest req);
-    List<string> FindFiles(NameRequest req);
+    List<ScanFileResult> FindFiles(NameRequest req);
     List<string> FindNewFiles(NameRequest req);
+    ValidateImportResponse ValidateImport(ValidateImportRequest req);
     void ImportBatch(ImportBatchRequest req);
+    string ImportLocal(ImportLocalRequest req);
     void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue);
     void SetAnnotation(FolderAnnotationRequest req);
     void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue);

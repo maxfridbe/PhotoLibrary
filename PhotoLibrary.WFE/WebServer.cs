@@ -185,9 +185,16 @@ public static class WebServer
 
         app.MapPost("/api/library/find-new-files", (NameRequest req) => Results.Ok(_commLayer?.FindNewFiles(req)));
 
+        app.MapPost("/api/library/validate-import", (ValidateImportRequest req) => Results.Ok(_commLayer?.ValidateImport(req)));
+
         app.MapPost("/api/library/import-batch", (ImportBatchRequest req) => {
             _commLayer?.ImportBatch(req);
             return Results.Ok();
+        });
+
+        app.MapPost("/api/library/import-local", (ImportLocalRequest req) => {
+            string taskId = _commLayer?.ImportLocal(req) ?? "";
+            return Results.Json(new { success = true, taskId = taskId });
         });
 
         app.MapPost("/api/library/generate-thumbnails", (GenerateThumbnailsRequest req) => {

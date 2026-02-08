@@ -13,6 +13,8 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using ImageMagick;
+using MetadataExtractor;
+using Directory = System.IO.Directory;
 
 namespace PhotoLibrary.Backend;
 
@@ -259,17 +261,17 @@ public class CommunicationLayer : ICommunicationLayer
         }
     }
 
-    public List<string> FindFiles(NameRequest req)
+    public List<ScanFileResult> FindFiles(NameRequest req)
     {
-        if (string.IsNullOrEmpty(req.name)) return new List<string>();
+        if (string.IsNullOrEmpty(req.name)) return new List<ScanFileResult>();
         try
         {
             string absPath = PathUtils.ResolvePath(req.name);
             _logger.LogInformation("[FSFind] Scanning path: {AbsPath}", absPath);
             
-            if (!Directory.Exists(absPath)) return new List<string>();
+            if (!Directory.Exists(absPath)) return new List<ScanFileResult>();
 
-            var foundFiles = new List<string>();
+            var foundFiles = new List<ScanFileResult>();
             var stack = new Stack<string>();
             stack.Push(absPath);
 
@@ -288,7 +290,11 @@ public class CommunicationLayer : ICommunicationLayer
                     {
                         if (TableConstants.SupportedExtensions.Contains(Path.GetExtension(file)))
                         {
-                            foundFiles.Add(Path.GetRelativePath(absPath, file));
+                            foundFiles.Add(new ScanFileResult 
+                            { 
+                                Path = Path.GetRelativePath(absPath, file),
+                                DateTaken = GetDateTaken(file)
+                            });
                         }
                         if (foundFiles.Count >= 1000) break;
                     }
@@ -302,7 +308,7 @@ public class CommunicationLayer : ICommunicationLayer
         catch (Exception ex)
         {
             _logger.LogError(ex, "[FSFind] Error scanning directory: {Path}", req.name);
-            return new List<string>();
+            return new List<ScanFileResult>();
         }
     }
 
@@ -364,6 +370,128 @@ public class CommunicationLayer : ICommunicationLayer
             _logger.LogError(ex, "[FindNew] Error scanning {Path}", path);
             return new List<string>();
         }
+    }
+
+    private DirectoryNodeResponse? FindNodeRecursive(IEnumerable<DirectoryNodeResponse> nodes, string id)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.DirectoryId == id) return node;
+            var found = FindNodeRecursive(node.Children, id);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    public ValidateImportResponse ValidateImport(ValidateImportRequest req)
+    {
+        Console.WriteLine($"[Validate] Request for RootId: {req.targetRootId}");
+        var tree = _db.GetDirectoryTree();
+        var root = FindNodeRecursive(tree, req.targetRootId);
+
+        if (root == null)
+        {
+             Console.WriteLine($"[Validate] Target root {req.targetRootId} NOT FOUND in directory tree.");
+             return new ValidateImportResponse();
+        }
+        
+        if (string.IsNullOrEmpty(root.Path))
+        {
+             Console.WriteLine("[Validate] Root path is empty.");
+             return new ValidateImportResponse();
+        }
+
+        string absRoot = PathUtils.ResolvePath(root.Path);
+        Console.WriteLine($"[Validate] Checking {req.items.Count} items in {absRoot}");
+        
+        var existing = new HashSet<string>(); 
+        var itemsToCheck = new List<KeyValuePair<string, string>>();
+        
+        _logger?.LogInformation("[Validate] Checking {Count} items in {Root}", req.items.Count, absRoot);
+
+        // 1. Direct path check (Fast)
+        foreach (var kvp in req.items)
+        {
+            try
+            {
+                // Normalize separators
+                string relPath = kvp.Value.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                string destPath = Path.Combine(absRoot, relPath);
+                
+                if (File.Exists(destPath)) 
+                {
+                    existing.Add(kvp.Key);
+                }
+                else 
+                {
+                    itemsToCheck.Add(new KeyValuePair<string, string>(kvp.Key, relPath));
+                }
+            }
+            catch { }
+        }
+
+        // 2. Scoped Recursive Check (Slower but catches moved files on disk even if not indexed)
+        // Group remaining items by their top-level folder to minimize scanning
+        if (itemsToCheck.Any())
+        {
+            var groups = itemsToCheck.GroupBy(k => {
+                var parts = k.Value.Split(Path.DirectorySeparatorChar);
+                return parts.Length > 1 ? parts[0] : "";
+            });
+
+            foreach (var group in groups)
+            {
+                string subFolder = group.Key;
+                string searchRoot = string.IsNullOrEmpty(subFolder) ? absRoot : Path.Combine(absRoot, subFolder);
+                
+                if (Directory.Exists(searchRoot))
+                {
+                    try
+                    {
+                        // Scan filenames in this subtree
+                        var foundNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+                        
+                        _logger?.LogInformation("[Validate] Scanning subtree: {Path}", searchRoot);
+                        Console.WriteLine($"[Validate] Scanning subtree: {searchRoot}");
+                        
+                        int scanned = 0;
+                        foreach(var f in Directory.EnumerateFiles(searchRoot, "*", opts))
+                        {
+                            foundNames.Add(Path.GetFileName(f));
+                            scanned++;
+                        }
+                        
+                        _logger?.LogInformation("[Validate] Scanned {Count} files in {Path}. First 5: {Sample}", scanned, subFolder, string.Join(", ", foundNames.Take(5)));
+                        Console.WriteLine($"[Validate] Scanned {scanned} files in {subFolder}. First 5: {string.Join(", ", foundNames.Take(5))}");
+
+                        foreach(var item in group)
+                        {
+                            string fileName = Path.GetFileName(item.Value);
+                            if (foundNames.Contains(fileName)) 
+                            {
+                                existing.Add(item.Key);
+                            }
+                            else if (scanned > 0 && scanned < 50) // Debug small scans
+                            {
+                                _logger?.LogDebug("[Validate] Checked {Name} against {Count} files - Not found.", fileName, foundNames.Count);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "[Validate] Error scanning {Path}", searchRoot);
+                    }
+                }
+                else
+                {
+                    _logger?.LogWarning("[Validate] Search root does not exist: {Path}", searchRoot);
+                }
+            }
+        }
+
+        _logger?.LogInformation("[Validate] Found {Count} existing files total.", existing.Count);
+        return new ValidateImportResponse { ExistingSourceFiles = existing.ToList() };
     }
 
     public void ImportBatch(ImportBatchRequest req)
@@ -443,6 +571,178 @@ public class CommunicationLayer : ICommunicationLayer
                 _activeTasks.TryRemove(taskId, out _);
             }
         });
+    }
+
+    public string ImportLocal(ImportLocalRequest req)
+    {
+        if (req.sourceFiles == null || req.sourceFiles.Length == 0) return "";
+
+        string taskId = $"import-local-{Guid.NewGuid()}";
+        var cts = new CancellationTokenSource();
+        if (!_activeTasks.TryAdd(taskId, cts)) 
+        {
+            // Should not happen with GUID but for safety
+            return "";
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _logger?.LogInformation("[IMPORT] TASK START {Id}: Processing {Count} files.", taskId, req.sourceFiles.Length);
+                ImageIndexer.SetProgress(true, 0, req.sourceFiles.Length);
+
+                var tree = _db.GetDirectoryTree();
+                var targetRoot = FindNodeRecursive(tree, req.targetRootId);
+                
+                if (targetRoot == null)
+                {
+                    _logger?.LogError("[IMPORT] Target root not found: {Id}", req.targetRootId);
+                    return;
+                }
+
+                string absTargetRoot = PathUtils.ResolvePath(targetRoot.Path!);
+                var sizes = new List<int>();
+                if (req.generatePreview) { sizes.Add(300); sizes.Add(1024); }
+
+                IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
+                var pathToFileId = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+                indexer.RegisterFileProcessedHandler((id, path) => 
+                {
+                    pathToFileId[path] = id;
+                    _ = _broadcast(new { type = "file.imported", fileEntryId = id, path, rootId = req.targetRootId });
+                });
+
+                int count = 0;
+                string absSourceRoot = PathUtils.ResolvePath(req.sourceRoot);
+
+                foreach (var sourceFile in req.sourceFiles)
+                {
+                    if (cts.Token.IsCancellationRequested) break;
+                    try
+                    {
+                        // Simulation delay
+                        await Task.Delay(1000);
+
+                        string absSource = Path.Combine(absSourceRoot, sourceFile);
+                        if (!File.Exists(absSource)) 
+                        {
+                            _logger?.LogWarning("[IMPORT] File not found: {Path}", absSource);
+                            _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "File not found on disk" });
+                            continue;
+                        }
+
+                        var fileInfo = new FileInfo(absSource);
+                        DateTime dateTaken = GetDateTaken(absSource);
+                        
+                        string subDir = req.directoryTemplate
+                            .Replace("{YYYY}", dateTaken.Year.ToString())
+                            .Replace("{MM}", dateTaken.Month.ToString("D2"))
+                            .Replace("{DD}", dateTaken.Day.ToString("D2"))
+                            .Replace("{Date}", dateTaken.ToString("yyyy-MM-dd"));
+
+                        string targetDir = Path.Combine(absTargetRoot, subDir);
+                        Directory.CreateDirectory(targetDir);
+
+                        string fileName = Path.GetFileName(absSource);
+                        string targetPath = Path.Combine(targetDir, fileName);
+
+                        // Duplicate Check
+                        if (req.preventDuplicateName && File.Exists(targetPath))
+                        {
+                            _logger?.LogInformation("[IMPORT] Skipping existing file (Name): {Path}", targetPath);
+                            _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Name)" });
+                            continue;
+                        }
+
+                        if (req.preventDuplicateHash)
+                        {
+                            string hash;
+                            using (var fs = File.OpenRead(absSource))
+                            {
+                                var hasher = new System.IO.Hashing.XxHash64();
+                                hasher.Append(fs);
+                                hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                            }
+
+                            if (_db.FileExistsByHash(hash))
+                            {
+                                _logger?.LogInformation("[IMPORT] Skipping existing file (Hash): {File}", fileName);
+                                _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
+                                continue;
+                            }
+                        }
+
+                        // Index BEFORE copy (Optimization: read from local disk, avoid reading back from network mount)
+                        indexer.ProcessSingleFileFromSource(new FileInfo(absSource), targetPath, absTargetRoot);
+
+                        // Perform Copy
+                        File.Copy(absSource, targetPath, true);
+                        _logger?.LogInformation("[IMPORT] Copied {Source} to {Target}", absSource, targetPath);
+
+                        string? fileEntryId = null;
+                        pathToFileId.TryGetValue(targetPath, out fileEntryId);
+
+                        _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, targetPath = targetPath, fileEntryId = fileEntryId, success = true });
+                        
+                        count++;
+                        ImageIndexer.SetProgress(true, count, req.sourceFiles.Length);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "[IMPORT] Error processing {File}", sourceFile);
+                        _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = ex.Message });
+                    }
+                }
+
+                _logger?.LogInformation("[IMPORT] TASK FINISHED {Id}. Imported {Count} files total.", taskId, count);
+                await _broadcast(new { type = "scan.finished" });
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogCritical(ex, "[IMPORT] CRITICAL FAILURE {Id}", taskId);
+            }
+            finally
+            {
+                ImageIndexer.SetProgress(false, 0, 0);
+                _activeTasks.TryRemove(taskId, out _);
+            }
+        });
+
+        return taskId;
+    }
+
+    private DateTime GetDateTaken(string path)
+    {
+        try
+        {
+            var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(path);
+            
+            // 1. Try Exif SubIFD (Most common for Date Taken)
+            var subIfd = directories.OfType<MetadataExtractor.Formats.Exif.ExifSubIfdDirectory>().FirstOrDefault();
+            if (subIfd != null)
+            {
+                if (subIfd.TryGetDateTime(MetadataExtractor.Formats.Exif.ExifDirectoryBase.TagDateTimeOriginal, out var dt)) return dt;
+                if (subIfd.TryGetDateTime(MetadataExtractor.Formats.Exif.ExifDirectoryBase.TagDateTimeDigitized, out var dt2)) return dt2;
+            }
+
+            // 2. Fallback: Search all directories for common date tags
+            foreach (var dir in directories)
+            {
+                // 0x9003: DateTimeOriginal, 0x9004: DateTimeDigitized, 0x0132: DateTime
+                if (dir.TryGetDateTime(0x9003, out var d1)) return d1;
+                if (dir.TryGetDateTime(0x9004, out var d2)) return d2;
+                if (dir.TryGetDateTime(0x0132, out var d3)) return d3;
+            }
+        }
+        catch { }
+        
+        // Fallback to file system dates (prefer oldest to approximate creation)
+        try {
+            var creation = File.GetCreationTime(path);
+            var modified = File.GetLastWriteTime(path);
+            return creation < modified ? creation : modified;
+        } catch { return DateTime.Now; }
     }
 
     public void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue)

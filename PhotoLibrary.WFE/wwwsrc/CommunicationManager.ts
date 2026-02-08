@@ -75,6 +75,8 @@ export class CommunicationManager {
                     const msg = JSON.parse(e.data);
                     if (msg.type === sk.FILE_IMPORTED) {
                         hub.pub(ps.PHOTO_IMPORTED, { fileEntryId: msg.fileEntryId, path: msg.path, rootId: msg.rootId });
+                    } else if (msg.type === ps.IMPORT_FILE_FINISHED) {
+                        hub.pub(ps.IMPORT_FILE_FINISHED, msg);
                     } else if (msg.type === sk.FOLDER_CREATED) {
                         hub.pub(ps.FOLDER_CREATED, { directoryId: msg.directoryId, name: msg.name });
                     } else if (msg.type === sk.SCAN_FINISHED) {

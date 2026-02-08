@@ -25,6 +25,7 @@ export function FileSystemBrowser(props: FileSystemBrowserProps): VNode {
             <div>
                 <div 
                     class={{ 'fs-row': true }}
+                    attrs={{ 'data-path': node.path }}
                     style={{ 
                         padding: `0.4em 1em 0.4em ${indent}`, 
                         borderBottom: '1px solid var(--border-dim)', 

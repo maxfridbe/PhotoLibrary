@@ -135,6 +135,19 @@ public class ImageIndexer : IImageIndexer
     public void ProcessSingleFile(FileInfo file, string scanRootPath)
     {
         _logger.LogDebug("[INDEXER] ProcessSingleFile START: {FileName}", file.Name);
+        ProcessSingleFileInternal(file, file.FullName, scanRootPath);
+        _logger.LogDebug("[INDEXER] ProcessSingleFile END: {FileName}", file.Name);
+    }
+
+    public void ProcessSingleFileFromSource(FileInfo sourceFile, string targetPath, string scanRootPath)
+    {
+        _logger.LogDebug("[INDEXER] ProcessSingleFileFromSource START: {Source} -> {Target}", sourceFile.Name, targetPath);
+        ProcessSingleFileInternal(sourceFile, targetPath, scanRootPath);
+        _logger.LogDebug("[INDEXER] ProcessSingleFileFromSource END: {Target}", targetPath);
+    }
+
+    private void ProcessSingleFileInternal(FileInfo readFile, string dbPath, string scanRootPath)
+    {
         string fullScanPath = Path.GetFullPath(scanRootPath);
         
         bool ownConnection = false;
@@ -156,7 +169,7 @@ public class ImageIndexer : IImageIndexer
             
             _pathCache[fullScanPath] = targetRootId;
             
-            ProcessFile(file, fullScanPath, targetRootId);
+            ProcessFileInternal(readFile, dbPath, fullScanPath, targetRootId);
         }
         finally
         {
@@ -166,19 +179,23 @@ public class ImageIndexer : IImageIndexer
                 _sharedConnection = null;
             }
         }
-        _logger.LogDebug("[INDEXER] ProcessSingleFile END: {FileName}", file.Name);
     }
 
     private bool ProcessFile(FileInfo file, string scanRootPath, string scanRootId)
     {
-        if (!TableConstants.SupportedExtensions.Contains(file.Extension)) return false;
+        return ProcessFileInternal(file, file.FullName, scanRootPath, scanRootId);
+    }
 
-        string? dirPath = file.DirectoryName;
+    private bool ProcessFileInternal(FileInfo sourceFile, string targetPath, string scanRootPath, string scanRootId)
+    {
+        if (!TableConstants.SupportedExtensions.Contains(sourceFile.Extension)) return false;
+
+        string? dirPath = Path.GetDirectoryName(targetPath);
         if (dirPath == null) return false;
         dirPath = Path.GetFullPath(dirPath);
 
-        var (exists, lastIndexedModified) = _db.GetExistingFileStatus(file.FullName, _sharedConnection);
-        if (exists && lastIndexedModified.HasValue && Math.Abs((file.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
+        var (exists, lastIndexedModified) = _db.GetExistingFileStatus(targetPath, _sharedConnection);
+        if (exists && lastIndexedModified.HasValue && Math.Abs((sourceFile.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
         {
             return false; 
         }
@@ -221,7 +238,7 @@ public class ImageIndexer : IImageIndexer
 
         try
         {
-            using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
             
             string hash = CalculateHash(stream);
@@ -230,10 +247,10 @@ public class ImageIndexer : IImageIndexer
             var entry = new FileEntry
             {
                 RootPathId = rootPathId,
-                FileName = file.Name,
-                Size = file.Length,
-                CreatedAt = file.CreationTime,
-                ModifiedAt = file.LastWriteTime,
+                FileName = Path.GetFileName(targetPath),
+                Size = sourceFile.Length,
+                CreatedAt = sourceFile.CreationTime,
+                ModifiedAt = sourceFile.LastWriteTime,
                 Hash = hash
             };
 
@@ -242,17 +259,17 @@ public class ImageIndexer : IImageIndexer
 
             if (fileId != null)
             {
-                var metadata = ExtractMetadata(stream, file.Extension);
+                var metadata = ExtractMetadata(stream, sourceFile.Extension);
                 _db.InsertMetadataWithConnection(_sharedConnection!, null, fileId, metadata);
 
                 if (_previewManager != null && _longEdges.Length > 0)
                 {
                     stream.Position = 0;
-                    GeneratePreviews(stream, fileId, file.Name, file.Extension, file.DirectoryName!);
+                    GeneratePreviews(stream, fileId, sourceFile.Name, sourceFile.Extension, sourceFile.DirectoryName!);
                 }
                 
                 // Notify UI only after everything is ready (DB + Previews)
-                _onFileProcessed?.Invoke(fileId, file.FullName);
+                _onFileProcessed?.Invoke(fileId, targetPath);
             }
 
             _processedSinceCleanup++;
@@ -266,7 +283,7 @@ public class ImageIndexer : IImageIndexer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process file {FileName}", file.Name);
+            _logger.LogError(ex, "Failed to process file {FileName}", sourceFile.Name);
             return false;
         }
     }

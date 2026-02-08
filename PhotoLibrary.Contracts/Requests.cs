@@ -13,6 +13,11 @@ public record CollectionAddRequest(string collectionId, string[] fileEntryIds);
 public record ZipRequest(string[] fileEntryIds, string type, string? name);
 public record SettingRequest(string key, string value);
 public record ImportBatchRequest(string rootPath, string[] relativePaths, bool generateLow, bool generateMedium);
+
+public record ImportLocalRequest(string sourceRoot, string[] sourceFiles, string targetRootId, string directoryTemplate, bool generatePreview, bool preventDuplicateName, bool preventDuplicateHash);
+
+public record ValidateImportRequest(string targetRootId, Dictionary<string, string> items);
+
 public record GenerateThumbnailsRequest(string rootId, bool recursive, bool force);
 public record FolderAnnotationRequest(string folderId, string annotation, string? color);
 public record ForceUpdatePreviewRequest(string fileEntryId);

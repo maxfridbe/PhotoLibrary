@@ -1025,6 +1025,16 @@ public class DatabaseManager : IDatabaseManager
         command.ExecuteNonQuery();
     }
 
+    public bool FileExistsByHash(string hash)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} WHERE {Column.FileEntry.Hash} = $Hash";
+        command.Parameters.AddWithValue("$Hash", hash);
+        return Convert.ToInt32(command.ExecuteScalar()) > 0;
+    }
+
     public (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null)
     {
         var fileName = Path.GetFileName(fullPath);
@@ -1450,5 +1460,101 @@ public class DatabaseManager : IDatabaseManager
             while (reader.Read()) ids.Add(reader.GetString(0));
         }
         return ids;
+    }
+
+    public HashSet<string> GetExistingFileNames(string rootId, IEnumerable<string> fileNames)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (fileNames == null || !fileNames.Any()) return result;
+
+        var targetRootIds = new HashSet<string> { rootId };
+        
+        using var connection = GetOpenConnection();
+
+        // Collect all recursive root IDs
+        var queue = new Queue<string>();
+        queue.Enqueue(rootId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
+                cmd.Parameters.AddWithValue("$ParentId", current);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var childId = reader.GetString(0);
+                    if (targetRootIds.Add(childId)) queue.Enqueue(childId);
+                }
+            }
+        }
+
+        var nameList = fileNames.Distinct().ToList();
+        int batchSize = 200;
+
+        if (targetRootIds.Count > 100)
+        {
+            using (var tCmd = connection.CreateCommand())
+            {
+                tCmd.CommandText = "CREATE TEMP TABLE IF NOT EXISTS TempRoots (Id TEXT PRIMARY KEY)";
+                tCmd.ExecuteNonQuery();
+            }
+            using (var tCmd = connection.CreateCommand())
+            {
+                tCmd.CommandText = "DELETE FROM TempRoots";
+                tCmd.ExecuteNonQuery();
+            }
+            using (var transaction = connection.BeginTransaction())
+            {
+                foreach(var r in targetRootIds)
+                {
+                    using var ins = connection.CreateCommand();
+                    ins.Transaction = transaction;
+                    ins.CommandText = "INSERT OR IGNORE INTO TempRoots (Id) VALUES (@id)";
+                    ins.Parameters.AddWithValue("@id", r);
+                    ins.ExecuteNonQuery();
+                }
+                transaction.Commit();
+            }
+        }
+
+        for (int i = 0; i < nameList.Count; i += batchSize)
+        {
+            var batch = nameList.Skip(i).Take(batchSize).ToList();
+            using (var cmd = connection.CreateCommand())
+            {
+                var nameParams = new List<string>();
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    string p = $"@n{j}";
+                    nameParams.Add(p);
+                    cmd.Parameters.AddWithValue(p, batch[j]);
+                }
+
+                if (targetRootIds.Count > 100)
+                {
+                    cmd.CommandText = $@"
+                        SELECT {Column.FileEntry.FileName} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN (SELECT Id FROM TempRoots) 
+                        AND {Column.FileEntry.FileName} IN ({string.Join(",", nameParams)})";
+                }
+                else
+                {
+                    string rootIn = string.Join(",", targetRootIds.Select(r => $"'{r}'")); 
+                    cmd.CommandText = $@"
+                        SELECT {Column.FileEntry.FileName} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN ({rootIn}) 
+                        AND {Column.FileEntry.FileName} IN ({string.Join(",", nameParams)})";
+                }
+                        
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read()) result.Add(reader.GetString(0));
+            }
+        }
+
+        return result;
     }
 }

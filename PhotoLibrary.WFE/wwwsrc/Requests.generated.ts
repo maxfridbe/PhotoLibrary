@@ -57,6 +57,21 @@ export interface ImportBatchRequest {
     generateMedium: boolean;
 }
 
+export interface ImportLocalRequest {
+    sourceRoot: string;
+    sourceFiles: string[];
+    targetRootId: string;
+    directoryTemplate: string;
+    generatePreview: boolean;
+    preventDuplicateName: boolean;
+    preventDuplicateHash: boolean;
+}
+
+export interface ValidateImportRequest {
+    targetRootId: string;
+    items: { [key: string]: string };
+}
+
 export interface GenerateThumbnailsRequest {
     rootId: string;
     recursive: boolean;

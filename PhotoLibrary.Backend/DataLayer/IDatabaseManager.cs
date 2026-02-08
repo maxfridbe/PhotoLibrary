@@ -37,6 +37,7 @@ public interface IDatabaseManager
     string? GetFileId(string rootPathId, string fileName);
     string? GetFileIdWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string rootPathId, string fileName);
     void UpdateFileHash(string fileId, string hash);
+    bool FileExistsByHash(string hash);
     (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null);
     bool FileExists(string fullPath, SqliteConnection? existingConnection = null);
     void InsertMetadata(string fileId, IEnumerable<MetadataItem> metadata);
@@ -47,4 +48,5 @@ public interface IDatabaseManager
     void SetPicked(string fileId, bool isPicked);
     void SetRating(string fileId, int rating);
     IEnumerable<string> Search(SearchRequest req);
+    HashSet<string> GetExistingFileNames(string rootId, IEnumerable<string> fileNames);
 }

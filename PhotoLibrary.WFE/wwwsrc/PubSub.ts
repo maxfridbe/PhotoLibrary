@@ -32,6 +32,8 @@ export interface EventMap {
     [ps.UI_LAYOUT_CHANGED]: {}; 
     [ps.UI_NOTIFICATION]: { message: string, type: 'info' | 'error' | 'success' };
     [ps.UI_SEARCH_STATUS]: { active: boolean, message?: string };
+    [ps.UI_SHOW_POPOVER]: { type: string, x: number, y: number, current?: string, onSelect: (val: string) => void };
+    [ps.IMPORT_FILE_FINISHED]: { taskId: string, sourcePath: string, targetPath?: string, fileEntryId?: string, success: boolean, error?: string };
     [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
     [ps.RUNTIME_STATS]: { memoryBytes: number, sentBytesPerSec: number, recvBytesPerSec: number };
 }

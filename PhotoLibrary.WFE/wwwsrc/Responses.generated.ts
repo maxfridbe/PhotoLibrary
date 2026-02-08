@@ -92,3 +92,12 @@ export interface ApplicationSettingsResponse {
     version: string;
 }
 
+export interface ScanFileResult {
+    path: string;
+    dateTaken: string;
+}
+
+export interface ValidateImportResponse {
+    existingSourceFiles: string[];
+}
+

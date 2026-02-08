@@ -110,3 +110,14 @@ public record ApplicationSettingsResponse
     public string Version { get; init; } = "";
 
 }
+
+public record ScanFileResult
+{
+    public string Path { get; init; } = "";
+    public DateTime DateTaken { get; init; }
+}
+
+public record ValidateImportResponse
+{
+    public List<string> ExistingSourceFiles { get; init; } = new();
+}

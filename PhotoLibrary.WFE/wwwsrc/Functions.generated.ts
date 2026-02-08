@@ -89,8 +89,16 @@ export async function api_library_find_new_files(data: Req.NameRequest): Promise
     return await post<any>('/api/library/find-new-files', data);
 }
 
+export async function api_library_validate_import(data: Req.ValidateImportRequest): Promise<any> {
+    return await post<any>('/api/library/validate-import', data);
+}
+
 export async function api_library_import_batch(data: Req.ImportBatchRequest): Promise<any> {
     return await post<any>('/api/library/import-batch', data);
+}
+
+export async function api_library_import_local(data: Req.ImportLocalRequest): Promise<any> {
+    return await post<any>('/api/library/import-local', data);
 }
 
 export async function api_library_generate_thumbnails(data: Req.GenerateThumbnailsRequest): Promise<any> {

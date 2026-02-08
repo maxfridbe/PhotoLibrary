@@ -23,6 +23,8 @@ export const constants = {
         UI_LAYOUT_CHANGED: 'ui.layout.changed' as const,
         UI_NOTIFICATION: 'ui.notification' as const,
         UI_SEARCH_STATUS: 'ui.search.status' as const,
+        UI_SHOW_POPOVER: 'ui.show.popover' as const,
+        IMPORT_FILE_FINISHED: 'import.file.finished' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
         RUNTIME_STATS: 'runtime.stats' as const,
     },
