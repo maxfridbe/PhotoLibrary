@@ -98,6 +98,11 @@ export interface PagedPhotosRequest {
     stacked?: boolean | null;
 }
 
+export interface ForgetRootRequest {
+    rootId: string;
+    keepPreviews: boolean;
+}
+
 export interface ImageRequest {
     requestId: number;
     fileEntryId: string;

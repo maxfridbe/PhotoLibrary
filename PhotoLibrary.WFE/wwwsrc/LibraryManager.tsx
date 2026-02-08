@@ -68,6 +68,7 @@ export class LibraryManager {
     };
 
     private currentScanPath: string = '';
+    private currentScanLimit: number = 1000;
     private renderPending = false;
     
     private fsRoots: FSNode[] = [];
@@ -141,6 +142,24 @@ export class LibraryManager {
 
         hub.sub(ps.FOLDER_CREATED, () => {
             this.loadLibraryInfo();
+        });
+
+        hub.sub(ps.FIND_NEW_FILE_FOUND, (data) => {
+            if (data && data.path) {
+                // Only add if not already in the list (avoid double addition if POST returns same)
+                if (!this.scanResults.some(r => r.path === data.path)) {
+                    this.scanResults.push({ path: data.path, status: 'pending' as const });
+                    this.render();
+
+                    // Auto-scroll to bottom of scan results to show newly found items
+                    setTimeout(() => {
+                        const container = document.querySelector('.scan-results-scroll-container');
+                        if (container) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }, 10);
+                }
+            }
         });
 
         hub.sub(ps.IMPORT_FILE_FINISHED, (data) => {
@@ -371,6 +390,8 @@ export class LibraryManager {
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             currentScanPath: this.currentScanPath,
+            activePath: this.currentScanPath,
+            scanLimit: this.currentScanLimit,
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
             onClearResults: () => {
@@ -388,6 +409,12 @@ export class LibraryManager {
 
             onScanPathChange: (path: string) => {
                 this.currentScanPath = path;
+                localStorage.setItem('import-source-path', path);
+                this.expandLibraryToPath(path);
+                this.render();
+            },
+            onScanLimitChange: (limit: number) => {
+                this.currentScanLimit = limit;
                 this.render();
             }
         };
@@ -631,8 +658,43 @@ export class LibraryManager {
             }
 
             this.initFileSystem();
+            
+            if (this.currentScanPath) {
+                this.expandLibraryToPath(this.currentScanPath);
+            }
+
             this.render();
         } catch (e) { console.error("Failed to load library info", e); }
+    }
+
+    private expandLibraryToPath(targetPath: string) {
+        if (!targetPath) return;
+
+        const targetP = targetPath.replace(/[/\\]+$/, '');
+        const idsToExpand: string[] = [];
+
+        const findNode = (nodes: Res.DirectoryNodeResponse[], path: string): boolean => {
+            for (const node of nodes) {
+                const nodeP = node.path.replace(/[/\\]+$/, '');
+                if (nodeP === targetP) {
+                    return true;
+                }
+                if (targetP.startsWith(nodeP + '/') || targetP.startsWith(nodeP + '\\')) {
+                    if (findNode(node.children || [], path)) {
+                        idsToExpand.push(node.directoryId);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        if (findNode(this.quickSelectRoots, targetP)) {
+            idsToExpand.forEach(id => this.locationsExpanded.add(id));
+            this.render();
+            // Scroll to the row matching this path
+            setTimeout(() => this.scrollToSelector(`.folder-list-container [data-path="${targetPath}"]`), 200);
+        }
     }
 
     private async initFileSystem() {
@@ -851,11 +913,16 @@ export class LibraryManager {
         
         try {
             this.isScanning = true;
+            this.scanResults = []; // Clear previous results immediately
             this.render();
 
             const res = await Api.api_library_find_new_files({ name: `${path}|${limit}` });
             if (Array.isArray(res)) {
-                this.scanResults = res.map((f: string) => ({ path: f, status: 'pending' as const }));
+                // Merge/Sync results in case some were missed or double-counted during streaming
+                const finalResults = res.map((f: string) => ({ path: f, status: 'pending' as const }));
+                
+                // If we already have some results from streaming, just use the final set for consistency
+                this.scanResults = finalResults;
             }
         } catch (e) {
             console.error('Error searching path', e);

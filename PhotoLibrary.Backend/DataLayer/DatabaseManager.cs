@@ -1259,17 +1259,41 @@ public class DatabaseManager : IDatabaseManager
             }
         }
 
-        void SetPaths(DirectoryNodeResponse node, string parentPath)
+        void SetPathsAndSort(DirectoryNodeResponse node, string parentPath)
         {
             if (string.IsNullOrEmpty(parentPath)) node.Path = node.Name;
             else node.Path = Path.Combine(parentPath, node.Name);
             
-            foreach (var child in node.Children) SetPaths(child, node.Path);
+            var sortedChildren = node.Children.OrderBy(c => c.Name).ToList();
+            node.Children.Clear();
+            node.Children.AddRange(sortedChildren);
+
+            foreach (var child in node.Children) SetPathsAndSort(child, node.Path);
         }
 
-        foreach (var root in roots) SetPaths(root, "");
+        var sortedRoots = roots.OrderBy(r => r.Name).ToList();
+        foreach (var root in sortedRoots) SetPathsAndSort(root, "");
 
-        return roots;
+        // Calculate recursive counts
+        void CalculateRecursiveCounts(DirectoryNodeResponse node)
+        {
+            int total = node.ImageCount;
+            int totalThumb = node.ThumbnailedCount;
+
+            foreach (var child in node.Children)
+            {
+                CalculateRecursiveCounts(child);
+                total += child.ImageCount;
+                totalThumb += child.ThumbnailedCount;
+            }
+
+            node.ImageCount = total;
+            node.ThumbnailedCount = totalThumb;
+        }
+
+        foreach (var root in sortedRoots) CalculateRecursiveCounts(root);
+
+        return sortedRoots;
     }
 
     public void SetFolderAnnotation(string folderId, string annotation, string? color = null)
@@ -1555,6 +1579,150 @@ public class DatabaseManager : IDatabaseManager
             }
         }
 
+        return result;
+    }
+
+    public List<string> GetFileHashesUnderRoot(string rootId)
+    {
+        var hashes = new List<string>();
+        using var connection = GetOpenConnection();
+        var rootIds = GetRecursiveRootIds(connection, rootId);
+        string rootIdList = string.Join(",", rootIds.Select(id => $"'{id}'"));
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $@"
+            SELECT DISTINCT {Column.FileEntry.Hash} 
+            FROM {TableName.FileEntry} 
+            WHERE {Column.FileEntry.RootPathId} IN ({rootIdList}) 
+            AND {Column.FileEntry.Hash} IS NOT NULL";
+        
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            hashes.Add(reader.GetString(0));
+        }
+        return hashes;
+    }
+
+    public void ForgetRoot(string rootId)
+    {
+        using var connection = GetOpenConnection();
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            var rootIds = GetRecursiveRootIds(connection, rootId);
+            string rootIdList = string.Join(",", rootIds.Select(id => $"'{id}'"));
+
+            // 1. Delete Metadata
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.Metadata} 
+                    WHERE {Column.Metadata.FileId} IN (
+                        SELECT {Column.FileEntry.Id} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN ({rootIdList})
+                    )";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 2. Delete Picked status
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.ImagesPicked} 
+                    WHERE {Column.ImagesPicked.FileId} IN (
+                        SELECT {Column.FileEntry.Id} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN ({rootIdList})
+                    )";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 3. Delete Rating status
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.ImageRatings} 
+                    WHERE {Column.ImageRatings.FileId} IN (
+                        SELECT {Column.FileEntry.Id} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN ({rootIdList})
+                    )";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 4. Delete Collection mappings
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.CollectionFiles} 
+                    WHERE {Column.CollectionFiles.FileId} IN (
+                        SELECT {Column.FileEntry.Id} 
+                        FROM {TableName.FileEntry} 
+                        WHERE {Column.FileEntry.RootPathId} IN ({rootIdList})
+                    )";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 5. Delete Files
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.FileEntry} 
+                    WHERE {Column.FileEntry.RootPathId} IN ({rootIdList})";
+                cmd.ExecuteNonQuery();
+            }
+
+            // 6. Delete Roots
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = $@"
+                    DELETE FROM {TableName.RootPaths} 
+                    WHERE {Column.RootPaths.Id} IN ({rootIdList})";
+                cmd.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+            _logger.LogInformation("Forgot root {RootId} and its {Count} sub-roots.", rootId, rootIds.Count);
+        }
+        catch (Exception ex)
+        {
+            transaction.Rollback();
+            _logger.LogError(ex, "Failed to forget root {RootId}", rootId);
+            throw;
+        }
+    }
+
+    private List<string> GetRecursiveRootIds(SqliteConnection connection, string rootId)
+    {
+        var result = new List<string> { rootId };
+        var queue = new Queue<string>();
+        queue.Enqueue(rootId);
+
+        while (queue.Count > 0)
+        {
+            var currentId = queue.Dequeue();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = $@"
+                SELECT {Column.RootPaths.Id} 
+                FROM {TableName.RootPaths} 
+                WHERE {Column.RootPaths.ParentId} = $ParentId";
+            cmd.Parameters.AddWithValue("$ParentId", currentId);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var childId = reader.GetString(0);
+                result.Add(childId);
+                queue.Enqueue(childId);
+            }
+        }
         return result;
     }
 }

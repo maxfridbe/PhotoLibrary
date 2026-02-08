@@ -22,6 +22,7 @@ export interface EventMap {
     [ps.FOLDER_CREATED]: { directoryId: string, name: string };
     [ps.FOLDER_PROGRESS]: { rootId: string, processed: number, total: number, thumbnailed?: number };
     [ps.FOLDER_FINISHED]: { rootId: string };
+    [ps.FIND_NEW_FILE_FOUND]: { path: string };
     [ps.PREVIEW_GENERATED]: { fileEntryId: string, rootId: string };
     [ps.PREVIEW_GENERATING]: { fileEntryId: string };
     [ps.PREVIEW_DELETED]: { fileEntryId: string };

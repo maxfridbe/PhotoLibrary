@@ -44,8 +44,8 @@ public record DirectoryNodeResponse
     public string DirectoryId { get; init; } = "";
     public string Name { get; init; } = "";
     public string Path { get; set; } = "";
-    public int ImageCount { get; init; }
-    public int ThumbnailedCount { get; init; }
+    public int ImageCount { get; set; }
+    public int ThumbnailedCount { get; set; }
     public string? Annotation { get; init; }
     public string? Color { get; init; }
     public List<DirectoryNodeResponse> Children { get; init; } = new();

@@ -85,6 +85,8 @@ export class CommunicationManager {
                         hub.pub(ps.FOLDER_PROGRESS, { rootId: msg.rootId, processed: msg.processed, total: msg.total, thumbnailed: msg.thumbnailed });
                     } else if (msg.type === sk.FOLDER_FINISHED) {
                         hub.pub(ps.FOLDER_FINISHED, { rootId: msg.rootId });
+                    } else if (msg.type === sk.FIND_NEW_FILE_FOUND) {
+                        hub.pub(ps.FIND_NEW_FILE_FOUND, { path: msg.path });
                     } else if (msg.type === sk.PREVIEW_GENERATED) {
                         hub.pub(ps.PREVIEW_GENERATED, { fileEntryId: msg.fileEntryId, rootId: msg.rootId });
                     } else if (msg.type === sk.PREVIEW_GENERATING) {

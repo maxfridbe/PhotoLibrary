@@ -35,6 +35,7 @@ public interface ICommunicationLayer
     void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue);
     void SetAnnotation(FolderAnnotationRequest req);
     void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue);
+    void ForgetRoot(ForgetRootRequest req);
     bool CancelTask(TaskRequest req);
     string? GetSetting(string key);
     void SetSetting(SettingRequest req);

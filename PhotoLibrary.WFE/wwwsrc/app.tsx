@@ -1892,6 +1892,25 @@ class App {
                 });
             this.showNotification('Forced thumbnail generation started', 'info');
         });
+
+        const divider = document.createElement('div');
+        divider.className = 'context-menu-divider';
+        menu.appendChild(divider);
+
+        addItem('Forget Folder', () => {
+            if (!confirm('Are you sure you want to remove this folder and all its photos from the index?')) return;
+            const keepPreviews = confirm('Do you want to KEEP previews to match up xxhash later and to not generate new previews for this in the future?\n\nOK = Keep Previews\nCancel = Delete Previews');
+            Api.api_library_forget_root({ rootId, keepPreviews })
+                .then(() => {
+                    this.showNotification('Folder removed from index', 'success');
+                    this.enterLibraryMode(); // Full refresh of trees and data
+                })
+                .catch(err => {
+                    console.error('Failed to forget folder', err);
+                    this.showNotification('Failed to remove folder from index', 'error');
+                });
+        });
+
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';

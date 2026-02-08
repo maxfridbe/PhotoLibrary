@@ -357,7 +357,9 @@ public class CommunicationLayer : ICommunicationLayer
                 var fullFile = Path.GetFullPath(file);
                 if (!_db.FileExists(fullFile, connection))
                 {
-                    newFiles.Add(Path.GetRelativePath(absPath, fullFile));
+                    string relPath = Path.GetRelativePath(absPath, fullFile);
+                    newFiles.Add(relPath);
+                    _ = _broadcast(new { type = "find-new.file-found", path = relPath });
                 }
                 if (newFiles.Count >= limit) break;
             }
@@ -828,6 +830,32 @@ public class CommunicationLayer : ICommunicationLayer
         
         enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
         enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 1024, requestId = -1, priority = 90 }, CancellationToken.None);
+    }
+
+    public void ForgetRoot(ForgetRootRequest req)
+    {
+        if (string.IsNullOrEmpty(req.rootId)) return;
+
+        try
+        {
+            if (!req.keepPreviews)
+            {
+                var hashes = _db.GetFileHashesUnderRoot(req.rootId);
+                _logger?.LogInformation("Deleting previews for {Count} unique hashes in root {RootId}", hashes.Count, req.rootId);
+                foreach (var hash in hashes)
+                {
+                    _pm.DeletePreviewsByHash(hash);
+                }
+            }
+
+            _db.ForgetRoot(req.rootId);
+            _ = _broadcast(new { type = "library.updated" });
+            _ = _broadcast(new { type = "scan.finished" });
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error forgetting root {RootId}", req.rootId);
+        }
     }
 
     public bool CancelTask(TaskRequest req)

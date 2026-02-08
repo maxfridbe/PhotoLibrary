@@ -113,6 +113,10 @@ export async function api_library_force_update_preview(data: Req.ForceUpdatePrev
     return await post<any>('/api/library/force-update-preview', data);
 }
 
+export async function api_library_forget_root(data: Req.ForgetRootRequest): Promise<any> {
+    return await post<any>('/api/library/forget-root', data);
+}
+
 export async function api_library_cancel_task(data: Req.TaskRequest): Promise<any> {
     return await post<any>('/api/library/cancel-task', data);
 }

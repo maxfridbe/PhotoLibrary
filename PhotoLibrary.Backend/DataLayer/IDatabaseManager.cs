@@ -44,6 +44,8 @@ public interface IDatabaseManager
     void InsertMetadataWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, IEnumerable<MetadataItem> metadata);
     IEnumerable<DirectoryNodeResponse> GetDirectoryTree();
     void SetFolderAnnotation(string folderId, string annotation, string? color = null);
+    void ForgetRoot(string rootId);
+    List<string> GetFileHashesUnderRoot(string rootId);
     IEnumerable<MetadataItemResponse> GetMetadata(string fileId);
     void SetPicked(string fileId, bool isPicked);
     void SetRating(string fileId, int rating);

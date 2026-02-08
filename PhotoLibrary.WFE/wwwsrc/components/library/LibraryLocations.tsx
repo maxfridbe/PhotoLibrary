@@ -5,6 +5,7 @@ import * as Res from '../../Responses.generated.js';
 export interface LibraryLocationsProps {
     roots: Res.DirectoryNodeResponse[];
     expandedFolders: Set<string>;
+    activePath: string;
     onPathChange: (path: string) => void;
     onToggle: (id: string) => void;
     onFolderContextMenu: (e: MouseEvent, id: string) => void;
@@ -19,15 +20,17 @@ export interface LibraryLocationsProps {
     isScanning: boolean;
     isCancelling: boolean;
     currentScanPath: string;
+    scanLimit: number;
     onFindNew: (path: string, limit: number) => void;
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
     onClearResults: () => void;
     onCancelImport: () => void;
     onScanPathChange: (path: string) => void;
+    onScanLimitChange: (limit: number) => void;
 }
 
 export function LibraryLocations(props: LibraryLocationsProps): VNode {
-    const { roots, expandedFolders, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, onFindNew, onIndexFiles, onClearResults, onCancelImport, onScanPathChange } = props;
+    const { roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, scanLimit, onFindNew, onIndexFiles, onClearResults, onCancelImport, onScanPathChange, onScanLimitChange } = props;
 
     return (
         <div 
@@ -43,7 +46,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                         overflowY: 'overlay' as any
                     }}
                 >
-                    {roots && roots.length > 0 ? renderHierarchicalFolderList(roots, expandedFolders, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask) : []}
+                    {roots && roots.length > 0 ? renderHierarchicalFolderList(roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask) : []}
                 </div>
             </div>
 
@@ -73,17 +76,18 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                         <select 
                             attrs={{ id: 'scan-limit-select' }}
                             style={{ background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '4px' }}
+                            on={{ change: (e: Event) => onScanLimitChange(parseInt((e.target as HTMLSelectElement).value)) }}
                         >
-                            <option attrs={{ value: '100' }}>100</option>
-                            <option attrs={{ value: '500' }}>500</option>
-                            <option attrs={{ value: '1000', selected: true }}>1000</option>
-                            <option attrs={{ value: '5000' }}>5000</option>
+                            <option attrs={{ value: '100' }} props={{ selected: scanLimit === 100 }}>100</option>
+                            <option attrs={{ value: '500' }} props={{ selected: scanLimit === 500 }}>500</option>
+                            <option attrs={{ value: '1000' }} props={{ selected: scanLimit === 1000 }}>1000</option>
+                            <option attrs={{ value: '5000' }} props={{ selected: scanLimit === 5000 }}>5000</option>
                         </select>
                     </div>
                     <button
                         style={{ padding: '0 2.5em', background: isScanning ? '#555' : 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: isScanning ? 'default' : 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                         attrs={{ disabled: isScanning }}
-                        on={{ click: () => !isScanning && onFindNew(currentScanPath, 1000) }}
+                        on={{ click: () => !isScanning && onFindNew(currentScanPath, scanLimit) }}
                     >
                         {isScanning ? <div class={{ spinner: true }} style={{ width: '1em', height: '1em', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : null}
                         FIND NEW
@@ -93,7 +97,9 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1em' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ marginTop: '0', color: 'var(--text-bright)' }}>Found Unindexed Images</h3>
+                    <h3 style={{ marginTop: '0', color: 'var(--text-bright)' }}>
+                        Found Unindexed Images {scanResults.length > 0 ? `(${scanResults.length})` : ''}
+                    </h3>
                     {(scanResults.length > 0 && !isIndexing) ? (
                         <button
                             style={{ padding: '4px 12px', fontSize: '0.85em', background: 'transparent', border: '1px solid var(--border-dim)', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' }}
@@ -133,7 +139,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
     );
 }
 
-function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expanded: Set<string>, onPathChange: (path: string) => void, onToggle: (id: string) => void, onFolderContextMenu: (e: MouseEvent, id: string) => void, onAnnotationSave: (id: string, annotation: string, color?: string) => void, onCancelTask: (id: string) => void) {
+function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expanded: Set<string>, activePath: string, onPathChange: (path: string) => void, onToggle: (id: string) => void, onFolderContextMenu: (e: MouseEvent, id: string) => void, onAnnotationSave: (id: string, annotation: string, color?: string) => void, onCancelTask: (id: string) => void) {
     const contrastColor = (hexcolor: string) => {
         const hex = hexcolor.replace('#', '');
         const r = parseInt(hex.substr(0, 2), 16);
@@ -147,12 +153,14 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
         const indent = depth * 1.5 + 'em';
         const isExpanded = expanded.has(node.directoryId);
         const hasChildren = node.children && node.children.length > 0;
+        const isActive = node.path === activePath;
 
         return (
             <div>
                 <div 
-                    class={{ 'folder-row': true }}
+                    class={{ 'folder-row': true, 'active': isActive }}
                     key={node.directoryId}
+                    attrs={{ 'data-path': node.path }}
                     style={{ 
                         padding: `0.4em 1em 0.4em ${indent}`, 
                         borderBottom: '1px solid var(--border-dim)', 
@@ -160,7 +168,8 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
                         fontSize: '0.9em',
                         display: 'flex',
                         alignItems: 'center',
-                        position: 'relative'
+                        position: 'relative',
+                        background: isActive ? 'var(--bg-active-dim)' : 'transparent'
                     }}
                     on={{ 
                         click: () => onPathChange(node.path),
@@ -251,6 +260,7 @@ function renderScanTable(results: { path: string, status: string, duration?: num
                     return (
                         <tr 
                             key={'scan-' + i}
+                            attrs={{ 'data-path': r.path }}
                             style={{ 
                                 borderBottom: '1px solid var(--border-dim)',
                                 background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent' 

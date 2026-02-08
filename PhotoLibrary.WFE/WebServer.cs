@@ -212,6 +212,11 @@ public static class WebServer
             return Results.Ok();
         });
 
+        app.MapPost("/api/library/forget-root", (ForgetRootRequest req) => {
+            _commLayer?.ForgetRoot(req);
+            return Results.Ok();
+        });
+
         app.MapPost("/api/library/cancel-task", (TaskRequest req) => {
             bool success = _commLayer?.CancelTask(req) ?? false;
             return success ? Results.Ok(new { success = true }) : Results.NotFound();
