@@ -391,6 +391,7 @@ public class ImageIndexer : IImageIndexer
 
         Stream sourceStream = stream;
         bool ownStream = false;
+        MagickFormat format = GetMagickFormat(fileName);
 
         if (TableConstants.RawExtensions.Contains(extension))
         {
@@ -404,6 +405,7 @@ public class ImageIndexer : IImageIndexer
                 var fs = File.Open(jpgPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 sourceStream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
                 ownStream = true;
+                format = MagickFormat.Jpg;
             }
         }
 
@@ -413,7 +415,7 @@ public class ImageIndexer : IImageIndexer
             _logger.LogDebug("[MAGICK] Indexer Loading {FileName}. Process Mem: {Memory}MB", fileName, _currentProcess.WorkingSet64 / 1024 / 1024);
             
             var settings = new MagickReadSettings {
-                Format = GetMagickFormat(fileName)
+                Format = format
             };
 
             using (var image = new MagickImage(sourceStream, settings))
