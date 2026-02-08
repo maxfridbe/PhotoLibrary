@@ -179,4 +179,39 @@ public class DatabaseTests : TestBase
         Assert.NotNull(item);
         Assert.Equal(100, item.Value!.Length);
     }
+
+    [Fact]
+    public void Search_ShouldWorkForVariousQueries()
+    {
+        // Arrange
+        var db = CreateDb();
+        string rootId = db.GetOrCreateBaseRoot("/test/search");
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "photo.jpg", Size = 1024 * 1024 * 5 }); // 5MB
+        var fId = db.GetFileId(rootId, "photo.jpg")!;
+        db.InsertMetadata(fId, new[] { new MetadataItem { Directory = "Exif", Tag = "Model", Value = "Sony A7" } });
+
+        // Act & Assert 1: Tag/Value exact match
+        var r1 = db.Search(new SearchRequest("Model", "Sony A7", null)).ToList();
+        Assert.Single(r1);
+
+        // Act & Assert 2: Global query
+        var r2 = db.Search(new SearchRequest(null, null, "Sony")).ToList();
+        Assert.Single(r2);
+
+        // Act & Assert 3: Size query
+        var r3 = db.Search(new SearchRequest(null, null, "size > 4mb")).ToList();
+        Assert.Single(r3);
+        var r4 = db.Search(new SearchRequest(null, null, "size < 1mb")).ToList();
+        Assert.Empty(r4);
+
+        // Act & Assert 4: Path query
+        var r5 = db.Search(new SearchRequest(null, null, "path:photo")).ToList();
+        Assert.Single(r5);
+        var r6 = db.Search(new SearchRequest(null, null, "path:search")).ToList();
+        Assert.Single(r6);
+
+        // Act & Assert 5: Tag prefix query
+        var r7 = db.Search(new SearchRequest(null, null, "tag:Model=Sony")).ToList();
+        Assert.Single(r7);
+    }
 }

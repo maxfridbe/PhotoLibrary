@@ -791,6 +791,7 @@ public class CommunicationLayer : ICommunicationLayer
                             _pm.DeletePreviewsByHash(hash);
                         }
                         enqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
+                        enqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001 }, cts.Token);
                     }
 
                     if (processed % 50 == 0 || processed == total)

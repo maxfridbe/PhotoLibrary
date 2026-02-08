@@ -24,9 +24,9 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
 - [x] **Collections**:
     - [x] Test creation, deletion, and adding files.
     - [x] Verify retrieval of files within a collection.
-- [ ] **Search Logic**:
-    - [ ] Test tag-based searching.
-    - [ ] Test complex query string parsing.
+- [x] **Search Logic**:
+    - [x] Test tag-based searching.
+    - [x] Test complex query string parsing.
 - [x] **Forgetting Folders**:
     - [x] Verify `ForgetRoot` recursively deletes everything (Metadata, Collections, Files, Roots).
 
@@ -51,12 +51,12 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
     - [x] Verify the optimized flow: Index -> Copy.
 - [x] **Validate Import**:
     - [x] Verify recursive disk checks for existing files in destination roots.
-- [ ] **Thumbnail Generation Orchestration**:
-    - [ ] Test `GenerateThumbnails` background task enqueuing.
-    - [ ] Test `ForceUpdatePreview` logic (delete + regenerate).
+- [x] **Thumbnail Generation Orchestration**:
+    - [x] Test `GenerateThumbnails` background task enqueuing.
+    - [x] Test `ForceUpdatePreview` logic (delete + regenerate).
 - [x] **Export**:
     - [x] Test Zip archive creation for original files.
-    - [ ] Test Zip archive creation for previews.
+    - [x] Test Zip archive creation for previews.
     - [x] Verify filename collision handling in export zips.
 
 ## 4. PreviewManager (ProcessingLayer)
@@ -69,8 +69,8 @@ This document tracks the testing requirements for the `PhotoLibrary.Backend` com
     - [x] Test `DeletePreviewsByHash`.
 
 ## 5. Utilities
-- [ ] **PathUtils**:
-    - [ ] Test `ResolvePath` with `~` and relative paths.
-    - [ ] Verify consistent behavior across Linux/Windows path separators.
-- [ ] **ReadTrackingStream**:
-    - [ ] Verify byte counting for runtime statistics.
+- [x] **PathUtils**:
+    - [x] Test `ResolvePath` with `~` and relative paths.
+    - [x] Verify consistent behavior across Linux/Windows path separators.
+- [x] **ReadTrackingStream**:
+    - [x] Verify byte counting for runtime statistics.

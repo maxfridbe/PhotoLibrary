@@ -279,4 +279,94 @@ public class CommunicationTests : TestBase
         Assert.Contains(archive.Entries, e => e.Name == "dup.jpg");
         Assert.Contains(archive.Entries, e => e.Name == "dup-1.jpg");
     }
+
+    [Fact]
+    public void GenerateThumbnails_ShouldEnqueueTasks()
+    {
+        // Arrange
+        var (db, pm, cl) = CreateStack();
+        string rootPath = Path.Combine(TestTempDir, "EnqTest");
+        Directory.CreateDirectory(rootPath);
+        CreateTestImage("EnqTest/p1.jpg");
+        CreateTestImage("EnqTest/p2.jpg");
+        
+        string rootId = db.GetOrCreateBaseRoot(rootPath);
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p1.jpg", Hash = "h1" });
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p2.jpg", Hash = "h2" });
+
+        var enqueued = new ConcurrentBag<ImageRequest>();
+
+        // Act
+        cl.GenerateThumbnails(new GenerateThumbnailsRequest(rootId, false, false), (req, ct) => {
+            enqueued.Add(req);
+        });
+
+        // Wait for background scan/enqueue
+        int attempts = 0;
+        while (attempts++ < 50 && enqueued.Count < 4) Thread.Sleep(100);
+
+        // Assert
+        Assert.Equal(4, enqueued.Count);
+        var f1 = db.GetFileId(rootId, "p1.jpg");
+        Assert.Contains(enqueued, r => r.fileEntryId == f1 && r.size == 300);
+        Assert.Contains(enqueued, r => r.fileEntryId == f1 && r.size == 1024);
+    }
+
+    [Fact]
+    public void ForceUpdatePreview_ShouldDeleteAndEnqueue()
+    {
+        // Arrange
+        var (db, pm, cl) = CreateStack();
+        string rootId = db.GetOrCreateBaseRoot("/test");
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "force.jpg", Hash = "fh1" });
+        var fileId = db.GetFileId(rootId, "force.jpg")!;
+        
+        // Mock a preview exists
+        pm.SavePreview("fh1", 300, new byte[] { 1 });
+        Assert.True(pm.HasPreview("fh1", 300));
+
+        var enqueued = new List<ImageRequest>();
+
+        // Act
+        cl.ForceUpdatePreview(new ForceUpdatePreviewRequest(fileId), (req, ct) => enqueued.Add(req));
+
+        // Assert
+        Assert.False(pm.HasPreview("fh1", 300)); // Should be deleted
+        Assert.Equal(2, enqueued.Count);
+        Assert.Contains(enqueued, r => r.size == 300);
+        Assert.Contains(enqueued, r => r.size == 1024);
+    }
+
+    [Fact]
+    public void PathUtils_ShouldResolvePaths()
+    {
+        // Act & Assert
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string expected = Path.GetFullPath(Path.Combine(home, "Pictures"));
+        Assert.Equal(expected, PathUtils.ResolvePath("~/Pictures"));
+        
+        string abs = "/tmp/test/path";
+        Assert.Equal(Path.GetFullPath(abs), PathUtils.ResolvePath(abs));
+    }
+
+    [Fact]
+    public void ReadTrackingStream_ShouldCountBytes()
+    {
+        // Arrange
+        long counted = 0;
+        byte[] data = new byte[1024];
+        new Random().NextBytes(data);
+        using var ms = new MemoryStream(data);
+        using var stream = new ReadTrackingStream(ms, b => counted += b);
+
+        // Act
+        byte[] buffer = new byte[512];
+        int read1 = stream.Read(buffer, 0, 512);
+        int read2 = stream.Read(buffer, 0, 100);
+
+        // Assert
+        Assert.Equal(512, read1);
+        Assert.Equal(100, read2);
+        Assert.Equal(612, counted);
+    }
 }
