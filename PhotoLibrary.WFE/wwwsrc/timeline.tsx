@@ -38,6 +38,7 @@ export class TimelineView {
     private generatingIds = new Set<string>();
 
     private orientation: 'vertical' | 'horizontal' = 'vertical';
+    private sortOrder: 'newest-first' | 'oldest-first' = 'newest-first';
     private gridScale = 1.0;
     private readonly baseRowHeight = 220;
     private readonly baseMinCardWidth = 200;
@@ -81,7 +82,8 @@ export class TimelineView {
     }
 
     public setPhotos(photos: Photo[]) {
-        this.photos = photos;
+        this.photos = [...photos]; 
+        this.applySort();
         this.groupPhotos();
         this.vnode = null; // Force full re-render on photo change
         this.update(true);
@@ -110,6 +112,30 @@ export class TimelineView {
             // Restore position after layout update
             setTimeout(() => this.scrollToDate(currentDate), 10);
         }
+    }
+
+    public setSortOrder(order: 'newest-first' | 'oldest-first') {
+        if (this.sortOrder === order) return;
+        this.sortOrder = order;
+        this.applySort();
+        this.groupPhotos();
+        this.vnode = null;
+        this.update(true);
+    }
+
+    private applySort() {
+        this.photos.sort((a, b) => {
+            const timeA = new Date(a.createdAt).getTime();
+            const timeB = new Date(b.createdAt).getTime();
+            const isAInvalid = isNaN(timeA) || new Date(a.createdAt).getFullYear() > 2035 || new Date(a.createdAt).getFullYear() < 1970;
+            const isBInvalid = isNaN(timeB) || new Date(b.createdAt).getFullYear() > 2035 || new Date(b.createdAt).getFullYear() < 1970;
+            
+            if (isAInvalid && isBInvalid) return 0;
+            if (isAInvalid) return 1; 
+            if (isBInvalid) return -1;
+
+            return this.sortOrder === 'newest-first' ? timeB - timeA : timeA - timeB;
+        });
     }
 
     public setScale(scale: number) {
@@ -738,7 +764,12 @@ export class TimelineView {
         return this.orientation;
     }
 
-    public getNavigationIndex(currentIndex: number, key: string): number {
+    public getNavigationId(currentId: string | null, key: string): string | null {
+        if (!currentId || this.photos.length === 0) return null;
+
+        const currentIndex = this.photos.findIndex(p => p.fileEntryId === currentId);
+        if (currentIndex === -1) return null;
+
         const isHorizontal = this.orientation === 'horizontal';
         
         // Use stored metrics
@@ -748,16 +779,19 @@ export class TimelineView {
         const groupIndex = this.groups.findIndex((g, i) => 
             currentIndex >= g.startIndex && (i === this.groups.length - 1 || currentIndex < this.groups[i+1].startIndex)
         );
-        if (groupIndex === -1) return currentIndex;
+        if (groupIndex === -1) return currentId;
 
         const group = this.groups[groupIndex];
         const idxInGroup = currentIndex - group.startIndex;
 
+        let nextIndex = currentIndex;
         if (isHorizontal) {
-            return this.getHorizNavigationIndex(currentIndex, key, groupIndex, idxInGroup, rows);
+            nextIndex = this.getHorizNavigationIndex(currentIndex, key, groupIndex, idxInGroup, rows);
         } else {
-            return this.getVertNavigationIndex(currentIndex, key, groupIndex, idxInGroup, cols);
+            nextIndex = this.getVertNavigationIndex(currentIndex, key, groupIndex, idxInGroup, cols);
         }
+
+        return this.photos[nextIndex].fileEntryId;
     }
 
     private getHorizNavigationIndex(currentIndex: number, key: string, groupIndex: number, idxInGroup: number, rows: number): number {

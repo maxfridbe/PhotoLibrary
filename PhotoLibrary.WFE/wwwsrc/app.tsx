@@ -93,6 +93,7 @@ class App {
     public stackingEnabled: boolean = false;
     public sortBy: SortOption = 'date-desc';
     public timelineOrientation: 'vertical' | 'horizontal' = 'vertical';
+    public timelineSortOrder: 'newest-first' | 'oldest-first' = 'newest-first';
 
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
@@ -1123,6 +1124,7 @@ class App {
         params.set('stacked', this.stackingEnabled.toString());
         params.set('hidden', this.showHidden.toString());
         params.set('orient', this.timelineOrientation);
+        params.set('tsort', this.timelineSortOrder);
         
         if (this.isTimelineMode) {
             const date = this.timelineViewManager.getCurrentDate();
@@ -1190,6 +1192,13 @@ class App {
                     if (newOrient !== this.timelineOrientation) {
                         this.timelineOrientation = newOrient;
                         this.timelineViewManager.setOrientation(newOrient);
+                    }
+                }
+                if (params.has('tsort')) {
+                    const newSort = params.get('tsort') as 'newest-first' | 'oldest-first';
+                    if (newSort !== this.timelineSortOrder) {
+                        this.timelineSortOrder = newSort;
+                        this.timelineViewManager.setSortOrder(newSort);
                     }
                 }
             }
@@ -1344,6 +1353,9 @@ class App {
 
         const orientSelect = document.getElementById('timeline-orient-select') as HTMLSelectElement;
         if (orientSelect) orientSelect.value = this.timelineOrientation;
+
+        const tSortSelect = document.getElementById('timeline-sort-select') as HTMLSelectElement;
+        if (tSortSelect) tSortSelect.value = this.timelineSortOrder;
     }
 
     async loadData() {
@@ -1557,6 +1569,7 @@ class App {
             orientLabel.className = 'control-item';
             orientLabel.textContent = 'Orient: ';
             const orientSelect = document.createElement('select');
+            orientSelect.id = 'timeline-orient-select';
             orientSelect.style.background = '#111'; orientSelect.style.color = '#ccc'; orientSelect.style.border = '1px solid #444'; orientSelect.style.fontSize = '0.9em';
             ['Vertical', 'Horizontal'].forEach(v => {
                 const opt = document.createElement('option');
@@ -1571,6 +1584,29 @@ class App {
                 self.syncUrl();
             };
             orientLabel.appendChild(orientSelect);
+
+            const sortLabel = document.createElement('label');
+            sortLabel.className = 'control-item';
+            sortLabel.textContent = 'Sort: ';
+            const sortSelect = document.createElement('select');
+            sortSelect.id = 'timeline-sort-select';
+            sortSelect.style.background = '#111'; sortSelect.style.color = '#ccc'; sortSelect.style.border = '1px solid #444'; sortSelect.style.fontSize = '0.9em';
+            [
+                { v: 'newest-first', l: 'Newest First' },
+                { v: 'oldest-first', l: 'Oldest First' }
+            ].forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.v; opt.textContent = item.l;
+                if (item.v === self.timelineSortOrder) opt.selected = true;
+                sortSelect.appendChild(opt);
+            });
+            sortSelect.onchange = (e) => {
+                const order = (e.target as HTMLSelectElement).value as 'newest-first' | 'oldest-first';
+                self.timelineSortOrder = order;
+                self.timelineViewManager.setSortOrder(order);
+                self.syncUrl();
+            };
+            sortLabel.appendChild(sortSelect);
 
             const scaleLabel = document.createElement('label');
             scaleLabel.className = 'control-item';
@@ -1625,6 +1661,7 @@ class App {
             hiddenLabel.appendChild(hiddenSpan);
 
             header.appendChild(orientLabel);
+            header.appendChild(sortLabel);
             header.appendChild(scaleLabel);
             header.appendChild(stackLabel);
             header.appendChild(hiddenLabel);
@@ -3080,7 +3117,10 @@ class App {
                     index += (key === 'PageDown' ? 20 : -20); // Fallback
                 }
             } else if (isTimeline) {
-                index = this.timelineViewManager.getNavigationIndex(index, key);
+                const targetId = this.timelineViewManager.getNavigationId(this.selectedId, key);
+                if (targetId) {
+                    index = this.photos.findIndex(p => p.fileEntryId === targetId);
+                }
             } else {
                 if (key === 'ArrowRight') index++;
                 else if (key === 'ArrowLeft') index--;
