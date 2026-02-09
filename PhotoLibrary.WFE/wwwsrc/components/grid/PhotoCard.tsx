@@ -65,13 +65,15 @@ export function PhotoCard(props: PhotoCardProps): VNode {
                     hook={{
                         insert: (vnode) => {
                             if (!cachedUrl) {
-                                window.app.gridViewManager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                const manager = window.app.isTimelineMode ? window.app.timelineViewManager : window.app.gridViewManager;
+                                manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
                             }
                         },
                         update: (oldVnode, vnode) => {
                             const oldId = (oldVnode.elm?.parentElement as HTMLElement)?.dataset?.id;
                             if (photo.fileEntryId !== oldId && !cachedUrl) {
-                                window.app.gridViewManager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                const manager = window.app.isTimelineMode ? window.app.timelineViewManager : window.app.gridViewManager;
+                                manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
                             }
                         }
                     }}

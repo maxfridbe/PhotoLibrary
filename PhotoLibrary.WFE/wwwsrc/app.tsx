@@ -12,6 +12,7 @@ import { ThemeManager } from './ThemeManager.js';
 import { LibraryManager } from './LibraryManager.js';
 // import { themes } from './themes.js';
 import { GridView } from './grid.js';
+import { TimelineView } from './timeline.js';
 import { constants } from './constants.js';
 // import { PhotoCard } from './components/grid/PhotoCard.js';
 import { LibrarySidebar, LibrarySidebarProps } from './components/library/LibrarySidebar.js';
@@ -60,6 +61,8 @@ class App {
     private themeManager: ThemeManager;
     public libraryManager: LibraryManager;
     public gridViewManager: GridView;
+    public timelineViewManager: TimelineView;
+    private currentLayoutType: 'standard' | 'timeline' | 'none' = 'none';
 
     private allPhotosFlat: Photo[] = [];
     public photos: Photo[] = []; // Processed list
@@ -89,6 +92,7 @@ class App {
     public filterRating: number = 0;
     public stackingEnabled: boolean = false;
     public sortBy: SortOption = 'date-desc';
+    public timelineOrientation: 'vertical' | 'horizontal' = 'vertical';
 
     public searchResultIds: string[] = [];
     public searchTitle: string = '';
@@ -107,6 +111,7 @@ class App {
 
     public isLoupeMode = false;
     public isLibraryMode = false;
+    public isTimelineMode = false;
     public isIndexing = false;
     private overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
 
@@ -213,8 +218,12 @@ class App {
     public $workspaceEl: HTMLElement | null = null;
     public $metadataEl: HTMLElement | null = null;
     public $gridHeader: HTMLElement | null = null;
+    public $gridContainer: HTMLElement | null = null;
     public $gridView: HTMLElement | null = null;
     public $scrollSentinel: HTMLElement | null = null;
+    public $timelineContainer: HTMLElement | null = null;
+    public $timelineView: HTMLElement | null = null;
+    public $timelineSentinel: HTMLElement | null = null;
     public $loupeView: HTMLElement | null = null;
     public $filmstrip: HTMLElement | null = null;
     private $watermarkEl: HTMLElement | null = null;
@@ -242,6 +251,7 @@ class App {
     private importProcessTimer: any = null;
     private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
     private loadStartTime: number = Date.now();
+    private syncUrlTimer: any = null;
 
     private updateSplash(status: string, percent: number) {
         const $status = document.getElementById('splash-status');
@@ -270,6 +280,12 @@ class App {
             // console.log(`[Priority] Requesting ${id} at index ${index} with priority ${totalPriority}`);
             return totalPriority;
         });
+        this.timelineViewManager = new TimelineView(this.imageUrlCache, this.rotationMap, (id) => {
+            const index = this.photos.findIndex(p => p.fileEntryId === id);
+            const subPriority = index !== -1 ? (1 - (index / Math.max(1, this.photos.length))) : 0;
+            const totalPriority = this.prioritySession + subPriority;
+            return totalPriority;
+        });
 
         hub.sub(ps.FOLDER_PROGRESS, (data) => {
             let prog = this.folderProgress.get(data.rootId);
@@ -296,7 +312,14 @@ class App {
             this.themeManager.populateThemesDropdown();
             this.themeManager.applyTheme();
             this.updateSplash('Initializing Layout...', 50);
-            this.initLayout();
+            
+            // Check hash for initial mode
+            const hash = window.location.hash;
+            if (hash.startsWith('#!/timeline')) {
+                this.isTimelineMode = true;
+            }
+
+            this.updateViewModeUI(); // This will call initLayout with correct config
             this.loadData();
             this.setupGlobalKeyboard();
             this.setupContextMenu();
@@ -544,11 +567,16 @@ class App {
 
             // Sync Grid
             this.gridViewManager.setSelected(this.selectedId, this.selectedIds);
+            this.timelineViewManager.setSelected(this.selectedId, this.selectedIds);
 
             // Sync selection UI (legacy/filmstrip scrolling)
             // We only scroll to the active one
             if (this.selectedId) {
-                this.gridViewManager.scrollToPhoto(this.selectedId);
+                if (this.isTimelineMode) {
+                    this.timelineViewManager.scrollToPhoto(this.selectedId);
+                } else {
+                    this.gridViewManager.scrollToPhoto(this.selectedId);
+                }
                 this.loadMetadata(this.selectedId);
                 if (this.isLoupeMode && this.selectedIds.has(this.selectedId)) {
                     // Ensure loupe matches active selection
@@ -578,11 +606,14 @@ class App {
         hub.sub(ps.VIEW_MODE_CHANGED, (data) => {
             this.isLoupeMode = data.mode === 'loupe';
             this.isLibraryMode = data.mode === 'library';
+            this.isTimelineMode = data.mode === 'timeline';
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.fileEntryId) {
                 hub.pub(ps.PHOTO_SELECTED, { fileEntryId: data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
                 this.updateLoupeOverlay(data.fileEntryId);
             } else if (data.mode === 'grid' && data.fileEntryId) {
+                this.selectPhoto(data.fileEntryId);
+            } else if (data.mode === 'timeline' && data.fileEntryId) {
                 this.selectPhoto(data.fileEntryId);
             } else if (data.mode === 'loupe') {
                 this.renderLoupe();
@@ -941,6 +972,7 @@ class App {
         this.photos = result;
         this.totalPhotos = this.photos.length;
         this.gridViewManager.setPhotos(this.photos);
+        this.timelineViewManager.setPhotos(this.photos);
 
         this.updateWatermark();
         this.renderGrid();
@@ -1075,6 +1107,7 @@ class App {
         let mode = 'grid';
         if (this.isLoupeMode) mode = 'loupe';
         else if (this.isLibraryMode) mode = 'library';
+        else if (this.isTimelineMode) mode = 'timeline';
 
         let filterPart = 'all';
         if (this.selectedRootId) filterPart = `folder/${this.selectedRootId}`;
@@ -1089,11 +1122,22 @@ class App {
         params.set('size', this.gridScale.toString());
         params.set('stacked', this.stackingEnabled.toString());
         params.set('hidden', this.showHidden.toString());
+        params.set('orient', this.timelineOrientation);
+        
+        if (this.isTimelineMode) {
+            const date = this.timelineViewManager.getCurrentDate();
+            if (date) params.set('date', date);
+        }
 
         const newHash = `#!/${mode}/${filterPart}${photoPart}?${params.toString()}`;
         if (window.location.hash !== newHash) {
             window.location.hash = newHash;
         }
+    }
+
+    private syncUrlDebounced() {
+        if (this.syncUrlTimer) clearTimeout(this.syncUrlTimer);
+        this.syncUrlTimer = setTimeout(() => this.syncUrl(), 500);
     }
 
     private async applyUrlState(forceRefresh: boolean = false) {
@@ -1111,6 +1155,7 @@ class App {
 
             this.isLoupeMode = (mode === 'loupe');
             this.isLibraryMode = (mode === 'library');
+            this.isTimelineMode = (mode === 'timeline');
 
             let sortChanged = false;
             let stackChanged = false;
@@ -1129,6 +1174,7 @@ class App {
                         document.documentElement.style.setProperty('--card-min-width', (12.5 * this.gridScale) + 'em');
                         document.documentElement.style.setProperty('--card-height', (13.75 * this.gridScale) + 'em');
                         this.gridViewManager.setScale(this.gridScale);
+                        this.timelineViewManager.setScale(this.gridScale);
                     }
                 }
                 if (params.has('stacked')) {
@@ -1139,6 +1185,13 @@ class App {
                     const newHidden = params.get('hidden') === 'true';
                     if (newHidden !== this.showHidden) { this.showHidden = newHidden; stackChanged = true; }
                 }
+                if (params.has('orient')) {
+                    const newOrient = params.get('orient') as 'vertical' | 'horizontal';
+                    if (newOrient !== this.timelineOrientation) {
+                        this.timelineOrientation = newOrient;
+                        this.timelineViewManager.setOrientation(newOrient);
+                    }
+                }
             }
 
             let newFilterType = this.filterType;
@@ -1146,6 +1199,8 @@ class App {
             let newCollectionId: string | null = null;
             let newRating = 0;
             let newSearchTitle = '';
+            let restoreScroll: number | null = null;
+            let restoreDate: string | null = null;
 
             if (type === 'folder' && parts[2]) {
                 newFilterType = 'all';
@@ -1166,7 +1221,27 @@ class App {
                 newRootId = null;
             }
 
-            const filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
+            let filterChanged = newFilterType !== this.filterType || newRootId !== this.selectedRootId || newCollectionId !== this.selectedCollectionId || newRating !== this.filterRating || newSearchTitle !== this.searchTitle;
+
+            if (queryPart) {
+                const params = new URLSearchParams(queryPart);
+                if (params.has('scroll')) restoreScroll = parseFloat(params.get('scroll')!);
+                if (params.has('date')) restoreDate = params.get('date');
+                if (params.has('hidden')) {
+                    const val = params.get('hidden') === 'true';
+                    if (val !== this.showHidden) {
+                        this.showHidden = val;
+                        filterChanged = true;
+                    }
+                }
+                if (params.has('stacked')) {
+                    const val = params.get('stacked') === 'true';
+                    if (val !== this.stackingEnabled) {
+                        this.stackingEnabled = val;
+                        stackChanged = true;
+                    }
+                }
+            }
 
             if (filterChanged || forceRefresh) {
                 this.prioritySession++;
@@ -1189,6 +1264,13 @@ class App {
                 }
 
                 await this.refreshPhotos(true);
+                
+                if (this.isTimelineMode && restoreDate !== null) {
+                    setTimeout(() => this.timelineViewManager.scrollToDate(restoreDate!), 100);
+                } else if (this.isTimelineMode && restoreScroll !== null) {
+                    // Small delay to ensure layout is ready
+                    setTimeout(() => this.timelineViewManager.setScrollProgress(restoreScroll!), 100);
+                }
             } else if (sortChanged || stackChanged) {
                 this.processUIStacks();
             } else {
@@ -1259,6 +1341,9 @@ class App {
 
         const scaleSlider = document.getElementById('grid-scale-slider') as HTMLInputElement;
         if (scaleSlider) scaleSlider.value = this.gridScale.toString();
+
+        const orientSelect = document.getElementById('timeline-orient-select') as HTMLSelectElement;
+        if (orientSelect) orientSelect.value = this.timelineOrientation;
     }
 
     async loadData() {
@@ -1355,6 +1440,7 @@ class App {
         });
 
         this.gridViewManager.setPhotos(this.photos);
+        this.timelineViewManager.setPhotos(this.photos);
         this.renderLibrary();
         this.processUIStacks();
 
@@ -1372,19 +1458,22 @@ class App {
     }
 
     public resetLayout() {
-        if (this.layout) {
-            this.layout.destroy();
-            this.layout = null;
-        }
-        document.getElementById('layout-container')!.innerHTML = '';
         this.initLayout();
         this.isSettingsVisible = false;
         this.renderModals();
         this.showNotification('Layout reset to default', 'success');
     }
 
-    private initLayout() {
-        const config: LayoutConfig = {
+    private initLayout(overrideConfig?: LayoutConfig) {
+        this.currentLayoutType = overrideConfig ? 'timeline' : 'standard';
+        
+        if (this.layout) {
+            this.layout.destroy();
+            this.layout = null;
+        }
+        document.getElementById('layout-container')!.innerHTML = '';
+
+        const config: LayoutConfig = overrideConfig || {
             settings: { showPopoutIcon: false },
             dimensions: { headerHeight: 45 },
             root: {
@@ -1452,6 +1541,134 @@ class App {
 
             self.renderLibrary();
         });
+        this.layout.registerComponentFactoryFunction('timeline', function (container: any) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gl-component';
+            wrapper.style.display = 'flex';
+            wrapper.style.flexDirection = 'column';
+            wrapper.style.position = 'relative';
+
+            const header = document.createElement('div');
+            header.className = 'grid-header';
+            header.style.justifyContent = 'flex-end';
+            header.style.gap = '15px';
+
+            const orientLabel = document.createElement('label');
+            orientLabel.className = 'control-item';
+            orientLabel.textContent = 'Orient: ';
+            const orientSelect = document.createElement('select');
+            orientSelect.style.background = '#111'; orientSelect.style.color = '#ccc'; orientSelect.style.border = '1px solid #444'; orientSelect.style.fontSize = '0.9em';
+            ['Vertical', 'Horizontal'].forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.toLowerCase(); opt.textContent = v;
+                if (v.toLowerCase() === self.timelineOrientation) opt.selected = true;
+                orientSelect.appendChild(opt);
+            });
+            orientSelect.onchange = (e) => {
+                const orient = (e.target as HTMLSelectElement).value as 'vertical' | 'horizontal';
+                self.timelineOrientation = orient;
+                self.timelineViewManager.setOrientation(orient);
+                self.syncUrl();
+            };
+            orientLabel.appendChild(orientSelect);
+
+            const scaleLabel = document.createElement('label');
+            scaleLabel.className = 'control-item';
+            const scaleInput = document.createElement('input');
+            scaleInput.id = 'grid-scale-slider';
+            scaleInput.type = 'range'; scaleInput.min = '0.5'; scaleInput.max = '2.0'; scaleInput.step = '0.1';
+            scaleInput.value = self.gridScale.toString();
+            scaleInput.style.width = '80px';
+            scaleInput.oninput = (e) => {
+                const scale = parseFloat((e.target as HTMLInputElement).value);
+                self.gridScale = scale;
+                self.gridViewManager.setScale(scale);
+                self.timelineViewManager.setScale(scale);
+                self.syncUrl();
+            };
+            scaleLabel.appendChild(document.createTextNode('Size: '));
+            scaleLabel.appendChild(scaleInput);
+
+            const stackLabel = document.createElement('label');
+            stackLabel.className = 'control-item custom-checkbox';
+            stackLabel.title = 'Stack JPG/RAW files with same name';
+            const stackCheck = document.createElement('input');
+            stackCheck.id = 'grid-stack-check';
+            stackCheck.type = 'checkbox';
+            stackCheck.checked = self.stackingEnabled;
+            stackCheck.onchange = (e) => self.toggleStacking((e.target as HTMLInputElement).checked);
+            const stackMark = document.createElement('span');
+            stackMark.className = 'checkmark';
+            const stackSpan = document.createElement('span');
+            stackSpan.textContent = 'Stacked';
+            stackLabel.appendChild(stackCheck);
+            stackLabel.appendChild(stackMark);
+            stackLabel.appendChild(stackSpan);
+
+            const hiddenLabel = document.createElement('label');
+            hiddenLabel.className = 'control-item custom-checkbox';
+            hiddenLabel.title = 'Show hidden photos';
+            const hiddenCheck = document.createElement('input');
+            hiddenCheck.id = 'grid-hidden-check';
+            hiddenCheck.type = 'checkbox';
+            hiddenCheck.checked = self.showHidden;
+            hiddenCheck.onchange = (e) => {
+                self.showHidden = (e.target as HTMLInputElement).checked;
+                self.refreshPhotos(true);
+            };
+            const hiddenMark = document.createElement('span');
+            hiddenMark.className = 'checkmark';
+            const hiddenSpan = document.createElement('span');
+            hiddenSpan.textContent = 'Hidden';
+            hiddenLabel.appendChild(hiddenCheck);
+            hiddenLabel.appendChild(hiddenMark);
+            hiddenLabel.appendChild(hiddenSpan);
+
+            header.appendChild(orientLabel);
+            header.appendChild(scaleLabel);
+            header.appendChild(stackLabel);
+            header.appendChild(hiddenLabel);
+            wrapper.appendChild(header);
+
+            const timelineCont = document.createElement('div');
+            timelineCont.style.flex = '1';
+            timelineCont.style.overflowY = self.timelineOrientation === 'vertical' ? 'auto' : 'hidden';
+            timelineCont.style.overflowX = self.timelineOrientation === 'horizontal' ? 'auto' : 'hidden';
+            timelineCont.style.position = 'relative';
+            (timelineCont.style as any).scrollbarGutter = 'stable';
+
+            const sentinel = document.createElement('div');
+            sentinel.style.position = 'absolute'; sentinel.style.top = '0'; sentinel.style.left = '0'; sentinel.style.right = '0'; sentinel.style.height = '0'; sentinel.style.pointerEvents = 'none';
+            const $view = document.createElement('div');
+            $view.style.position = 'absolute'; $view.style.top = '0'; $view.style.left = '0'; $view.style.right = '0';
+            
+            timelineCont.appendChild(sentinel);
+            timelineCont.appendChild($view);
+            wrapper.appendChild(timelineCont);
+            container.element.append(wrapper);
+
+            self.$timelineContainer = timelineCont;
+            self.timelineViewManager.$viewEl = $view;
+            self.timelineViewManager.$scrollSentinel = sentinel;
+            self.timelineViewManager.setPhotos(self.photos);
+            self.timelineViewManager.update(true);
+
+            timelineCont.onscroll = () => {
+                self.timelineViewManager.update();
+                self.syncUrlDebounced();
+            };
+            timelineCont.onwheel = (e) => {
+                if (self.timelineOrientation === 'horizontal' && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                    timelineCont.scrollLeft += e.deltaY;
+                    e.preventDefault();
+                }
+            };
+            
+            const resizeObserver = new ResizeObserver(() => {
+                self.timelineViewManager.update(true);
+            });
+            resizeObserver.observe(wrapper);
+        });
         this.layout.registerComponentFactoryFunction('workspace', function (container: any) {
             self.$workspaceEl = document.createElement('div');
             self.$workspaceEl.className = 'gl-component';
@@ -1462,6 +1679,9 @@ class App {
             const resizeObserver = new ResizeObserver(() => {
                 if (self.gridViewManager) {
                     self.gridViewManager.update(true);
+                }
+                if (self.timelineViewManager) {
+                    self.timelineViewManager.update(true);
                 }
             });
             resizeObserver.observe(self.$workspaceEl);
@@ -1517,6 +1737,7 @@ class App {
                 const scale = parseFloat((e.target as HTMLInputElement).value);
                 self.gridScale = scale;
                 self.gridViewManager.setScale(scale);
+                self.timelineViewManager.setScale(scale);
                 self.syncUrl();
             };
             scaleLabel.appendChild(document.createTextNode('Size: '));
@@ -1617,6 +1838,7 @@ class App {
             gridContainer.appendChild($gridView);
             self.$workspaceEl.appendChild(gridContainer);
 
+            self.$gridContainer = gridContainer;
             gridContainer.onscroll = () => self.gridViewManager.update();
             console.log('[App] Assigning gridViewEl to manager');
             self.gridViewManager.$gridViewEl = $gridView;
@@ -2127,7 +2349,11 @@ class App {
     public getFilteredPhotos(): Photo[] { return this.photos; }
 
     renderGrid() {
-        this.gridViewManager.update(true);
+        if (this.isTimelineMode) {
+            this.timelineViewManager.update(true);
+        } else {
+            this.gridViewManager.update(true);
+        }
         let headerText = "All Photos";
         if (this.filterType === 'picked') headerText = "Collection: Picked";
         else if (this.filterType === 'rating') headerText = "Collection: Starred";
@@ -2175,9 +2401,21 @@ class App {
     selectPhoto(id: string) {
         const changed = this.selectedId !== id;
         this.selectedId = id;
+        this.selectedIds.clear();
+        if (id) this.selectedIds.add(id);
+
         this.updateSelectionUI(id);
         this.loadMetadata(id);
-        this.gridViewManager.scrollToPhoto(id);
+        
+        this.gridViewManager.setSelected(id, this.selectedIds);
+        this.timelineViewManager.setSelected(id, this.selectedIds);
+
+        if (this.isTimelineMode) {
+            this.timelineViewManager.scrollToPhoto(id);
+        } else {
+            this.gridViewManager.scrollToPhoto(id);
+        }
+
         if (this.isFullscreen) this.updateFullscreenImage(id);
         else if (this.isLoupeMode) this.renderLoupe();
     }
@@ -2195,9 +2433,38 @@ class App {
     enterGridMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = false;
+        this.isTimelineMode = false;
         this.updateViewModeUI();
         if (this.selectedId) this.gridViewManager.scrollToPhoto(this.selectedId);
         this.gridViewManager.update(true);
+        this.syncUrl();
+    }
+
+    enterTimelineMode() {
+        this.isLoupeMode = false;
+        this.isLibraryMode = false;
+        this.isTimelineMode = true;
+        
+        // Reset filters for timeline mode
+        this.filterType = 'all';
+        this.selectedRootId = null;
+        this.selectedCollectionId = null;
+        this.searchQuery = null;
+        this.searchTitle = '';
+
+        this.updateViewModeUI();
+        
+        this.refreshPhotos(true); // Load all photos
+        
+        const hash = window.location.hash;
+        if (hash.includes('date=')) {
+            const date = new URLSearchParams(hash.split('?')[1]).get('date');
+            if (date) setTimeout(() => this.timelineViewManager.scrollToDate(date), 200);
+        } else if (this.selectedId) {
+            this.timelineViewManager.scrollToPhoto(this.selectedId);
+        }
+        
+        hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'timeline', fileEntryId: this.selectedId || undefined });
         this.syncUrl();
     }
 
@@ -2205,6 +2472,7 @@ class App {
     enterLibraryMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
+        this.isTimelineMode = false;
         this.updateViewModeUI();
         if (!this.libraryManager.isInitialized()) {
             this.libraryManager.initLayout('library-view', () => { });
@@ -2227,8 +2495,40 @@ class App {
             layoutCont.style.display = 'block';
             libraryView.style.display = 'none';
 
+            if (this.isTimelineMode) {
+                document.getElementById('nav-timeline')?.classList.add('active');
+                this.refreshTimelineLayout();
+            } else {
+                document.getElementById('nav-grid')?.classList.add('active');
+                this.refreshStandardLayout();
+            }
+        }
+    }
+
+    private refreshTimelineLayout() {
+        if (this.currentLayoutType !== 'timeline') {
+            const config: LayoutConfig = {
+                settings: { showPopoutIcon: false },
+                dimensions: { headerHeight: 45 },
+                root: {
+                    type: 'row',
+                    content: [
+                        { type: 'component', componentType: 'timeline', title: 'Timeline' }
+                    ]
+                }
+            };
+            this.initLayout(config);
+        }
+    }
+
+    private refreshStandardLayout() {
+        if (this.currentLayoutType !== 'standard') {
+            this.initLayout();
+        } else {
+            // Ensure standard elements are visible
             const gridCont = (this.$workspaceEl?.querySelector('#grid-container') as HTMLElement);
             const resizer = (this.$workspaceEl?.querySelector('.filmstrip-resizer') as HTMLElement);
+
             if (this.isLoupeMode) {
                 if (gridCont) gridCont.style.display = 'none';
                 if (this.$gridHeader) this.$gridHeader.style.display = 'none';
@@ -2243,7 +2543,6 @@ class App {
                 if (this.$gridHeader) this.$gridHeader.style.display = 'flex';
                 if (resizer) resizer.style.display = 'none';
                 if (this.$filmstrip) this.$filmstrip.style.display = 'none';
-                document.getElementById('nav-grid')?.classList.add('active');
                 this.gridViewManager.update(true);
             }
         }
@@ -2726,7 +3025,12 @@ class App {
 
         if (key === 'pageup' || key === 'pagedown') {
             e.preventDefault();
-            this.navigateFolders(key === 'pageup' ? 'prev' : 'next');
+            // If we have photos and are not in Library mode, we use PageUp/Down for photo jumping
+            if (this.photos.length > 0 && !this.isLibraryMode) {
+                this.navigate(e.key, e.shiftKey);
+            } else {
+                this.navigateFolders(key === 'pageup' ? 'prev' : 'next');
+            }
         }
     }
 
@@ -2752,24 +3056,50 @@ class App {
 
         let index = this.selectedId ? this.photos.findIndex(p => p?.fileEntryId === this.selectedId) : -1;
 
-        if (key === 'ArrowRight') index++;
-        else if (key === 'ArrowLeft') index--;
-        else if (key === 'ArrowDown' || key === 'ArrowUp') {
-            if (this.isLoupeMode || this.isFullscreen) { if (key === 'ArrowDown') index++; else index--; }
-            else {
-                const cols = this.gridViewManager.getColumnCount();
-                if (key === 'ArrowDown') index += cols; else index -= cols;
+        if (this.isLoupeMode || this.isFullscreen) {
+            if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'PageDown') index++;
+            else index--;
+        } else {
+            const isTimeline = this.isTimelineMode;
+            const manager = isTimeline ? this.timelineViewManager : this.gridViewManager;
+            const cols = manager.getColumnCount();
+            const orient = isTimeline ? this.timelineViewManager.getOrientation() : 'vertical';
+
+            if (key === 'PageDown' || key === 'PageUp') {
+                const container = isTimeline ? this.$timelineContainer : this.$gridContainer;
+                if (container) {
+                    if (orient === 'horizontal') {
+                        const rows = this.timelineViewManager.getRowCount();
+                        const jump = Math.floor(container.clientWidth / (this.gridScale * 200)) * rows; // approx cols * rows
+                        index += (key === 'PageDown' ? jump : -jump);
+                    } else {
+                        const jump = Math.floor(container.clientHeight / (this.gridScale * 220)) * cols; // approx rows * cols
+                        index += (key === 'PageDown' ? jump : -jump);
+                    }
+                } else {
+                    index += (key === 'PageDown' ? 20 : -20); // Fallback
+                }
+            } else if (isTimeline) {
+                index = this.timelineViewManager.getNavigationIndex(index, key);
+            } else {
+                if (key === 'ArrowRight') index++;
+                else if (key === 'ArrowLeft') index--;
+                else if (key === 'ArrowDown') index += cols;
+                else if (key === 'ArrowUp') index -= cols;
             }
         }
 
         index = Math.max(0, Math.min(this.photos.length - 1, index));
         const target = this.photos[index];
         if (target) {
-            // If shift is pressed, we treat it as standard range selection from anchor
-            // unless in Loupe mode where we enforce single selection.
             const mods = { shift: shift, ctrl: false };
             hub.pub(ps.PHOTO_SELECTED, { fileEntryId: target.fileEntryId, photo: target, modifiers: mods });
-            this.gridViewManager.scrollToPhoto(target.fileEntryId);
+            
+            if (this.isTimelineMode) {
+                this.timelineViewManager.scrollToPhoto(target.fileEntryId);
+            } else {
+                this.gridViewManager.scrollToPhoto(target.fileEntryId);
+            }
         }
     }
 

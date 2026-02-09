@@ -394,6 +394,11 @@
             border-width: 0 2px 2px 0;
             transform: rotate(45deg) translate(-0.5px, -1px);
         }
+
+        .timeline-legend:hover {
+            background: rgba(255,255,255,0.15) !important;
+            border-color: rgba(255,255,255,0.3) !important;
+        }
     </style>
 </head>
 <body>
@@ -418,6 +423,7 @@
             <div class="lr-nav">
                 <div class="lr-nav-item" id="nav-library" onclick="app.enterLibraryMode()">LIBRARY</div>
                 <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
+                <div class="lr-nav-item" id="nav-timeline" onclick="app.enterTimelineMode()">TIMELINE</div>
                 <div class="lr-nav-item" id="nav-loupe" onclick="if(app.selectedId) app.enterLoupeMode(app.selectedId)">LOUPE</div>
                 <div class="lr-nav-item" id="nav-help" onclick="app.showShortcuts()">HELP</div>
             </div>

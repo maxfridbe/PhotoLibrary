@@ -4,7 +4,7 @@ import { constants } from './constants.js';
 const ps = constants.pubsub;
 
 export interface EventMap {
-    [ps.VIEW_MODE_CHANGED]: { mode: 'grid' | 'loupe' | 'library', fileEntryId?: string };
+    [ps.VIEW_MODE_CHANGED]: { mode: 'grid' | 'loupe' | 'library' | 'timeline', fileEntryId?: string };
     [ps.PHOTO_SELECTED]: { fileEntryId: string, photo: Res.PhotoResponse, modifiers?: { shift: boolean, ctrl: boolean } };
     [ps.PHOTO_UPDATED]: { fileEntryId: string, photo: Res.PhotoResponse };
     [ps.PHOTO_ROTATED]: { fileEntryId: string, rotation: number };
