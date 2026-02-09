@@ -20,6 +20,7 @@ export function ShortcutsDialog(props: ShortcutsDialogProps): VNode {
             >
                 <h2>Keyboard Shortcuts</h2>
                 <div class={{ 'shortcut-row': true }}><span class={{ 'shortcut-desc': true }}>Grid View</span><span class={{ 'shortcut-key': true }}>G</span></div>
+                <div class={{ 'shortcut-row': true }}><span class={{ 'shortcut-desc': true }}>Timeline View</span><span class={{ 'shortcut-key': true }}>T</span></div>
                 <div class={{ 'shortcut-row': true }}><span class={{ 'shortcut-desc': true }}>Loupe (Preview) View</span><span class={{ 'shortcut-key': true }}>L</span></div>
                 <div class={{ 'shortcut-row': true }}><span class={{ 'shortcut-desc': true }}>Toggle Pick Flag</span><span class={{ 'shortcut-key': true }}>P</span></div>
                 <div class={{ 'shortcut-row': true }}><span class={{ 'shortcut-desc': true }}>Set Rating</span><span class={{ 'shortcut-key': true }}>1-5</span></div>

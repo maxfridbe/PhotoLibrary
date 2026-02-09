@@ -2988,7 +2988,12 @@ class App {
         // Mode-switching and help should always work
         if (key === 'g') {
             if (this.isFullscreen) this.toggleFullscreen();
-            hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'grid' });
+            this.enterGridMode();
+            return;
+        }
+        if (key === 't') {
+            if (this.isFullscreen) this.toggleFullscreen();
+            this.enterTimelineMode();
             return;
         }
         if (key === 'l' || key === 'enter' || e.key === ' ') {

@@ -22,6 +22,12 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Rotation**: Rotate images 90° with `[` and `]`, fully synced between Loupe, Grid, and Filmstrip views.
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
+-   **Chronological Timeline View**:
+    *   **Visual History**: Automatically groups photos by date, providing a clear chronological breakdown of your entire library.
+    *   **Dual Orientation**: Toggle between **Vertical** (standard scrolling) and **Horizontal** (side-scrolling) layouts to suit your browsing preference.
+    *   **Predictable Navigation**: Advanced arrow-key logic maintains your "track" (row or column) across different days, ensuring seamless movement even when groups have varying item counts.
+    *   **Quick Jump Legend**: An interactive date-based legend allows for rapid scrolling across years and months with a real-time position indicator.
+    *   **Bi-directional Sorting**: Effortlessly switch between **Newest First** and **Oldest First** with persistent chronological accuracy.
 -   **Advanced Search & Discovery**:
     *   **Multi-Criteria Search**: Powerful query engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`).
     *   **Interactive Query Builder**: On-the-fly search assistance via a dynamic overlay helping construct complex queries.
@@ -106,6 +112,7 @@ You can override any setting via CLI. These overrides are automatically saved to
 
 ### Shortcuts
 -   **'G'**: Grid View
+-   **'T'**: Timeline View
 -   **'L' / 'Enter' / 'Space'**: Loupe View (requires a selected image)
 -   **'F'**: Toggle Fullscreen High-Res View
 -   **'M'**: Toggle Metadata Panel (Right)
