@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.IO.Hashing;
 using System.Diagnostics;
+using Microsoft.Data.Sqlite;
 using ImageMagick;
 using MetadataExtractor;
 using Microsoft.Extensions.Logging;
@@ -166,8 +167,8 @@ public class ImageIndexer : IImageIndexer
 
             if (parentDir == null) parentDir = fullScanPath;
 
-            string baseRootId = _db.GetOrCreateBaseRoot(parentDir!);
-            string targetRootId = _db.GetOrCreateChildRoot(baseRootId, targetName);
+            string baseRootId = _db.GetOrCreateBaseRootWithConnection(_sharedConnection!, _sharedTransaction, parentDir!);
+            string targetRootId = _db.GetOrCreateChildRootWithConnection(_sharedConnection!, _sharedTransaction, baseRootId, targetName);
             
             _pathCache[fullScanPath] = targetRootId;
             
@@ -228,7 +229,7 @@ public class ImageIndexer : IImageIndexer
                         }
                         else
                         {
-                            currentId = _db.GetOrCreateChildRoot(currentId, part);
+                            currentId = _db.GetOrCreateChildRootWithConnection(_sharedConnection!, _sharedTransaction, currentId, part);
                             _pathCache[currentPath] = currentId;
                         }
                     }
@@ -240,39 +241,11 @@ public class ImageIndexer : IImageIndexer
 
         try
         {
-            using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+            var data = PrepareFileData(sourceFile, targetPath, rootPathId, providedHash);
+            CommitFileDataWithConnection(_sharedConnection!, _sharedTransaction, data);
             
-            string hash = providedHash ?? CalculateHash(stream);
-            stream.Position = 0;
-
-            var entry = new FileEntry
-            {
-                RootPathId = rootPathId,
-                FileName = Path.GetFileName(targetPath),
-                Size = sourceFile.Length,
-                CreatedAt = sourceFile.CreationTime,
-                ModifiedAt = sourceFile.LastWriteTime,
-                Hash = hash
-            };
-
-            _db.UpsertFileEntryWithConnection(_sharedConnection!, _sharedTransaction, entry);
-            var fileId = _db.GetFileIdWithConnection(_sharedConnection!, _sharedTransaction, entry.RootPathId, entry.FileName!);
-
-            if (fileId != null)
-            {
-                var metadata = ExtractMetadata(stream, sourceFile.Extension);
-                _db.InsertMetadataWithConnection(_sharedConnection!, _sharedTransaction, fileId, metadata);
-
-                if (_previewManager != null && _longEdges.Length > 0)
-                {
-                    stream.Position = 0;
-                    GeneratePreviews(stream, fileId, sourceFile.Name, sourceFile.Extension, sourceFile.DirectoryName!);
-                }
-                
-                // Notify UI only after everything is ready (DB + Previews)
-                _onFileProcessed?.Invoke(fileId, targetPath);
-            }
+            // Notify UI only after everything is ready (DB + Previews)
+            _onFileProcessed?.Invoke(data.Entry.Id, targetPath);
 
             _processedSinceCleanup++;
             if (_processedSinceCleanup >= 500)
@@ -287,6 +260,55 @@ public class ImageIndexer : IImageIndexer
         {
             _logger.LogError(ex, "Failed to process file {FileName}", sourceFile.Name);
             return false;
+        }
+    }
+
+    public ProcessedFileData PrepareFileData(FileInfo sourceFile, string targetPath, string targetRootId, string? providedHash = null)
+    {
+        using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+        
+        string hash = providedHash ?? CalculateHash(stream);
+        stream.Position = 0;
+
+        var entry = new FileEntry
+        {
+            RootPathId = targetRootId,
+            FileName = Path.GetFileName(targetPath),
+            Size = sourceFile.Length,
+            CreatedAt = sourceFile.CreationTime,
+            ModifiedAt = sourceFile.LastWriteTime,
+            Hash = hash
+        };
+
+        var metadata = ExtractMetadata(stream, sourceFile.Extension).ToList();
+        var previews = new List<GeneratedPreview>();
+
+        if (_previewManager != null && _longEdges.Length > 0)
+        {
+            stream.Position = 0;
+            previews = GeneratePreviewsInternal(stream, sourceFile.Name, sourceFile.Extension, sourceFile.DirectoryName!);
+        }
+
+        return new ProcessedFileData(entry, metadata, previews);
+    }
+
+    public void CommitFileDataWithConnection(System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction, ProcessedFileData data)
+    {
+        _db.UpsertFileEntryWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, data.Entry);
+        var fileId = _db.GetFileIdWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, data.Entry.RootPathId, data.Entry.FileName!);
+
+        if (fileId != null)
+        {
+            _db.InsertMetadataWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, fileId, data.Metadata);
+
+            if (_previewManager != null)
+            {
+                foreach (var preview in data.Previews)
+                {
+                    _previewManager.SavePreview(data.Entry.Hash!, preview.Size, preview.Data);
+                }
+            }
         }
     }
 
@@ -351,7 +373,8 @@ public class ImageIndexer : IImageIndexer
             if (missingAny)
             {
                 long genStart = Stopwatch.GetTimestamp();
-                GeneratePreviews(stream, fileEntryId, file.Name, file.Extension, file.DirectoryName!);
+                var previews = GeneratePreviewsInternal(stream, file.Name, file.Extension, file.DirectoryName!);
+                foreach (var p in previews) _previewManager!.SavePreview(hash, p.Size, p.Data);
                 _logger.LogInformation("Generated previews for {FileName} in {Elapsed}ms", file.Name, Stopwatch.GetElapsedTime(genStart).TotalMilliseconds.ToString("F2"));
                 return wasHashed ? ThumbnailResult.HashedAndGenerated : ThumbnailResult.Generated;
             }
@@ -369,28 +392,15 @@ public class ImageIndexer : IImageIndexer
     {
         using var fs = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
         using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
-        GeneratePreviews(stream, fileEntryId, file.Name, file.Extension, file.DirectoryName!);
-    }
-
-    private void GeneratePreviews(Stream stream, string fileEntryId, string fileName, string extension, string directoryName)
-    {
-        bool missingAny = false;
-        
-        // Get the hash again (ensure we are consistent)
         string? hash = _db.GetFileHash(fileEntryId);
         if (hash == null) return;
+        var previews = GeneratePreviewsInternal(stream, file.Name, file.Extension, file.DirectoryName!);
+        foreach (var p in previews) _previewManager!.SavePreview(hash, p.Size, p.Data);
+    }
 
-        foreach (var size in _longEdges)
-        {
-            if (!_previewManager!.HasPreview(hash, size))
-            {
-                missingAny = true;
-                break;
-            }
-        }
-
-        if (!missingAny) return;
-
+    private List<GeneratedPreview> GeneratePreviewsInternal(Stream stream, string fileName, string extension, string directoryName)
+    {
+        var results = new List<GeneratedPreview>();
         Stream sourceStream = stream;
         bool ownStream = false;
         MagickFormat format = GetMagickFormat(fileName);
@@ -426,8 +436,6 @@ public class ImageIndexer : IImageIndexer
                 image.AutoOrient();
                 foreach (var size in _longEdges)
                 {
-                    if (_previewManager!.HasPreview(hash, size)) continue;
-
                     using (var clone = image.Clone())
                     {
                         if (clone.Width > clone.Height) clone.Resize((uint)size, 0);
@@ -436,8 +444,7 @@ public class ImageIndexer : IImageIndexer
                         clone.Format = MagickFormat.WebP;
                         clone.Quality = 80; 
                         
-                        byte[] data = clone.ToByteArray();
-                        _previewManager.SavePreview(hash, size, data);
+                        results.Add(new GeneratedPreview(size, clone.ToByteArray()));
                     }
                 }
             }
@@ -454,6 +461,7 @@ public class ImageIndexer : IImageIndexer
                 GC.Collect(1, GCCollectionMode.Optimized, false);
             }
         }
+        return results;
     }
 
     private static MagickFormat GetMagickFormat(string path)

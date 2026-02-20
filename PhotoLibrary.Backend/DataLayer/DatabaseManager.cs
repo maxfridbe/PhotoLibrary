@@ -16,6 +16,7 @@ public class DatabaseManager : IDatabaseManager
     private readonly string _connectionString;
     private readonly ILogger<DatabaseManager> _logger;
     private readonly ConcurrentDictionary<string, string> _hashCache = new();
+    private static readonly SemaphoreSlim _writeLock = new(1, 1);
     public string DbPath { get; }
 
     private Action<string, string>? _onFolderCreated;
@@ -43,6 +44,54 @@ public class DatabaseManager : IDatabaseManager
     public SqliteTransaction BeginTransaction(SqliteConnection connection)
     {
         return connection.BeginTransaction();
+    }
+
+    public async Task ExecuteWriteAsync(Func<SqliteConnection, SqliteTransaction, Task> action)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            using var connection = GetOpenConnection();
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                await action(connection, transaction);
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public void ExecuteWrite(Action<SqliteConnection, SqliteTransaction> action)
+    {
+        _writeLock.Wait();
+        try
+        {
+            using var connection = GetOpenConnection();
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                action(connection, transaction);
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     public void Initialize()
@@ -401,10 +450,17 @@ public class DatabaseManager : IDatabaseManager
     public void SetSetting(string? key, string? value)
     {
         if (string.IsNullOrEmpty(key)) return;
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
+        ExecuteWrite((connection, transaction) => {
+            SetSettingWithConnection(connection, transaction, key, value);
+        });
+    }
+
+    public void SetSettingWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string? key, string? value)
+    {
+        if (string.IsNullOrEmpty(key)) return;
         using (var command = connection.CreateCommand())
         {
+            if (transaction != null) command.Transaction = transaction;
             command.CommandText = $@"
                 INSERT INTO {TableName.Settings} ({Column.Settings.Key}, {Column.Settings.Value}) 
                 VALUES ($Key, $Value) 
@@ -538,57 +594,54 @@ public class DatabaseManager : IDatabaseManager
     // --- Collections ---
     public string CreateCollection(string name)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
         string id = Guid.NewGuid().ToString();
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = $"INSERT INTO {TableName.UserCollections} ({Column.UserCollections.Id}, {Column.UserCollections.Name}) VALUES ($Id, $Name)";
-            command.Parameters.AddWithValue("$Id", id);
-            command.Parameters.AddWithValue("$Name", name);
-            command.ExecuteNonQuery();
-        }
+        ExecuteWrite((connection, transaction) => {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $"INSERT INTO {TableName.UserCollections} ({Column.UserCollections.Id}, {Column.UserCollections.Name}) VALUES ($Id, $Name)";
+                command.Parameters.AddWithValue("$Id", id);
+                command.Parameters.AddWithValue("$Name", name);
+                command.ExecuteNonQuery();
+            }
+        });
         return id;
     }
 
     public void DeleteCollection(string collectionId)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        using var transaction = connection.BeginTransaction();
-        using (var cmd1 = connection.CreateCommand())
-        {
-            cmd1.Transaction = transaction;
-            cmd1.CommandText = $"DELETE FROM {TableName.CollectionFiles} WHERE {Column.CollectionFiles.CollectionId} = $Id";
-            cmd1.Parameters.AddWithValue("$Id", collectionId);
-            cmd1.ExecuteNonQuery();
-        }
-        using (var cmd2 = connection.CreateCommand())
-        {
-            cmd2.Transaction = transaction;
-            cmd2.CommandText = $"DELETE FROM {TableName.UserCollections} WHERE {Column.UserCollections.Id} = $Id";
-            cmd2.Parameters.AddWithValue("$Id", collectionId);
-            cmd2.ExecuteNonQuery();
-        }
-        transaction.Commit();
+        ExecuteWrite((connection, transaction) => {
+            using (var cmd1 = connection.CreateCommand())
+            {
+                cmd1.Transaction = transaction;
+                cmd1.CommandText = $"DELETE FROM {TableName.CollectionFiles} WHERE {Column.CollectionFiles.CollectionId} = $Id";
+                cmd1.Parameters.AddWithValue("$Id", collectionId);
+                cmd1.ExecuteNonQuery();
+            }
+            using (var cmd2 = connection.CreateCommand())
+            {
+                cmd2.Transaction = transaction;
+                cmd2.CommandText = $"DELETE FROM {TableName.UserCollections} WHERE {Column.UserCollections.Id} = $Id";
+                cmd2.Parameters.AddWithValue("$Id", collectionId);
+                cmd2.ExecuteNonQuery();
+            }
+        });
     }
 
     public void AddFilesToCollection(string collectionId, IEnumerable<string> fileIds)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        using var transaction = connection.BeginTransaction();
-        foreach (var fileId in fileIds) {
-            using (var command = connection.CreateCommand())
-            {
-                command.Transaction = transaction;
-                command.CommandText = $"INSERT OR IGNORE INTO {TableName.CollectionFiles} ({Column.CollectionFiles.CollectionId}, {Column.CollectionFiles.FileId}) VALUES ($CId, $FId)";
-                command.Parameters.AddWithValue("$CId", collectionId);
-                command.Parameters.AddWithValue("$FId", fileId);
-                command.ExecuteNonQuery();
+        ExecuteWrite((connection, transaction) => {
+            foreach (var fileId in fileIds) {
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = $"INSERT OR IGNORE INTO {TableName.CollectionFiles} ({Column.CollectionFiles.CollectionId}, {Column.CollectionFiles.FileId}) VALUES ($CId, $FId)";
+                    command.Parameters.AddWithValue("$CId", collectionId);
+                    command.Parameters.AddWithValue("$FId", fileId);
+                    command.ExecuteNonQuery();
+                }
             }
-        }
-        transaction.Commit();
+        });
     }
 
     public IEnumerable<CollectionResponse> GetCollections()
@@ -626,13 +679,14 @@ public class DatabaseManager : IDatabaseManager
 
     public void ClearPicked()
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = $"DELETE FROM {TableName.ImagesPicked}";
-            command.ExecuteNonQuery();
-        }
+        ExecuteWrite((connection, transaction) => {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $"DELETE FROM {TableName.ImagesPicked}";
+                command.ExecuteNonQuery();
+            }
+        });
     }
 
     public IEnumerable<string> GetPickedIds()
@@ -652,80 +706,82 @@ public class DatabaseManager : IDatabaseManager
     // --- Directory Logic ---
     public string GetOrCreateBaseRoot(string absolutePath)
     {
+        string resultId = "";
+        ExecuteWrite((connection, transaction) => {
+            resultId = GetOrCreateBaseRootWithConnection(connection, transaction, absolutePath);
+        });
+        return resultId;
+    }
+
+    public string GetOrCreateBaseRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string absolutePath)
+    {
         absolutePath = PathUtils.ResolvePath(absolutePath);
         
-        using (var connection = new SqliteConnection(_connectionString))
+        // 1. Try to find the deepest existing root that contains this path
+        var allRoots = new List<(string id, string path)>();
+        var rootIds = new List<string>();
+        using (var cmd = connection.CreateCommand())
         {
-            connection.Open();
-            
-            // 1. Try to find the deepest existing root that contains this path
-            var allRoots = new List<(string id, string path)>();
-            var rootIds = new List<string>();
-            using (var cmd = connection.CreateCommand())
+            if (transaction != null) cmd.Transaction = transaction;
+            cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths}";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
             {
-                // We only need base roots or roots that might be parents. 
-                // To be safe and simple, let's get all and reconstruct their paths.
-                cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths}";
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read())
-                {
-                    rootIds.Add(reader.GetString(0));
-                }
-            }
-
-            foreach (var id in rootIds)
-            {
-                string? path = GetRootAbsolutePath(connection, id);
-                if (path != null) allRoots.Add((id, path));
-            }
-
-            // Sort by path length descending to find the "deepest" match first
-            var deepestMatch = allRoots
-                .Where(r => absolutePath == r.path || absolutePath.StartsWith(r.path + Path.DirectorySeparatorChar) || absolutePath.StartsWith(r.path + "/"))
-                .OrderByDescending(r => r.path.Length)
-                .FirstOrDefault();
-
-            if (deepestMatch.id != null)
-            {
-                if (deepestMatch.path == absolutePath) return deepestMatch.id;
-
-                // It's inside an existing root! Build down.
-                string relative = Path.GetRelativePath(deepestMatch.path, absolutePath);
-                string[] parts = relative.Split(new[] { Path.DirectorySeparatorChar, '/' }, StringSplitOptions.RemoveEmptyEntries);
-                
-                string currentId = deepestMatch.id;
-                foreach (var part in parts)
-                {
-                    currentId = GetOrCreateChildRoot(currentId, part);
-                }
-                return currentId;
+                rootIds.Add(reader.GetString(0));
             }
         }
 
+        foreach (var id in rootIds)
+        {
+            string? path = GetRootAbsolutePath(connection, id, transaction);
+            if (path != null) allRoots.Add((id, path));
+        }
+
+        // Sort by path length descending to find the "deepest" match first
+        var deepestMatch = allRoots
+            .Where(r => absolutePath == r.path || absolutePath.StartsWith(r.path + Path.DirectorySeparatorChar) || absolutePath.StartsWith(r.path + "/"))
+            .OrderByDescending(r => r.path.Length)
+            .FirstOrDefault();
+
+        if (deepestMatch.id != null)
+        {
+            if (deepestMatch.path == absolutePath) return deepestMatch.id;
+
+            // It's inside an existing root! Build down.
+            string relative = Path.GetRelativePath(deepestMatch.path, absolutePath);
+            string[] parts = relative.Split(new[] { Path.DirectorySeparatorChar, '/' }, StringSplitOptions.RemoveEmptyEntries);
+            
+            string currentId = deepestMatch.id;
+            foreach (var part in parts)
+            {
+                currentId = GetOrCreateChildRootWithConnection(connection, transaction, currentId, part);
+            }
+            return currentId;
+        }
+
         // 2. No existing parent found, create as new base root
-        using var connection2 = new SqliteConnection(_connectionString);
-        connection2.Open();
-        using var transaction = connection2.BeginTransaction();
-        var result = EnsureRootPathExists(connection2, transaction, null, absolutePath);
-        transaction.Commit();
-        
+        var result = EnsureRootPathExists(connection, transaction, null, absolutePath);
         if (result.created) _onFolderCreated?.Invoke(result.id, absolutePath);
         return result.id;
     }
 
     public string GetOrCreateChildRoot(string parentId, string name)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        using var transaction = connection.BeginTransaction();
+        string resultId = "";
+        ExecuteWrite((connection, transaction) => {
+            resultId = GetOrCreateChildRootWithConnection(connection, transaction, parentId, name);
+        });
+        return resultId;
+    }
+
+    public string GetOrCreateChildRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string parentId, string name)
+    {
         var result = EnsureRootPathExists(connection, transaction, parentId, name);
-        transaction.Commit();
-        
         if (result.created) _onFolderCreated?.Invoke(result.id, name);
         return result.id;
     }
 
-    private (string id, bool created) EnsureRootPathExists(SqliteConnection connection, SqliteTransaction transaction, string? parentId, string name)
+    private (string id, bool created) EnsureRootPathExists(SqliteConnection connection, SqliteTransaction? transaction, string? parentId, string name)
     {
         if (string.IsNullOrWhiteSpace(name)) 
         {
@@ -836,71 +892,31 @@ public class DatabaseManager : IDatabaseManager
 
     public void UpsertFileEntry(FileEntry entry)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        UpsertFileEntryWithConnection(connection, null, entry);
+        ExecuteWrite((connection, transaction) => {
+            UpsertFileEntryWithConnection(connection, transaction, entry);
+        });
     }
 
     public void UpsertFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, FileEntry entry)
     {
-        bool ownTransaction = false;
-        if (transaction == null)
+        // ... (existing code omitted for brevity in replace, but I will match context)
+    }
+
+    public void DeleteFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId)
+    {
+        using (var cmd1 = connection.CreateCommand())
         {
-            transaction = connection.BeginTransaction();
-            ownTransaction = true;
+            if (transaction != null) cmd1.Transaction = transaction;
+            cmd1.CommandText = $"DELETE FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $Id";
+            cmd1.Parameters.AddWithValue("$Id", fileId);
+            cmd1.ExecuteNonQuery();
         }
-
-        try
+        using (var cmd2 = connection.CreateCommand())
         {
-            string baseName = Path.GetFileNameWithoutExtension(entry.FileName ?? "");
-
-            using (var command = connection.CreateCommand())
-            {
-                command.Transaction = transaction;
-                command.CommandText = $@"
-                    INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.Hash})
-                    VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt, $Hash)
-                    ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName}, {Column.FileEntry.Hash} = excluded.{Column.FileEntry.Hash};
-                ";
-                command.Parameters.AddWithValue("$Id", entry.Id);
-                command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
-                command.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
-                command.Parameters.AddWithValue("$BaseName", baseName);
-                command.Parameters.AddWithValue("$Size", entry.Size);
-                command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
-                command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
-                command.Parameters.AddWithValue("$Hash", entry.Hash ?? (object)DBNull.Value);
-                command.ExecuteNonQuery();
-            }
-
-            string? actualId = null;
-            using (var getIdCmd = connection.CreateCommand())
-            {
-                getIdCmd.Transaction = transaction;
-                getIdCmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootPathId AND {Column.FileEntry.FileName} = $FileName";
-                getIdCmd.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
-                getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
-                actualId = getIdCmd.ExecuteScalar() as string;
-            }
-
-            if (actualId != null)
-            {
-                using (var deleteCmd = connection.CreateCommand())
-                {
-                    deleteCmd.Transaction = transaction;
-                    deleteCmd.CommandText = $"DELETE FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
-                    deleteCmd.Parameters.AddWithValue("$FileId", actualId);
-                    deleteCmd.ExecuteNonQuery();
-                }
-            }
-
-            if (ownTransaction) transaction.Commit();
-        }
-        catch (Exception ex)
-        {
-            if (ownTransaction) transaction.Rollback();
-            _logger.LogError(ex, "Error upserting file {FileName}", entry.FileName);
-            throw;
+            if (transaction != null) cmd2.Transaction = transaction;
+            cmd2.CommandText = $"DELETE FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
+            cmd2.Parameters.AddWithValue("$Id", fileId);
+            cmd2.ExecuteNonQuery();
         }
     }
 
@@ -910,7 +926,15 @@ public class DatabaseManager : IDatabaseManager
 
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
+        return GetFileHashWithConnection(connection, null, fileId);
+    }
+
+    public string? GetFileHashWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId)
+    {
+        if (_hashCache.TryGetValue(fileId, out string? cached)) return cached;
+
         using var command = connection.CreateCommand();
+        if (transaction != null) command.Transaction = transaction;
         command.CommandText = $"SELECT {Column.FileEntry.Hash} FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
         command.Parameters.AddWithValue("$Id", fileId);
         string? hash = command.ExecuteScalar() as string;
@@ -1027,10 +1051,16 @@ public class DatabaseManager : IDatabaseManager
 
     public void UpdateFileHash(string fileId, string hash)
     {
+        ExecuteWrite((connection, transaction) => {
+            UpdateFileHashWithConnection(connection, transaction, fileId, hash);
+        });
+    }
+
+    public void UpdateFileHashWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, string hash)
+    {
         _hashCache[fileId] = hash;
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
         using var command = connection.CreateCommand();
+        if (transaction != null) command.Transaction = transaction;
         command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
         command.Parameters.AddWithValue("$Hash", hash);
         command.Parameters.AddWithValue("$Id", fileId);
@@ -1183,9 +1213,9 @@ public class DatabaseManager : IDatabaseManager
 
     public void InsertMetadata(string fileId, IEnumerable<MetadataItem> metadata)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        InsertMetadataWithConnection(connection, null, fileId, metadata);
+        ExecuteWrite((connection, transaction) => {
+            InsertMetadataWithConnection(connection, transaction, fileId, metadata);
+        });
     }
 
     public void InsertMetadataWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, IEnumerable<MetadataItem> metadata)
@@ -1318,22 +1348,23 @@ public class DatabaseManager : IDatabaseManager
 
     public void SetFolderAnnotation(string folderId, string annotation, string? color = null)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        using (var command = connection.CreateCommand())
-        {
-            var setClauses = new List<string> { $"{Column.RootPaths.Annotation} = $Annotation" };
-            command.Parameters.AddWithValue("$Annotation", annotation);
-            if (color != null)
+        ExecuteWrite((connection, transaction) => {
+            using (var command = connection.CreateCommand())
             {
-                setClauses.Add($"{Column.RootPaths.Color} = $Color");
-                command.Parameters.AddWithValue("$Color", color);
+                command.Transaction = transaction;
+                var setClauses = new List<string> { $"{Column.RootPaths.Annotation} = $Annotation" };
+                command.Parameters.AddWithValue("$Annotation", annotation);
+                if (color != null)
+                {
+                    setClauses.Add($"{Column.RootPaths.Color} = $Color");
+                    command.Parameters.AddWithValue("$Color", color);
+                }
+                
+                command.CommandText = $"UPDATE {TableName.RootPaths} SET {string.Join(", ", setClauses)} WHERE {Column.RootPaths.Id} = $Id";
+                command.Parameters.AddWithValue("$Id", folderId);
+                command.ExecuteNonQuery();
             }
-            
-            command.CommandText = $"UPDATE {TableName.RootPaths} SET {string.Join(", ", setClauses)} WHERE {Column.RootPaths.Id} = $Id";
-            command.Parameters.AddWithValue("$Id", folderId);
-            command.ExecuteNonQuery();
-        }
+        });
     }
 
     public IEnumerable<MetadataItemResponse> GetMetadata(string fileId)
@@ -1359,17 +1390,18 @@ public class DatabaseManager : IDatabaseManager
             {
                 try 
                 {
-                    using var stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var hasher = new XxHash64();
-                    hasher.Append(stream);
-                    hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                    using (var stream = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        var hasher = new XxHash64();
+                        hasher.Append(stream);
+                        hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                    }
                     
-                    // Save back to DB
-                    using var updateCmd = connection.CreateCommand();
-                    updateCmd.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.Hash} = $Hash WHERE {Column.FileEntry.Id} = $Id";
-                    updateCmd.Parameters.AddWithValue("$Hash", hash);
-                    updateCmd.Parameters.AddWithValue("$Id", fileId);
-                    updateCmd.ExecuteNonQuery();
+                    // Save back to DB using the lock
+                    string fixedHash = hash;
+                    ExecuteWrite((conn, trans) => {
+                        UpdateFileHashWithConnection(conn, trans, fileId, fixedHash);
+                    });
                 }
                 catch (Exception ex) { _logger.LogError(ex, "Failed to lazy-compute hash for {FileId}", fileId); }
             }
@@ -1393,10 +1425,16 @@ public class DatabaseManager : IDatabaseManager
 
     public void SetPicked(string fileId, bool isPicked)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
+        ExecuteWrite((connection, transaction) => {
+            SetPickedWithConnection(connection, transaction, fileId, isPicked);
+        });
+    }
+
+    public void SetPickedWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, bool isPicked)
+    {
         using (var command = connection.CreateCommand())
         {
+            if (transaction != null) command.Transaction = transaction;
             if (isPicked) command.CommandText = $"INSERT OR IGNORE INTO {TableName.ImagesPicked} ({Column.ImagesPicked.FileId}) VALUES ($Id)";
             else command.CommandText = $"DELETE FROM {TableName.ImagesPicked} WHERE {Column.ImagesPicked.FileId} = $Id";
             command.Parameters.AddWithValue("$Id", fileId);
@@ -1406,10 +1444,16 @@ public class DatabaseManager : IDatabaseManager
 
     public void SetRating(string fileId, int rating)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
+        ExecuteWrite((connection, transaction) => {
+            SetRatingWithConnection(connection, transaction, fileId, rating);
+        });
+    }
+
+    public void SetRatingWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, int rating)
+    {
         using (var command = connection.CreateCommand())
         {
+            if (transaction != null) command.Transaction = transaction;
             if (rating > 0) {
                 command.CommandText = $@"INSERT INTO {TableName.ImageRatings} ({Column.ImageRatings.FileId}, {Column.ImageRatings.Rating}) VALUES ($Id, $Rating) ON CONFLICT({Column.ImageRatings.FileId}) DO UPDATE SET {Column.ImageRatings.Rating} = excluded.{Column.ImageRatings.Rating}";
                 command.Parameters.AddWithValue("$Rating", rating);
@@ -1626,10 +1670,7 @@ public class DatabaseManager : IDatabaseManager
 
     public void ForgetRoot(string rootId)
     {
-        using var connection = GetOpenConnection();
-        using var transaction = connection.BeginTransaction();
-        try
-        {
+        ExecuteWrite((connection, transaction) => {
             var rootIds = GetRecursiveRootIds(connection, rootId);
             string rootIdList = string.Join(",", rootIds.Select(id => $"'{id}'"));
 
@@ -1708,16 +1749,8 @@ public class DatabaseManager : IDatabaseManager
                     WHERE {Column.RootPaths.Id} IN ({rootIdList})";
                 cmd.ExecuteNonQuery();
             }
-
-            transaction.Commit();
             _logger.LogInformation("Forgot root {RootId} and its {Count} sub-roots.", rootId, rootIds.Count);
-        }
-        catch (Exception ex)
-        {
-            transaction.Rollback();
-            _logger.LogError(ex, "Failed to forget root {RootId}", rootId);
-            throw;
-        }
+        });
     }
 
     private List<string> GetRecursiveRootIds(SqliteConnection connection, string rootId)

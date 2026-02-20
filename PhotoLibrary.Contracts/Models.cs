@@ -20,3 +20,7 @@ public class MetadataItem
     public string? Tag { get; set; }
     public string? Value { get; set; }
 }
+
+public record GeneratedPreview(int Size, byte[] Data);
+
+public record ProcessedFileData(FileEntry Entry, List<MetadataItem> Metadata, List<GeneratedPreview> Previews);

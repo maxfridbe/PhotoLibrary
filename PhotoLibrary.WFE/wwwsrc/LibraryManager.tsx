@@ -194,6 +194,27 @@ export class LibraryManager {
             }
         });
 
+        hub.sub(ps.IMPORT_STOPPED, (data) => {
+            if (data && data.taskId) {
+                const session = this.importSessions.get(data.taskId);
+                if (session) {
+                    // Mark all pending files as error/stopped
+                    for (const file of session.list) {
+                        const status = session.progress.get(file);
+                        if (!status || status.status === 'pending') {
+                            session.progress.set(file, {
+                                status: 'error',
+                                detailedStatus: 'stopped',
+                                error: 'Import stopped by user'
+                            });
+                        }
+                    }
+                    this._renderImportSession(data.taskId);
+                    this.render();
+                }
+            }
+        });
+
         hub.sub(ps.IMPORT_FILE_FINISHED, (data) => {
             if (data && data.taskId && data.sourcePath) {
                 const session = this.importSessions.get(data.taskId);

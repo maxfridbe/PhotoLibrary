@@ -37,6 +37,7 @@ export interface EventMap {
     [ps.UI_SHOW_POPOVER]: { type: string, x: number, y: number, current?: string, onSelect: (val: string) => void };
     [ps.IMPORT_FILE_FINISHED]: { taskId: string, sourcePath: string, targetPath?: string, fileEntryId?: string, success: boolean, error?: string };
     [ps.IMPORT_FILE_PROGRESS]: { taskId: string, sourcePath: string, status: string, percent: number };
+    [ps.IMPORT_STOPPED]: { taskId: string };
     [ps.IMPORT_VALIDATION_RESULT]: { path: string, exists: boolean };
     [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
     [ps.RUNTIME_STATS]: { memoryBytes: number, sentBytesPerSec: number, recvBytesPerSec: number };

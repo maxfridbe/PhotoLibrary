@@ -77,6 +77,8 @@ export class CommunicationManager {
                         hub.pub(ps.PHOTO_IMPORTED, { fileEntryId: msg.fileEntryId, path: msg.path, rootId: msg.rootId });
                     } else if (msg.type === ps.IMPORT_FILE_FINISHED) {
                         hub.pub(ps.IMPORT_FILE_FINISHED, msg);
+                    } else if (msg.type === sk.IMPORT_STOPPED) {
+                        hub.pub(ps.IMPORT_STOPPED, { taskId: msg.taskId });
                     } else if (msg.type === sk.IMPORT_FILE_PROGRESS) {
                         hub.pub(ps.IMPORT_FILE_PROGRESS, msg);
                     } else if (msg.type === sk.IMPORT_VALIDATION_RESULT) {

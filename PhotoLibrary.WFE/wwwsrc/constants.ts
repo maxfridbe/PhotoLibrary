@@ -28,6 +28,7 @@ export const constants = {
         UI_SHOW_POPOVER: 'ui.show.popover' as const,
         IMPORT_FILE_FINISHED: 'import.file.finished' as const,
         IMPORT_FILE_PROGRESS: 'import.file.progress' as const,
+        IMPORT_STOPPED: 'import.stopped' as const,
         IMPORT_VALIDATION_RESULT: 'import.validation-result' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
         RUNTIME_STATS: 'runtime.stats' as const,
@@ -49,5 +50,6 @@ export const constants = {
         PHOTO_STARRED_ADDED: 'photo.starred.added' as const,
         IMPORT_VALIDATION_RESULT: 'import.validation-result' as const,
         IMPORT_FILE_PROGRESS: 'import.file.progress' as const,
+        IMPORT_STOPPED: 'import.stopped' as const,
     }
 };

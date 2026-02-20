@@ -12,10 +12,13 @@ public interface IDatabaseManager
     void ClearCaches();
     SqliteConnection GetOpenConnection();
     SqliteTransaction BeginTransaction(SqliteConnection connection);
+    Task ExecuteWriteAsync(Func<SqliteConnection, SqliteTransaction, Task> action);
+    void ExecuteWrite(Action<SqliteConnection, SqliteTransaction> action);
     void Initialize();
     void NormalizeRoots();
     string? GetSetting(string? key);
     void SetSetting(string? key, string? value);
+    void SetSettingWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string? key, string? value);
     LibraryInfoResponse GetLibraryInfo(string previewDbPath, string configPath);
     StatsResponse GetGlobalStats();
     PagedPhotosResponse GetPhotosPaged(int limit, int offset, string? rootId = null, bool pickedOnly = false, int rating = 0, string[]? specificIds = null);
@@ -27,17 +30,22 @@ public interface IDatabaseManager
     void ClearPicked();
     IEnumerable<string> GetPickedIds();
     string GetOrCreateBaseRoot(string absolutePath);
+    string GetOrCreateBaseRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string absolutePath);
     string GetOrCreateChildRoot(string parentId, string name);
+    string GetOrCreateChildRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string parentId, string name);
     List<string> GetFileIdsUnderRoot(string rootId, bool recursive);
     void UpsertFileEntry(FileEntry entry);
     void UpsertFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, FileEntry entry);
+    void DeleteFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId);
     string? GetFileHash(string fileId);
+    string? GetFileHashWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId);
     (string? fullPath, int rotation, bool isHidden) GetExportInfo(string fileId);
     string? GetFullFilePath(string fileId);
     string? GetFileRootId(string fileId);
     string? GetFileId(string rootPathId, string fileName);
     string? GetFileIdWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string rootPathId, string fileName);
     void UpdateFileHash(string fileId, string hash);
+    void UpdateFileHashWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, string hash);
     bool FileExistsByHash(string hash);
     (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null);
     bool FileExists(string fullPath, SqliteConnection? existingConnection = null);
@@ -49,7 +57,9 @@ public interface IDatabaseManager
     List<string> GetFileHashesUnderRoot(string rootId);
     IEnumerable<MetadataItemResponse> GetMetadata(string fileId);
     void SetPicked(string fileId, bool isPicked);
+    void SetPickedWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, bool isPicked);
     void SetRating(string fileId, int rating);
+    void SetRatingWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId, int rating);
     IEnumerable<string> Search(SearchRequest req);
     HashSet<string> GetExistingFileNames(string rootId, IEnumerable<string> fileNames);
 }
