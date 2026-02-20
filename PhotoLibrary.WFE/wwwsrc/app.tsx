@@ -862,14 +862,11 @@ class App {
             const root = this.folderNodeMap.get(data.rootId);
             if (root) {
                 root.imageCount++;
-                const el = document.getElementById(`folder-item-${data.rootId}`);
-                if (el) {
-                    const countEl = el.querySelector('.count');
-                    if (countEl) countEl.textContent = root.imageCount.toString();
-                }
             }
         }
-        this.updateSidebarCountsOnly();
+        
+        this.renderLibrary(); // This updates the VDOM correctly
+        // ... grid queue logic follows
 
         // Queue for grid update
         this.importedQueue.push(data);
@@ -888,7 +885,15 @@ class App {
                 if (!this.selectedRootId || this.selectedRootId === data.rootId) {
                     matches = true;
                 }
+            } else if (this.filterType === 'search') {
+                // If searching, we don't know if it matches yet, so we assume no 
+                // unless we want to trigger a re-search. For now, keep it simple.
+                matches = false;
+            } else {
+                // For 'picked' or 'rating' filters, new imports are never picked/rated yet
+                matches = false;
             }
+
             if (matches && !this.photoMap.has(data.fileEntryId)) {
                 idsToFetch.push(data.fileEntryId);
             }

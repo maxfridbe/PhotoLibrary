@@ -51,6 +51,7 @@ export class LibraryManager {
         startTime: number;
         lastUpdate: number;
         averageMsPerFile: number;
+        isStopping?: boolean;
         $vnode?: VNode | HTMLElement;
     }> = new Map();
 
@@ -387,7 +388,10 @@ export class LibraryManager {
             progress: session.progress,
             friendlyName: session.friendlyName,
             estimatedRemainingMs: estimatedRemainingMs,
+            isStopping: session.isStopping,
             onAbort: () => {
+                session.isStopping = true;
+                this._renderImportSession(taskId);
                 Api.api_library_cancel_task({ taskId: taskId });
                 hub.pub(ps.UI_NOTIFICATION, { message: 'Import stop requested', type: 'info' });
             },

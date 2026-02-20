@@ -18,10 +18,11 @@ export interface ImportStatusTabProps {
     onShowInGrid: (fileEntryId: string) => void;
     friendlyName: string;
     estimatedRemainingMs?: number;
+    isStopping?: boolean;
 }
 
 export function ImportStatusTab(props: ImportStatusTabProps): VNode {
-    const { importList, progress, onAbort, onShowInGrid, friendlyName, estimatedRemainingMs } = props;
+    const { importList, progress, onAbort, onShowInGrid, friendlyName, estimatedRemainingMs, isStopping } = props;
     
     const formatTime = (ms: number) => {
         if (ms <= 0) return '';
@@ -37,19 +38,21 @@ export function ImportStatusTab(props: ImportStatusTabProps): VNode {
             <div style={{ padding: '10px 12px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1em' }}>
-                        <span style={{ fontWeight: 'bold' }}>Import Progress</span>
-                        {estimatedRemainingMs && estimatedRemainingMs > 0 ? (
+                        <span style={{ fontWeight: 'bold' }}>{isStopping ? 'Stopping Import...' : 'Import Progress'}</span>
+                        {estimatedRemainingMs && estimatedRemainingMs > 0 && !isStopping ? (
                             <span style={{ fontSize: '0.85em', color: 'var(--accent)', fontWeight: 'bold' }}>{formatTime(estimatedRemainingMs)}</span>
                         ) : null}
                     </div>
                     <span style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>{friendlyName}</span>
                 </div>
-                <button 
-                    style={{ padding: '4px 12px', background: '#8b0000', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em', fontWeight: 'bold' }}
-                    on={{ click: onAbort }}
-                >
-                    STOP IMPORT
-                </button>
+                {!isStopping ? (
+                    <button 
+                        style={{ padding: '4px 12px', background: '#8b0000', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em', fontWeight: 'bold' }}
+                        on={{ click: onAbort }}
+                    >
+                        STOP IMPORT
+                    </button>
+                ) : null}
             </div>
             <div style={{ flex: '1', overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em', fontFamily: 'monospace' }}>
