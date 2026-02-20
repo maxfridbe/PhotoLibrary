@@ -261,42 +261,94 @@ public class CommunicationLayer : ICommunicationLayer
         }
     }
 
-    public List<ScanFileResult> FindFiles(NameRequest req)
+    public List<ScanFileResult> FindFiles(FindFilesRequest req)
     {
-        if (string.IsNullOrEmpty(req.name)) return new List<ScanFileResult>();
+        if (string.IsNullOrEmpty(req.path)) return new List<ScanFileResult>();
+
+        int limit = Math.Clamp(req.limit, 1, 50000);
+        string path = req.path;
+        string? targetRootId = req.targetRootId;
+        string? template = req.template;
+        var skipFiles = req.existingFiles != null ? new HashSet<string>(req.existingFiles, StringComparer.OrdinalIgnoreCase) : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        string taskId = "fs-find-files";
+        var cts = new CancellationTokenSource();
+        _activeTasks.AddOrUpdate(taskId, cts, (k, old) => { old.Cancel(); return cts; });
+
         try
         {
-            string absPath = PathUtils.ResolvePath(req.name);
-            _logger.LogInformation("[FSFind] Scanning path: {AbsPath}", absPath);
+            string absPath = PathUtils.ResolvePath(path);
+            _logger.LogInformation("[FSFind] Scanning path: {AbsPath} (Limit: {Limit}, Skip: {SkipCount})", absPath, limit, skipFiles.Count);
             
             if (!Directory.Exists(absPath)) return new List<ScanFileResult>();
+
+            string? absTargetRoot = null;
+            if (!string.IsNullOrEmpty(targetRootId))
+            {
+                var tree = _db.GetDirectoryTree();
+                var targetNode = FindNodeRecursive(tree, targetRootId);
+                if (targetNode != null && !string.IsNullOrEmpty(targetNode.Path))
+                {
+                    absTargetRoot = PathUtils.ResolvePath(targetNode.Path);
+                }
+            }
 
             var foundFiles = new List<ScanFileResult>();
             var stack = new Stack<string>();
             stack.Push(absPath);
 
-            while (stack.Count > 0 && foundFiles.Count < 1000)
+            while (stack.Count > 0 && foundFiles.Count < limit)
             {
+                if (cts.Token.IsCancellationRequested) break;
                 string currentDir = stack.Pop();
                 try
                 {
                     foreach (string dir in Directory.EnumerateDirectories(currentDir))
                     {
+                        if (cts.Token.IsCancellationRequested) break;
                         var name = Path.GetFileName(dir);
                         if (!name.StartsWith(".")) stack.Push(dir);
                     }
 
                     foreach (string file in Directory.EnumerateFiles(currentDir))
                     {
+                        if (cts.Token.IsCancellationRequested) break;
                         if (TableConstants.SupportedExtensions.Contains(Path.GetExtension(file)))
                         {
+                            var relPath = Path.GetRelativePath(absPath, file);
+                            
+                            // Optimization: Skip files we already have
+                            if (skipFiles.Contains(relPath)) continue;
+
+                            var dateTaken = GetDateTaken(file);
+                            
+                            bool exists = false;
+                            if (absTargetRoot != null)
+                            {
+                                string fileName = Path.GetFileName(file);
+                                string subDir = "";
+                                if (!string.IsNullOrEmpty(template))
+                                {
+                                    subDir = template
+                                        .Replace("{YYYY}", dateTaken.Year.ToString())
+                                        .Replace("{MM}", dateTaken.Month.ToString("D2"))
+                                        .Replace("{DD}", dateTaken.Day.ToString("D2"))
+                                        .Replace("{Date}", dateTaken.ToString("yyyy-MM-dd"));
+                                }
+                                
+                                string destPath = Path.Combine(absTargetRoot, subDir, fileName);
+                                if (File.Exists(destPath)) exists = true;
+                            }
+
                             foundFiles.Add(new ScanFileResult 
                             { 
-                                Path = Path.GetRelativePath(absPath, file),
-                                DateTaken = GetDateTaken(file)
+                                Path = relPath, 
+                                DateTaken = dateTaken,
+                                Exists = exists
                             });
+                            _ = _broadcast(new { type = "find-local.file-found", path = relPath, dateTaken = dateTaken, exists = exists });
                         }
-                        if (foundFiles.Count >= 1000) break;
+                        if (foundFiles.Count >= limit) break;
                     }
                 }
                 catch (UnauthorizedAccessException) { /* Skip restricted dirs */ }
@@ -307,8 +359,12 @@ public class CommunicationLayer : ICommunicationLayer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[FSFind] Error scanning directory: {Path}", req.name);
+            _logger.LogError(ex, "[FSFind] Error scanning directory: {Path}", req.path);
             return new List<ScanFileResult>();
+        }
+        finally
+        {
+            _activeTasks.TryRemove(taskId, out _);
         }
     }
 
@@ -323,7 +379,11 @@ public class CommunicationLayer : ICommunicationLayer
             path = parts[0];
             int.TryParse(parts[1], out limit);
         }
-        limit = Math.Clamp(limit, 1, 10000);
+        limit = Math.Clamp(limit, 1, 50000);
+
+        string taskId = "fs-find-new-files";
+        var cts = new CancellationTokenSource();
+        _activeTasks.AddOrUpdate(taskId, cts, (k, old) => { old.Cancel(); return cts; });
 
         try
         {
@@ -353,6 +413,7 @@ public class CommunicationLayer : ICommunicationLayer
             int checkedCount = 0;
             foreach (var file in enumerator)
             {
+                if (cts.Token.IsCancellationRequested) break;
                 checkedCount++;
                 var fullFile = Path.GetFullPath(file);
                 if (!_db.FileExists(fullFile, connection))
@@ -371,6 +432,10 @@ public class CommunicationLayer : ICommunicationLayer
         {
             _logger.LogError(ex, "[FindNew] Error scanning {Path}", path);
             return new List<string>();
+        }
+        finally
+        {
+            _activeTasks.TryRemove(taskId, out _);
         }
     }
 
@@ -423,6 +488,7 @@ public class CommunicationLayer : ICommunicationLayer
                 if (File.Exists(destPath)) 
                 {
                     existing.Add(kvp.Key);
+                    _ = _broadcast(new { type = "import.validation-result", path = kvp.Key, exists = true });
                 }
                 else 
                 {
@@ -473,6 +539,7 @@ public class CommunicationLayer : ICommunicationLayer
                             if (foundNames.Contains(fileName)) 
                             {
                                 existing.Add(item.Key);
+                                _ = _broadcast(new { type = "import.validation-result", path = item.Key, exists = true });
                             }
                             else if (scanned > 0 && scanned < 50) // Debug small scans
                             {
@@ -581,128 +648,123 @@ public class CommunicationLayer : ICommunicationLayer
 
         string taskId = $"import-local-{Guid.NewGuid()}";
         var cts = new CancellationTokenSource();
-        if (!_activeTasks.TryAdd(taskId, cts)) 
-        {
-            // Should not happen with GUID but for safety
-            return "";
-        }
+        if (!_activeTasks.TryAdd(taskId, cts)) return "";
 
         _ = Task.Run(async () =>
         {
             try
             {
-                _logger?.LogInformation("[IMPORT] TASK START {Id}: Processing {Count} files.", taskId, req.sourceFiles.Length);
+                _logger?.LogInformation("[IMPORT] TASK START {Id}: Processing {Count} files with Pipelining.", taskId, req.sourceFiles.Length);
                 ImageIndexer.SetProgress(true, 0, req.sourceFiles.Length);
 
                 var tree = _db.GetDirectoryTree();
                 var targetRoot = FindNodeRecursive(tree, req.targetRootId);
-                
-                if (targetRoot == null)
-                {
-                    _logger?.LogError("[IMPORT] Target root not found: {Id}", req.targetRootId);
-                    return;
-                }
+                if (targetRoot == null) { _logger?.LogError("[IMPORT] Target root not found: {Id}", req.targetRootId); return; }
 
                 string absTargetRoot = PathUtils.ResolvePath(targetRoot.Path!);
+                string absSourceRoot = PathUtils.ResolvePath(req.sourceRoot);
                 var sizes = new List<int>();
                 if (req.generatePreview) { sizes.Add(300); sizes.Add(1024); }
 
                 IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
                 var pathToFileId = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
-                indexer.RegisterFileProcessedHandler((id, path) => 
-                {
+                indexer.RegisterFileProcessedHandler((id, path) => {
                     pathToFileId[path] = id;
                     _ = _broadcast(new { type = "file.imported", fileEntryId = id, path, rootId = req.targetRootId });
                 });
 
-                int count = 0;
-                string absSourceRoot = PathUtils.ResolvePath(req.sourceRoot);
+                // Channel for items ready to be copied
+                var copyChannel = System.Threading.Channels.Channel.CreateBounded<(string src, string dst, string rel)>(new System.Threading.Channels.BoundedChannelOptions(5) {
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait
+                });
 
-                foreach (var sourceFile in req.sourceFiles)
-                {
-                    if (cts.Token.IsCancellationRequested) break;
-                    try
+                // STAGE 1: Producer (Hash & Thumbnail)
+                var processingTask = Task.Run(async () => {
+                    foreach (var sourceFile in req.sourceFiles)
                     {
-                        string absSource = Path.Combine(absSourceRoot, sourceFile);
-                        if (!File.Exists(absSource)) 
+                        if (cts.Token.IsCancellationRequested) break;
+                        try
                         {
-                            _logger?.LogWarning("[IMPORT] File not found: {Path}", absSource);
-                            _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "File not found on disk" });
-                            continue;
-                        }
-
-                        var fileInfo = new FileInfo(absSource);
-                        DateTime dateTaken = GetDateTaken(absSource);
-                        
-                        string subDir = req.directoryTemplate
-                            .Replace("{YYYY}", dateTaken.Year.ToString())
-                            .Replace("{MM}", dateTaken.Month.ToString("D2"))
-                            .Replace("{DD}", dateTaken.Day.ToString("D2"))
-                            .Replace("{Date}", dateTaken.ToString("yyyy-MM-dd"));
-
-                        string targetDir = Path.Combine(absTargetRoot, subDir);
-                        Directory.CreateDirectory(targetDir);
-
-                        string fileName = Path.GetFileName(absSource);
-                        string targetPath = Path.Combine(targetDir, fileName);
-
-                        // Duplicate Check
-                        if (req.preventDuplicateName && File.Exists(targetPath))
-                        {
-                            _logger?.LogInformation("[IMPORT] Skipping existing file (Name): {Path}", targetPath);
-                            _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Name)" });
-                            continue;
-                        }
-
-                        if (req.preventDuplicateHash)
-                        {
-                            string hash;
-                            using (var fs = File.OpenRead(absSource))
-                            {
-                                var hasher = new System.IO.Hashing.XxHash64();
-                                hasher.Append(fs);
-                                hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
-                            }
-
-                            if (_db.FileExistsByHash(hash))
-                            {
-                                _logger?.LogInformation("[IMPORT] Skipping existing file (Hash): {File}", fileName);
-                                _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
+                            string absSource = Path.Combine(absSourceRoot, sourceFile);
+                            if (!File.Exists(absSource)) {
+                                _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "File not found" });
                                 continue;
                             }
+
+                            DateTime dateTaken = GetDateTaken(absSource);
+                            string subDir = req.directoryTemplate
+                                .Replace("{YYYY}", dateTaken.Year.ToString())
+                                .Replace("{MM}", dateTaken.Month.ToString("D2"))
+                                .Replace("{DD}", dateTaken.Day.ToString("D2"))
+                                .Replace("{Date}", dateTaken.ToString("yyyy-MM-dd"));
+
+                            string targetDir = Path.Combine(absTargetRoot, subDir);
+                            Directory.CreateDirectory(targetDir);
+                            string targetPath = Path.Combine(targetDir, Path.GetFileName(absSource));
+
+                            if (req.preventDuplicateName && File.Exists(targetPath)) {
+                                _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Name)" });
+                                continue;
+                            }
+
+                            string? hash = null;
+                            if (req.preventDuplicateHash) {
+                                _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "hashing", percent = 10 });
+                                using (var fs = File.OpenRead(absSource)) {
+                                    var hasher = new System.IO.Hashing.XxHash64();
+                                    hasher.Append(fs);
+                                    hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                                }
+                                if (_db.FileExistsByHash(hash)) {
+                                    _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
+                                    continue;
+                                }
+                            }
+
+                            _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "thumbnailing", percent = 30 });
+                            indexer.ProcessSingleFileFromSource(new FileInfo(absSource), targetPath, absTargetRoot, hash);
+
+                            await copyChannel.Writer.WriteAsync((absSource, targetPath, sourceFile), cts.Token);
+                        }
+                        catch (Exception ex) {
+                            _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = ex.Message });
+                        }
+                    }
+                    copyChannel.Writer.Complete();
+                });
+
+                // STAGE 2: Consumer (Copy)
+                int count = 0;
+                await foreach (var (src, dst, rel) in copyChannel.Reader.ReadAllAsync(cts.Token))
+                {
+                    try {
+                        _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "copying", percent = 80 });
+                        
+                        // Optimized copy with buffer for network
+                        using (var sourceStream = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
+                        using (var destStream = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+                        {
+                            await sourceStream.CopyToAsync(destStream, 1024 * 1024, cts.Token); // 1MB buffer
                         }
 
-                        // Index BEFORE copy (Optimization: read from local disk, avoid reading back from network mount)
-                        indexer.ProcessSingleFileFromSource(new FileInfo(absSource), targetPath, absTargetRoot);
-
-                        // Perform Copy
-                        File.Copy(absSource, targetPath, true);
-                        _logger?.LogInformation("[IMPORT] Copied {Source} to {Target}", absSource, targetPath);
-
                         string? fileEntryId = null;
-                        pathToFileId.TryGetValue(targetPath, out fileEntryId);
-
-                        _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, targetPath = targetPath, fileEntryId = fileEntryId, success = true });
+                        pathToFileId.TryGetValue(dst, out fileEntryId);
+                        _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, targetPath = dst, fileEntryId, success = true });
                         
                         count++;
                         ImageIndexer.SetProgress(true, count, req.sourceFiles.Length);
                     }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogError(ex, "[IMPORT] Error processing {File}", sourceFile);
-                        _ = _broadcast(new { type = "import.file.finished", taskId = taskId, sourcePath = sourceFile, success = false, error = ex.Message });
+                    catch (Exception ex) {
+                        _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, success = false, error = $"Copy failed: {ex.Message}" });
                     }
                 }
 
+                await processingTask;
                 _logger?.LogInformation("[IMPORT] TASK FINISHED {Id}. Imported {Count} files total.", taskId, count);
                 await _broadcast(new { type = "scan.finished" });
             }
-            catch (Exception ex)
-            {
-                _logger?.LogCritical(ex, "[IMPORT] CRITICAL FAILURE {Id}", taskId);
-            }
-            finally
-            {
+            catch (Exception ex) { _logger?.LogCritical(ex, "[IMPORT] CRITICAL FAILURE {Id}", taskId); }
+            finally {
                 ImageIndexer.SetProgress(false, 0, 0);
                 _activeTasks.TryRemove(taskId, out _);
             }

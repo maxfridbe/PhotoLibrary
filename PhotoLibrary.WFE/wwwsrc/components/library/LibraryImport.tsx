@@ -23,7 +23,10 @@ export interface LibraryImportProps {
     onSelect: (path: string) => void;
     onScanPathChange: (path: string) => void;
     currentScanPath: string;
-    onFindLocal: (path: string) => void;
+    scanLimit: number;
+    onScanLimitChange: (limit: number) => void;
+    onFindLocal: (path: string, limit: number, fresh: boolean) => void;
+    onCancelScan: () => void;
     isScanning: boolean;
     isValidating: boolean;
     scanResults: Res.ScanFileResult[];
@@ -31,6 +34,9 @@ export interface LibraryImportProps {
     existingFiles: Set<string>;
     onToggleFile: (path: string) => void;
     onSelectAll: (all: boolean) => void;
+    onClear: () => void;
+    hideDuplicates: boolean;
+    onHideDuplicatesChange: (hide: boolean) => void;
     
     // Settings
     settings: ImportSettings;
@@ -48,14 +54,19 @@ export interface LibraryImportProps {
 
 export function LibraryImport(props: LibraryImportProps): VNode {
     const { 
-        fsRoots, onFsToggle, onSelect, onScanPathChange, currentScanPath, onFindLocal, isScanning, isValidating, 
-        scanResults, selectedFiles, existingFiles, onToggleFile, onSelectAll, 
+        fsRoots, onFsToggle, onSelect, onScanPathChange, currentScanPath, scanLimit, onScanLimitChange, onFindLocal, onCancelScan, isScanning, isValidating, 
+        scanResults, selectedFiles, existingFiles, onToggleFile, onSelectAll, onClear, hideDuplicates, onHideDuplicatesChange,
         settings, onSettingsChange, 
         importLocationsExpanded, onToggleImportLocation, registeredRoots,
         onImport, isImporting 
     } = props;
 
-    const allSelected = scanResults.length > 0 && selectedFiles.size === scanResults.length;
+    const filteredResults = hideDuplicates ? scanResults.filter(f => !existingFiles.has(f.path)) : scanResults;
+    const allSelected = filteredResults.length > 0 && filteredResults.every(f => selectedFiles.has(f.path));
+
+    const totalFound = scanResults.length;
+    const duplicateCount = existingFiles.size;
+    const importableCount = totalFound - duplicateCount;
 
     const findNodeById = (nodes: Res.DirectoryNodeResponse[], targetId: string): Res.DirectoryNodeResponse | null => {
         for (const node of nodes) {
@@ -131,25 +142,84 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                             style={{ flex: '1', background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '0.6em', borderRadius: '4px', fontSize: '0.9em' }}
                             on={{ input: (e: any) => onScanPathChange(e.target.value) }}
                         />
-                        <button
-                            style={{ padding: '0.6em 1.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                            on={{ click: () => onFindLocal(currentScanPath) }}
-                        >
-                            SCAN
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', fontSize: '0.9em', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            <span>Limit:</span>
+                            <select 
+                                attrs={{ id: 'import-scan-limit-select' }}
+                                style={{ background: 'var(--bg-input)', color: 'var(--text-input)', border: '1px solid var(--border-light)', padding: '4px 8px', borderRadius: '4px' }}
+                                on={{ change: (e: Event) => onScanLimitChange(parseInt((e.target as HTMLSelectElement).value)) }}
+                            >
+                                <option attrs={{ value: '100' }} props={{ selected: scanLimit === 100 }}>100</option>
+                                <option attrs={{ value: '500' }} props={{ selected: scanLimit === 500 }}>500</option>
+                                <option attrs={{ value: '1000' }} props={{ selected: scanLimit === 1000 }}>1000</option>
+                                <option attrs={{ value: '5000' }} props={{ selected: scanLimit === 5000 }}>5000</option>
+                                <option attrs={{ value: '10000' }} props={{ selected: scanLimit === 10000 }}>10000</option>
+                                <option attrs={{ value: '50000' }} props={{ selected: scanLimit === 50000 }}>50000</option>
+                            </select>
+                        </div>
+                        {isScanning ? (
+                            <button
+                                style={{ padding: '0.6em 1.5em', background: '#8b0000', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                on={{ click: onCancelScan }}
+                            >
+                                CANCEL
+                            </button>
+                        ) : (
+                            <div style={{ display: 'flex', gap: '0.5em' }}>
+                                <button
+                                    style={{ padding: '0.6em 1.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                                    on={{ click: () => onFindLocal(currentScanPath, scanLimit, true) }}
+                                    attrs={{ title: 'Clear current results and start a new scan' }}
+                                >
+                                    NEW SCAN
+                                </button>
+                                <button
+                                    style={{ padding: '0.6em 1.5em', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                                    on={{ click: () => onFindLocal(currentScanPath, scanLimit, false) }}
+                                    attrs={{ title: 'Keep current results and find more files' }}
+                                >
+                                    SCAN FOR MORE
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5em', flex: '1', minHeight: '0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3 style={{ margin: '0', color: 'var(--text-bright)' }}>Copyable Files ({scanResults.length})</h3>
-                            {scanResults.length > 0 ? (
-                                <button
-                                    style={{ padding: '4px 12px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}
-                                    on={{ click: () => onSelectAll(!allSelected) }}
-                                >
-                                    {allSelected ? 'Deselect All' : 'Select All'}
-                                </button>
-                            ) : null}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1em' }}>
+                                <h3 style={{ margin: '0', color: 'var(--text-bright)' }}>
+                                    Files: Found ({totalFound}) 
+                                    {duplicateCount > 0 ? <span style={{ color: 'var(--accent-gold)', marginLeft: '0.5em' }}>Duplicates ({duplicateCount})</span> : null}
+                                    <span style={{ color: 'var(--accent)', marginLeft: '0.5em' }}>Importable ({importableCount})</span>
+                                </h3>
+                                <label class={{ 'custom-checkbox': true }} style={{ fontSize: '0.8em' }}>
+                                    <input 
+                                        attrs={{ type: 'checkbox' }}
+                                        props={{ checked: hideDuplicates }}
+                                        on={{ change: (e: any) => onHideDuplicatesChange(e.target.checked) }}
+                                    />
+                                    <span class={{ 'checkmark': true }}></span>
+                                    <span>Hide Duplicates</span>
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5em' }}>
+                                {scanResults.length > 0 ? (
+                                    <button
+                                        style={{ padding: '4px 12px', background: 'var(--bg-panel)', color: 'var(--text-main)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}
+                                        on={{ click: () => onSelectAll(!allSelected) }}
+                                    >
+                                        {allSelected ? 'Deselect All' : 'Select All'}
+                                    </button>
+                                ) : null}
+                                {scanResults.length > 0 ? (
+                                    <button
+                                        style={{ padding: '4px 12px', background: 'var(--bg-panel)', color: '#ff4d4d', border: '1px solid #ff4d4d33', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}
+                                        on={{ click: onClear }}
+                                    >
+                                        Clear
+                                    </button>
+                                ) : null}
+                            </div>
                         </div>
                         <div
                             style={{ 
@@ -170,8 +240,8 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                                     <span style={{ color: 'white', fontWeight: 'bold' }}>{isScanning ? 'Scanning...' : 'Validating...'}</span>
                                 </div>
                             ) : null}
-                            {scanResults.length === 0 ? (
-                                <div style={{ padding: '2em', color: 'var(--text-muted)', textAlign: 'center' }}>No files found or directory not scanned.</div>
+                            {filteredResults.length === 0 ? (
+                                <div style={{ padding: '2em', color: 'var(--text-muted)', textAlign: 'center' }}>No files found or all filtered.</div>
                             ) : (
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em', fontFamily: 'monospace' }}>
                                     <thead style={{ position: 'sticky', top: '0', background: 'var(--bg-input)', zIndex: '5' }}>
@@ -182,7 +252,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {scanResults.map((f: Res.ScanFileResult, i: number) => {
+                                        {filteredResults.map((f: Res.ScanFileResult, i: number) => {
                                             const path = f.path;
                                             const dateTaken = f.dateTaken;
                                             const isSelected = selectedFiles.has(path);

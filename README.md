@@ -82,6 +82,8 @@ Download the latest version from the [Releases](https://github.com/maxfridbe/Pho
 ### Quick Start (Manual Build)
 The simplest way to use PhotoLibrary is to build the self-contained executable and run it. By default, it will store all its data and configuration in `~/.config/PhotoLibrary/`.
 
+**For detailed development environment setup (Debian), see: [new_dev_env.md](new_dev_env.md)**
+
 1.  **Build**: `./Tooling/build.sh`
 2.  **Run**: `./dist/linux/PhotoLibrary`
 3.  **Browse**: Open `http://localhost:8080` in your browser.

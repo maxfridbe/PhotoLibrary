@@ -373,7 +373,15 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
-    loadImages();
+    let hasStartedLoading = false;
+    const startLoadingIfVisible = () => {
+        if (!hasStartedLoading && props.isVisible) {
+            hasStartedLoading = true;
+            loadImages();
+        }
+    };
+
+    startLoadingIfVisible();
     updateTransform(true, true);
 
     window.app.rotateLeft = () => triggerRotate(-90);
@@ -388,10 +396,18 @@ function setupLoupeLogic($el: AppHTMLElement, initialProps: LoupeViewProps) {
 
     return {
         updateProps: (newProps: LoupeViewProps) => {
+            const oldPhotoId = props.photo?.fileEntryId;
+            const oldVisible = props.isVisible;
             props = newProps;
+            
             if (rotation !== props.rotation) {
                 rotation = props.rotation;
                 updateTransform(true, true);
+            }
+
+            if (props.isVisible && (!oldVisible || props.photo?.fileEntryId !== oldPhotoId)) {
+                hasStartedLoading = false; // Reset to allow reload for new photo
+                startLoadingIfVisible();
             }
         },
         destroy: () => {

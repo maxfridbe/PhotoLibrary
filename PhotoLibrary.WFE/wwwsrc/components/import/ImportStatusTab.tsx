@@ -4,6 +4,8 @@ import { EyeIcon } from '../../icons.js';
 
 export interface ImportStatus {
     status: 'pending' | 'success' | 'error';
+    detailedStatus?: string;
+    percent?: number;
     error?: string;
     targetPath?: string;
     fileEntryId?: string;
@@ -15,16 +17,31 @@ export interface ImportStatusTabProps {
     onAbort: () => void;
     onShowInGrid: (fileEntryId: string) => void;
     friendlyName: string;
+    estimatedRemainingMs?: number;
 }
 
 export function ImportStatusTab(props: ImportStatusTabProps): VNode {
-    const { importList, progress, onAbort, onShowInGrid, friendlyName } = props;
+    const { importList, progress, onAbort, onShowInGrid, friendlyName, estimatedRemainingMs } = props;
     
+    const formatTime = (ms: number) => {
+        if (ms <= 0) return '';
+        const seconds = Math.ceil(ms / 1000);
+        if (seconds < 60) return `${seconds}s remaining`;
+        const minutes = Math.floor(seconds / 60);
+        const remSeconds = seconds % 60;
+        return `${minutes}m ${remSeconds}s remaining`;
+    };
+
     return (
         <div style={{ height: '100%', overflowY: 'overlay' as any, background: 'var(--bg-panel)', padding: '0', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '10px 12px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={{ fontWeight: 'bold' }}>Import Progress</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1em' }}>
+                        <span style={{ fontWeight: 'bold' }}>Import Progress</span>
+                        {estimatedRemainingMs && estimatedRemainingMs > 0 ? (
+                            <span style={{ fontSize: '0.85em', color: 'var(--accent)', fontWeight: 'bold' }}>{formatTime(estimatedRemainingMs)}</span>
+                        ) : null}
+                    </div>
                     <span style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>{friendlyName}</span>
                 </div>
                 <button 
@@ -57,7 +74,7 @@ export function ImportStatusTab(props: ImportStatusTabProps): VNode {
                                     <td style={{ padding: '6px 12px', color: color }}>
                                         {status === 'success' ? (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '400px', color: 'var(--text-muted)', fontSize: '0.9em' }} title={info?.targetPath}>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '400px', color: '#4caf50', fontSize: '0.9em' }} title={info?.targetPath}>
                                                     {info?.targetPath}
                                                 </span>
                                                 {info?.fileEntryId ? (
@@ -71,7 +88,19 @@ export function ImportStatusTab(props: ImportStatusTabProps): VNode {
                                                 ) : null}
                                             </div>
                                         ) : (
-                                            status === 'error' ? (info?.error || 'Error') : status.toUpperCase()
+                                            status === 'error' ? (info?.error || 'Error') : (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: 'var(--text-muted)' }}>
+                                                        <span>{info?.detailedStatus ? `(${info.detailedStatus})` : status.toUpperCase()}</span>
+                                                        {info?.percent ? <span>{info.percent}%</span> : null}
+                                                    </div>
+                                                    {status !== 'pending' || info?.percent ? (
+                                                        <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                                                            <div style={{ width: `${info?.percent || 0}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.2s ease' }} />
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            )
                                         )}
                                     </td>
                                 </tr>

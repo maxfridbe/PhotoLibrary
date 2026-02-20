@@ -22,6 +22,7 @@ export interface LibraryLocationsProps {
     currentScanPath: string;
     scanLimit: number;
     onFindNew: (path: string, limit: number) => void;
+    onCancelScan: () => void;
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
     onClearResults: () => void;
     onCancelImport: () => void;
@@ -30,7 +31,7 @@ export interface LibraryLocationsProps {
 }
 
 export function LibraryLocations(props: LibraryLocationsProps): VNode {
-    const { roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, scanLimit, onFindNew, onIndexFiles, onClearResults, onCancelImport, onScanPathChange, onScanLimitChange } = props;
+    const { roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, scanLimit, onFindNew, onCancelScan, onIndexFiles, onClearResults, onCancelImport, onScanPathChange, onScanLimitChange } = props;
 
     return (
         <div 
@@ -82,16 +83,25 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                             <option attrs={{ value: '500' }} props={{ selected: scanLimit === 500 }}>500</option>
                             <option attrs={{ value: '1000' }} props={{ selected: scanLimit === 1000 }}>1000</option>
                             <option attrs={{ value: '5000' }} props={{ selected: scanLimit === 5000 }}>5000</option>
+                            <option attrs={{ value: '10000' }} props={{ selected: scanLimit === 10000 }}>10000</option>
+                            <option attrs={{ value: '50000' }} props={{ selected: scanLimit === 50000 }}>50000</option>
                         </select>
                     </div>
-                    <button
-                        style={{ padding: '0 2.5em', background: isScanning ? '#555' : 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: isScanning ? 'default' : 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                        attrs={{ disabled: isScanning }}
-                        on={{ click: () => !isScanning && onFindNew(currentScanPath, scanLimit) }}
-                    >
-                        {isScanning ? <div class={{ spinner: true }} style={{ width: '1em', height: '1em', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : null}
-                        FIND NEW
-                    </button>
+                    {isScanning ? (
+                        <button
+                            style={{ padding: '0 2.5em', background: '#8b0000', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            on={{ click: onCancelScan }}
+                        >
+                            CANCEL
+                        </button>
+                    ) : (
+                        <button
+                            style={{ padding: '0 2.5em', background: 'var(--bg-active)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            on={{ click: () => onFindNew(currentScanPath, scanLimit) }}
+                        >
+                            FIND NEW
+                        </button>
+                    )}
                 </div>
             </div>
 

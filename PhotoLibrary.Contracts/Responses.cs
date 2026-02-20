@@ -116,6 +116,7 @@ public record ScanFileResult
 {
     public string Path { get; init; } = "";
     public DateTime DateTaken { get; init; }
+    public bool Exists { get; init; }
 }
 
 public record ValidateImportResponse

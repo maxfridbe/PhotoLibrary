@@ -83,6 +83,8 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                                     <option attrs={{ value: '500' }}>500</option>
                                     <option attrs={{ value: '1000', selected: true }}>1000</option>
                                     <option attrs={{ value: '5000' }}>5000</option>
+                                    <option attrs={{ value: '10000' }}>10000</option>
+                                    <option attrs={{ value: '50000' }}>50000</option>
                                 </select>
                             </div>
                         </div>

@@ -181,7 +181,7 @@ public static class WebServer
 
         app.MapPost("/api/fs/list", (NameRequest req) => Results.Ok(_commLayer?.ListFileSystem(req)));
 
-        app.MapPost("/api/fs/find-files", (NameRequest req) => Results.Ok(_commLayer?.FindFiles(req)));
+        app.MapPost("/api/fs/find-files", (FindFilesRequest req) => Results.Ok(_commLayer?.FindFiles(req)));
 
         app.MapPost("/api/library/find-new-files", (NameRequest req) => Results.Ok(_commLayer?.FindNewFiles(req)));
 

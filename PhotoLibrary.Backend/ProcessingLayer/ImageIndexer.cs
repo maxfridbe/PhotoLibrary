@@ -139,14 +139,14 @@ public class ImageIndexer : IImageIndexer
         _logger.LogDebug("[INDEXER] ProcessSingleFile END: {FileName}", file.Name);
     }
 
-    public void ProcessSingleFileFromSource(FileInfo sourceFile, string targetPath, string scanRootPath)
+    public void ProcessSingleFileFromSource(FileInfo sourceFile, string targetPath, string scanRootPath, string? hash = null)
     {
         _logger.LogDebug("[INDEXER] ProcessSingleFileFromSource START: {Source} -> {Target}", sourceFile.Name, targetPath);
-        ProcessSingleFileInternal(sourceFile, targetPath, scanRootPath);
+        ProcessSingleFileInternal(sourceFile, targetPath, scanRootPath, hash);
         _logger.LogDebug("[INDEXER] ProcessSingleFileFromSource END: {Target}", targetPath);
     }
 
-    private void ProcessSingleFileInternal(FileInfo readFile, string dbPath, string scanRootPath)
+    private void ProcessSingleFileInternal(FileInfo readFile, string dbPath, string scanRootPath, string? hash = null)
     {
         string fullScanPath = Path.GetFullPath(scanRootPath);
         
@@ -169,7 +169,7 @@ public class ImageIndexer : IImageIndexer
             
             _pathCache[fullScanPath] = targetRootId;
             
-            ProcessFileInternal(readFile, dbPath, fullScanPath, targetRootId);
+            ProcessFileInternal(readFile, dbPath, fullScanPath, targetRootId, hash);
         }
         finally
         {
@@ -186,7 +186,7 @@ public class ImageIndexer : IImageIndexer
         return ProcessFileInternal(file, file.FullName, scanRootPath, scanRootId);
     }
 
-    private bool ProcessFileInternal(FileInfo sourceFile, string targetPath, string scanRootPath, string scanRootId)
+    private bool ProcessFileInternal(FileInfo sourceFile, string targetPath, string scanRootPath, string scanRootId, string? providedHash = null)
     {
         if (!TableConstants.SupportedExtensions.Contains(sourceFile.Extension)) return false;
 
@@ -241,7 +241,7 @@ public class ImageIndexer : IImageIndexer
             using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
             
-            string hash = CalculateHash(stream);
+            string hash = providedHash ?? CalculateHash(stream);
             stream.Position = 0;
 
             var entry = new FileEntry

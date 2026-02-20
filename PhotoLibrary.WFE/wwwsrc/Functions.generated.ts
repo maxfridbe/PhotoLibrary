@@ -91,7 +91,7 @@ export async function api_fs_list(data: Req.NameRequest): Promise<any> {
     return await post('/api/fs/list', data);
 }
 
-export async function api_fs_find_files(data: Req.NameRequest): Promise<any> {
+export async function api_fs_find_files(data: Req.FindFilesRequest): Promise<any> {
     return await post('/api/fs/find-files', data);
 }
 

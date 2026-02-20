@@ -42,11 +42,15 @@ export class LibraryManager {
     private isLocalScanning = false;
     private isLocalImporting = false;
     private isValidating = false;
+    private hideDuplicates = false;
     
     private importSessions: Map<string, {
         list: string[];
         progress: Map<string, ImportStatus>;
         friendlyName: string;
+        startTime: number;
+        lastUpdate: number;
+        averageMsPerFile: number;
         $vnode?: VNode | HTMLElement;
     }> = new Map();
 
@@ -82,6 +86,7 @@ export class LibraryManager {
     private importDurations: number[] = [];
     private averageDuration = 0;
     private readonly MAX_N = 100;
+    private validationTimeout: any = null;
 
     constructor() {
         try {
@@ -145,12 +150,10 @@ export class LibraryManager {
 
         hub.sub(ps.FIND_NEW_FILE_FOUND, (data) => {
             if (data && data.path) {
-                // Only add if not already in the list (avoid double addition if POST returns same)
                 if (!this.scanResults.some(r => r.path === data.path)) {
                     this.scanResults.push({ path: data.path, status: 'pending' as const });
                     this.render();
 
-                    // Auto-scroll to bottom of scan results to show newly found items
                     setTimeout(() => {
                         const container = document.querySelector('.scan-results-scroll-container');
                         if (container) {
@@ -161,18 +164,63 @@ export class LibraryManager {
             }
         });
 
+        hub.sub(ps.FIND_LOCAL_FILE_FOUND, (data) => {
+            if (data && data.path) {
+                if (!this.localScanResults.some(r => r.path === data.path)) {
+                    this.localScanResults.push({ 
+                        path: data.path, 
+                        dateTaken: data.dateTaken as any,
+                        exists: !!data.exists
+                    });
+                    
+                    if (data.exists) {
+                        this.existingFiles.add(data.path);
+                        this.selectedLocalFiles.delete(data.path);
+                    } else {
+                        // Auto-select by default only if NOT existing
+                        this.selectedLocalFiles.add(data.path);
+                    }
+                    
+                    this.render();
+                }
+            }
+        });
+
+        hub.sub(ps.IMPORT_VALIDATION_RESULT, (data) => {
+            if (data && data.exists) {
+                this.existingFiles.add(data.path);
+                this.selectedLocalFiles.delete(data.path);
+                this.render();
+            }
+        });
+
         hub.sub(ps.IMPORT_FILE_FINISHED, (data) => {
             if (data && data.taskId && data.sourcePath) {
                 const session = this.importSessions.get(data.taskId);
                 if (session) {
+                    const now = Date.now();
                     const status: ImportStatus = {
                         status: data.success ? 'success' : 'error',
                         error: data.error,
                         targetPath: data.targetPath,
-                        fileEntryId: data.fileEntryId
+                        fileEntryId: data.fileEntryId,
+                        detailedStatus: data.success ? 'finished' : 'error',
+                        percent: 100
                     };
                     session.progress.set(data.sourcePath, status);
                     
+                    // Calculate timing
+                    const elapsed = now - session.lastUpdate;
+                    const completedCount = Array.from(session.progress.values()).filter(p => p.status !== 'pending').length;
+                    
+                    if (completedCount === 1) {
+                        session.averageMsPerFile = now - session.startTime;
+                    } else {
+                        // Weighted average (80% existing average, 20% newest sample)
+                        session.averageMsPerFile = (session.averageMsPerFile * 0.8) + (elapsed * 0.2);
+                    }
+                    session.lastUpdate = now;
+
                     // Update source list state
                     if (data.success || (data.error && data.error.includes("Exists"))) {
                         this.existingFiles.add(data.sourcePath);
@@ -181,6 +229,19 @@ export class LibraryManager {
 
                     this._renderImportSession(data.taskId);
                     this.render(); // Update scan results view
+                }
+            }
+        });
+
+        hub.sub(ps.IMPORT_FILE_PROGRESS, (data) => {
+            if (data && data.taskId && data.sourcePath) {
+                const session = this.importSessions.get(data.taskId);
+                if (session) {
+                    const status = session.progress.get(data.sourcePath) || { status: 'pending' };
+                    status.detailedStatus = data.status;
+                    status.percent = data.percent;
+                    session.progress.set(data.sourcePath, status);
+                    this._renderImportSession(data.taskId);
                 }
             }
         });
@@ -296,10 +357,15 @@ export class LibraryManager {
         const session = this.importSessions.get(taskId);
         if (!session || !session.$vnode) return;
         
+        const completed = Array.from(session.progress.values()).filter(p => p.status !== 'pending').length;
+        const remaining = session.list.length - completed;
+        const estimatedRemainingMs = remaining * session.averageMsPerFile;
+
         session.$vnode = patch(session.$vnode, ImportStatusTab({
             importList: session.list,
             progress: session.progress,
             friendlyName: session.friendlyName,
+            estimatedRemainingMs: estimatedRemainingMs,
             onAbort: () => {
                 Api.api_library_cancel_task({ taskId: taskId });
                 hub.pub(ps.UI_NOTIFICATION, { message: 'Import abort requested', type: 'info' });
@@ -383,6 +449,11 @@ export class LibraryManager {
             isScanning: this.isScanning,
             isCancelling: this.isCancelling,
             onFindNew: (path: string, limit: number) => this.findNewFiles(path, limit),
+            onCancelScan: () => {
+                Api.api_library_cancel_task({ taskId: 'fs-find-new-files' });
+                this.isScanning = false;
+                this.render();
+            },
             onIndexFiles: (path: string, low: boolean, med: boolean) => this.triggerScan(path, low, med),
             onClearResults: () => {
                 this.scanResults = [];
@@ -429,7 +500,17 @@ export class LibraryManager {
                 this.render();
             },
             currentScanPath: this.currentScanPath,
-            onFindLocal: (path: string) => this.findLocalFiles(path),
+            scanLimit: this.currentScanLimit,
+            onScanLimitChange: (limit: number) => {
+                this.currentScanLimit = limit;
+                this.render();
+            },
+            onFindLocal: (path: string, limit: number, fresh: boolean) => this.findLocalFiles(path, limit, fresh),
+            onCancelScan: () => {
+                Api.api_library_cancel_task({ taskId: 'fs-find-files' });
+                this.isLocalScanning = false;
+                this.render();
+            },
             isScanning: this.isLocalScanning,
             isValidating: this.isValidating,
             scanResults: this.localScanResults,
@@ -450,10 +531,25 @@ export class LibraryManager {
                 }
                 this.render();
             },
+            onClear: () => {
+                this.localScanResults = [];
+                this.selectedLocalFiles.clear();
+                this.existingFiles.clear();
+                this.render();
+            },
+            hideDuplicates: this.hideDuplicates,
+            onHideDuplicatesChange: (hide: boolean) => {
+                this.hideDuplicates = hide;
+                this.render();
+            },
             settings: this.importSettings,
             onSettingsChange: (s: any) => {
                 this.importSettings = s;
                 localStorage.setItem('import-settings', JSON.stringify(s));
+                
+                // Clear old validation state immediately so the new validation starts fresh
+                this.existingFiles.clear();
+                
                 this.validateImport();
                 this.render();
             },
@@ -517,12 +613,16 @@ export class LibraryManager {
 
             if (res && res.success && res.taskId) {
                 const taskId = res.taskId;
+                const now = Date.now();
 
                 // Initialize Session
                 this.importSessions.set(taskId, {
                     list: Array.from(this.selectedLocalFiles),
                     progress: new Map(),
-                    friendlyName: friendlyName
+                    friendlyName: friendlyName,
+                    startTime: now,
+                    lastUpdate: now,
+                    averageMsPerFile: 0
                 });
 
                 // Open Status Tab
@@ -846,17 +946,49 @@ export class LibraryManager {
         return null;
     }
 
-    private async findLocalFiles(path: string) {
+    private async findLocalFiles(path: string, limit: number, fresh: boolean) {
         if (!path) return;
         
         try {
             this.isLocalScanning = true;
+            if (fresh) {
+                this.localScanResults = [];
+                this.selectedLocalFiles.clear();
+                this.existingFiles.clear();
+            }
             this.render();
 
-            const res = await Api.api_fs_find_files({ name: path });
+            const targetId = this.importSettings.targetRootId;
+            const template = this.importSettings.useDirectoryTemplate ? this.importSettings.directoryTemplate : "";
+            
+            const existingFilesList = fresh ? [] : this.localScanResults.map(r => r.path);
+
+            const res = await Api.api_fs_find_files({ 
+                path: path, 
+                limit: limit, 
+                targetRootId: targetId, 
+                template: template, 
+                existingFiles: existingFilesList 
+            });
             if (Array.isArray(res)) {
-                this.localScanResults = res;
-                this.validateImport();
+                // Combine results for final sync
+                if (fresh) {
+                    this.localScanResults = res;
+                } else {
+                    // Filter just in case some arrived via stream already
+                    const newItems = res.filter(r => !this.localScanResults.some(existing => existing.path === r.path));
+                    this.localScanResults = [...this.localScanResults, ...newItems];
+                }
+
+                // Sync existingFiles set from final results
+                res.forEach(r => {
+                    if ((r as any).exists) {
+                        this.existingFiles.add(r.path);
+                        this.selectedLocalFiles.delete(r.path);
+                    }
+                });
+
+                this.render();
             }
         } catch (e) {
             console.error("Failed to find local files", e);

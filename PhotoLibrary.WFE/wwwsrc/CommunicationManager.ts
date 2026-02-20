@@ -77,6 +77,10 @@ export class CommunicationManager {
                         hub.pub(ps.PHOTO_IMPORTED, { fileEntryId: msg.fileEntryId, path: msg.path, rootId: msg.rootId });
                     } else if (msg.type === ps.IMPORT_FILE_FINISHED) {
                         hub.pub(ps.IMPORT_FILE_FINISHED, msg);
+                    } else if (msg.type === sk.IMPORT_FILE_PROGRESS) {
+                        hub.pub(ps.IMPORT_FILE_PROGRESS, msg);
+                    } else if (msg.type === sk.IMPORT_VALIDATION_RESULT) {
+                        hub.pub(ps.IMPORT_VALIDATION_RESULT, { path: msg.path, exists: msg.exists });
                     } else if (msg.type === sk.FOLDER_CREATED) {
                         hub.pub(ps.FOLDER_CREATED, { directoryId: msg.directoryId, name: msg.name });
                     } else if (msg.type === sk.SCAN_FINISHED) {
@@ -87,6 +91,8 @@ export class CommunicationManager {
                         hub.pub(ps.FOLDER_FINISHED, { rootId: msg.rootId });
                     } else if (msg.type === sk.FIND_NEW_FILE_FOUND) {
                         hub.pub(ps.FIND_NEW_FILE_FOUND, { path: msg.path });
+                    } else if (msg.type === sk.FIND_LOCAL_FILE_FOUND) {
+                        hub.pub(ps.FIND_LOCAL_FILE_FOUND, { path: msg.path, dateTaken: msg.dateTaken, exists: msg.exists });
                     } else if (msg.type === sk.PREVIEW_GENERATED) {
                         hub.pub(ps.PREVIEW_GENERATED, { fileEntryId: msg.fileEntryId, rootId: msg.rootId });
                     } else if (msg.type === sk.PREVIEW_GENERATING) {

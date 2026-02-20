@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
     "target": "es2020",
-    "module": "es2020",
+    "module": "esnext",
     "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
     "outDir": "./wwwroot",
     "rootDir": "./wwwsrc",
     "jsx": "react",

@@ -96,6 +96,7 @@ export interface ApplicationSettingsResponse {
 export interface ScanFileResult {
     path: string;
     dateTaken: string;
+    exists: boolean;
 }
 
 export interface ValidateImportResponse {

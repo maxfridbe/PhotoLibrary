@@ -27,7 +27,7 @@ public interface ICommunicationLayer
     IEnumerable<string> GetPickedIds();
     StatsResponse GetStats();
     List<DirectoryResponse> ListFileSystem(NameRequest req);
-    List<ScanFileResult> FindFiles(NameRequest req);
+    List<ScanFileResult> FindFiles(FindFilesRequest req);
     List<string> FindNewFiles(NameRequest req);
     ValidateImportResponse ValidateImport(ValidateImportRequest req);
     void ImportBatch(ImportBatchRequest req);

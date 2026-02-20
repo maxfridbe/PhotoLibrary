@@ -57,6 +57,14 @@ export interface ImportBatchRequest {
     generateMedium: boolean;
 }
 
+export interface FindFilesRequest {
+    path: string;
+    limit: number;
+    targetRootId?: string | null;
+    template?: string | null;
+    existingFiles?: string[] | null;
+}
+
 export interface ImportLocalRequest {
     sourceRoot: string;
     sourceFiles: string[];

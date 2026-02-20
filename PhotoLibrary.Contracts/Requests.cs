@@ -14,6 +14,8 @@ public record ZipRequest(string[] fileEntryIds, string type, string? name);
 public record SettingRequest(string key, string value);
 public record ImportBatchRequest(string rootPath, string[] relativePaths, bool generateLow, bool generateMedium);
 
+public record FindFilesRequest(string path, int limit, string? targetRootId, string? template, string[]? existingFiles);
+
 public record ImportLocalRequest(string sourceRoot, string[] sourceFiles, string targetRootId, string directoryTemplate, bool generatePreview, bool preventDuplicateName, bool preventDuplicateHash);
 
 public record ValidateImportRequest(string targetRootId, Dictionary<string, string> items);

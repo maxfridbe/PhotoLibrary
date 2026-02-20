@@ -24,6 +24,10 @@ export class GridView {
     public set $filmstripEl(el: HTMLElement | null) {
         this.$_filmstripEl = el;
         this.filmstripVNode = null;
+        if (el) {
+            el.onscroll = () => this.renderFilmstrip();
+            setTimeout(() => this.renderFilmstrip(), 0);
+        }
     }
     public get $filmstripEl() { return this.$_filmstripEl; }
     
@@ -39,7 +43,6 @@ export class GridView {
     private readonly baseMinCardWidth = 200; 
     
     private visibleRange = { start: 0, end: 50 };
-    private filmstripVisibleRange = { start: 0, end: 20 };
     private photos: Photo[] = [];
     private selectedId: string | null = null;
     private selectedIds: Set<string> = new Set();
@@ -80,7 +83,8 @@ export class GridView {
         if (!this.$filmstripEl) return 210;
         const fsHeight = this.$filmstripEl.clientHeight;
         if (fsHeight === 0) return 210;
-        return (fsHeight * 1.0) + 10;
+        // The filmstrip cards are square-ish based on height
+        return (fsHeight * 1.0); 
     }
 
     public setPhotos(photos: Photo[]) {
@@ -191,23 +195,39 @@ export class GridView {
     private renderFilmstrip() {
         if (!this.$filmstripEl) return;
 
-        const cards = this.photos.map(photo => (
-            <PhotoCard
-                photo={photo}
-                isSelected={this.selectedIds.has(photo.fileEntryId)}
-                isGenerating={this.generatingIds.has(photo.fileEntryId)}
-                rotation={this.rotationMap.get(photo.fileEntryId) || 0}
-                mode="filmstrip"
-                imageUrlCache={this.imageUrlCache}
-                onSelect={(id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { fileEntryId: id, photo: p, modifiers: mods })}
-                onDoubleClick={() => {}}
-                onContextMenu={(e, p) => (window as any).app.showPhotoContextMenu(e, p)}
-                onTogglePick={(p) => server.togglePick(p)}
-                onRate={(p, r) => server.setRating(p, r)}
-                onRotate={(p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })}
-            />
-        ));
+        const container = this.$filmstripEl;
+        const scrollLeft = container.scrollLeft;
+        const viewWidth = container.clientWidth;
+        const cardWidth = this.filmstripCardWidth;
+        const gap = 0.65 * 16; // 0.65em in pixels (approx)
 
+        const startIndex = Math.max(0, Math.floor(scrollLeft / (cardWidth + gap)) - 2);
+        const endIndex = Math.min(this.photos.length, Math.ceil((scrollLeft + viewWidth) / (cardWidth + gap)) + 2);
+
+        const cards: VNode[] = [];
+        for (let i = startIndex; i < endIndex; i++) {
+            const photo = this.photos[i];
+            if (photo) {
+                cards.push(
+                    <PhotoCard
+                        photo={photo}
+                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        rotation={this.rotationMap.get(photo.fileEntryId) || 0}
+                        mode="filmstrip"
+                        imageUrlCache={this.imageUrlCache}
+                        onSelect={(id, p, mods) => hub.pub(ps.PHOTO_SELECTED, { fileEntryId: id, photo: p, modifiers: mods })}
+                        onDoubleClick={() => {}}
+                        onContextMenu={(e, p) => (window as any).app.showPhotoContextMenu(e, p)}
+                        onTogglePick={(p) => server.togglePick(p)}
+                        onRate={(p, r) => server.setRating(p, r)}
+                        onRotate={(p, r) => hub.pub(ps.PHOTO_ROTATED, { fileEntryId: p.fileEntryId, rotation: r })}
+                    />
+                );
+            }
+        }
+
+        const totalWidth = this.photos.length * (cardWidth + gap);
         const newVNode = (
             <div 
                 id="filmstrip-content"
@@ -216,18 +236,29 @@ export class GridView {
                     height: '100%',
                     gap: '0.65em',
                     padding: '0 0.65em',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    width: `${totalWidth}px`,
+                    position: 'relative'
                 }}
             >
-                {cards}
+                <div style={{ 
+                    display: 'flex', 
+                    gap: '0.65em', 
+                    position: 'absolute', 
+                    left: `${startIndex * (cardWidth + gap)}px`,
+                    height: '100%',
+                    alignItems: 'center'
+                }}>
+                    {cards}
+                </div>
             </div>
         );
 
         if (!this.filmstripVNode) {
             this.$filmstripEl.innerHTML = '';
-            const container = document.createElement('div');
-            this.$filmstripEl.appendChild(container);
-            this.filmstripVNode = container;
+            const wrap = document.createElement('div');
+            this.$filmstripEl.appendChild(wrap);
+            this.filmstripVNode = wrap;
         }
         this.filmstripVNode = patch(this.filmstripVNode, newVNode);
         this.$_filmstripEl = (this.filmstripVNode as VNode).elm as HTMLElement;
