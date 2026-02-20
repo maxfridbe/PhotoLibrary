@@ -242,7 +242,7 @@ public class ImageIndexer : IImageIndexer
         try
         {
             var data = PrepareFileData(sourceFile, targetPath, rootPathId, providedHash);
-            CommitFileDataWithConnection(_sharedConnection!, _sharedTransaction, data);
+            CommitFileDataWithConnection(_sharedConnection!, _sharedTransaction, data, targetPath, scanRootPath, scanRootId);
             
             // Notify UI only after everything is ready (DB + Previews)
             _onFileProcessed?.Invoke(data.Entry.Id, targetPath);
@@ -293,8 +293,11 @@ public class ImageIndexer : IImageIndexer
         return new ProcessedFileData(entry, metadata, previews);
     }
 
-    public void CommitFileDataWithConnection(System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction, ProcessedFileData data)
+    public void CommitFileDataWithConnection(System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction, ProcessedFileData data, string targetPath, string scanRootPath, string scanRootId)
     {
+        string actualRootId = GetOrCreatePathHierarchy(targetPath, scanRootPath, scanRootId, connection, transaction);
+        data.Entry.RootPathId = actualRootId;
+
         _db.UpsertFileEntryWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, data.Entry);
         var fileId = _db.GetFileIdWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, data.Entry.RootPathId, data.Entry.FileName!);
 
@@ -323,6 +326,44 @@ public class ImageIndexer : IImageIndexer
             }
             _processedSinceCleanup = 0;
         }
+    }
+
+    private string GetOrCreatePathHierarchy(string targetPath, string scanRootPath, string scanRootId, System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction)
+    {
+        string? dirPath = Path.GetDirectoryName(targetPath);
+        if (dirPath == null) return scanRootId;
+        dirPath = Path.GetFullPath(dirPath);
+        string fullScanPath = Path.GetFullPath(scanRootPath);
+
+        if (dirPath == fullScanPath) return scanRootId;
+
+        if (_pathCache.TryGetValue(dirPath, out string? cachedId)) return cachedId;
+
+        if (dirPath.StartsWith(fullScanPath))
+        {
+            string relative = Path.GetRelativePath(fullScanPath, dirPath);
+            string[] parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            
+            string currentId = scanRootId;
+            string currentPath = fullScanPath;
+
+            foreach (var part in parts)
+            {
+                currentPath = Path.Combine(currentPath, part);
+                if (_pathCache.TryGetValue(currentPath, out string? stepCachedId))
+                {
+                    currentId = stepCachedId;
+                }
+                else
+                {
+                    currentId = _db.GetOrCreateChildRootWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, currentId, part);
+                    _pathCache[currentPath] = currentId;
+                }
+            }
+            return currentId;
+        }
+
+        return scanRootId;
     }
 
     private string CalculateHash(Stream stream)

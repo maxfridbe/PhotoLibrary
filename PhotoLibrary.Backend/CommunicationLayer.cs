@@ -743,7 +743,7 @@ public class CommunicationLayer : ICommunicationLayer
                         try {
                             await _db.ExecuteWriteAsync(async (dbConn, transaction) => {
                                 _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "indexing", percent = 50 });
-                                indexer.CommitFileDataWithConnection(dbConn, transaction, fileData);
+                                indexer.CommitFileDataWithConnection(dbConn, transaction, fileData, dst, absTargetRoot, req.targetRootId);
                                 await Task.CompletedTask;
                             });
 
@@ -756,7 +756,7 @@ public class CommunicationLayer : ICommunicationLayer
                                 await sourceStream.CopyToAsync(destStream, 1024 * 1024, token);
                             }
 
-                            _ = _broadcast(new { type = "file.imported", fileEntryId = fileData.Entry.Id, path = dst, rootId = req.targetRootId });
+                            _ = _broadcast(new { type = "file.imported", fileEntryId = fileData.Entry.Id, path = dst, rootId = fileData.Entry.RootPathId });
                             _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, targetPath = dst, fileEntryId = fileData.Entry.Id, success = true });
                             
                             count++;

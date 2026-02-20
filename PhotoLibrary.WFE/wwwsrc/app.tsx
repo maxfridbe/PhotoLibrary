@@ -856,12 +856,15 @@ class App {
     }
 
     private async handlePhotoImported(data: { fileEntryId: string, path: string, rootId?: string }) {
+        console.log(`[App] Photo Imported: ${data.fileEntryId} rootId: ${data.rootId} filter: ${this.filterType} selectedRoot: ${this.selectedRootId}`);
         // Immediate UI updates for counts
         this.stats.totalCount++;
         if (data.rootId) {
             const root = this.folderNodeMap.get(data.rootId);
             if (root) {
                 root.imageCount++;
+            } else {
+                console.warn(`[App] Imported photo rootId ${data.rootId} not found in folderNodeMap`);
             }
         }
         
@@ -894,14 +897,18 @@ class App {
                 matches = false;
             }
 
+            console.log(`[App] Queue Check: ${data.fileEntryId} matches: ${matches} (Reason: type=${this.filterType}, selRoot=${this.selectedRootId}, dataRoot=${data.rootId})`);
+
             if (matches && !this.photoMap.has(data.fileEntryId)) {
                 idsToFetch.push(data.fileEntryId);
             }
         }
 
         if (idsToFetch.length > 0) {
+            console.log(`[App] Fetching ${idsToFetch.length} new photos for grid...`);
             const res = await Api.api_photos({ specificFileEntryIds: idsToFetch });
             if (res.photos) {
+                console.log(`[App] Received ${res.photos.length} photos from API`);
                 let changed = false;
                 for (const photo of res.photos) {
                     if (!this.photoMap.has(photo.fileEntryId)) {

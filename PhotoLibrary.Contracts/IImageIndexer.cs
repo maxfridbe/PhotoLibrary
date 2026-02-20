@@ -11,7 +11,7 @@ public interface IImageIndexer
     void ProcessSingleFile(FileInfo file, string scanRootPath);
     void ProcessSingleFileFromSource(FileInfo sourceFile, string targetPath, string scanRootPath, string? hash = null);
     ProcessedFileData PrepareFileData(FileInfo sourceFile, string targetPath, string targetRootId, string? providedHash = null);
-    void CommitFileDataWithConnection(DbConnection connection, DbTransaction? transaction, ProcessedFileData data);
+    void CommitFileDataWithConnection(DbConnection connection, DbTransaction? transaction, ProcessedFileData data, string targetPath, string scanRootPath, string scanRootId);
     ThumbnailResult EnsureThumbnails(string fileEntryId);
     void GeneratePreviews(FileInfo file, string fileEntryId);
 }

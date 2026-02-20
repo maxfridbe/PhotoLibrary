@@ -899,7 +899,77 @@ public class DatabaseManager : IDatabaseManager
 
     public void UpsertFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, FileEntry entry)
     {
-        // ... (existing code omitted for brevity in replace, but I will match context)
+        bool ownTransaction = false;
+        if (transaction == null)
+        {
+            transaction = connection.BeginTransaction();
+            ownTransaction = true;
+        }
+
+        try
+        {
+            string baseName = Path.GetFileNameWithoutExtension(entry.FileName ?? "");
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $@"
+                    INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.Hash})
+                    VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt, $Hash)
+                    ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET 
+                        {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, 
+                        {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, 
+                        {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, 
+                        {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName}, 
+                        {Column.FileEntry.Hash} = excluded.{Column.FileEntry.Hash};
+                ";
+                
+                // Extra check: if unique constraint is violated by HASH, we might want to update RootPathId
+                // However, our UNIQUE constraint is on (RootPathId, FileName).
+                // If a file moves from Root A to Root B, the INSERT above will work fine (new row).
+                // If we want to support MOVING an existing record when the hash matches but path differs, 
+                // that's a different logic. For now, let's fix the basic Upsert.
+
+                command.Parameters.AddWithValue("$Id", entry.Id);
+                command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("$BaseName", baseName);
+                command.Parameters.AddWithValue("$Size", entry.Size);
+                command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
+                command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
+                command.Parameters.AddWithValue("$Hash", entry.Hash ?? (object)DBNull.Value);
+                command.ExecuteNonQuery();
+            }
+
+            string? actualId = null;
+            using (var getIdCmd = connection.CreateCommand())
+            {
+                getIdCmd.Transaction = transaction;
+                getIdCmd.CommandText = $"SELECT {Column.FileEntry.Id} FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $RootPathId AND {Column.FileEntry.FileName} = $FileName";
+                getIdCmd.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
+                getIdCmd.Parameters.AddWithValue("$FileName", entry.FileName ?? (object)DBNull.Value);
+                actualId = getIdCmd.ExecuteScalar() as string;
+            }
+
+            if (actualId != null)
+            {
+                using (var deleteCmd = connection.CreateCommand())
+                {
+                    deleteCmd.Transaction = transaction;
+                    deleteCmd.CommandText = $"DELETE FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
+                    deleteCmd.Parameters.AddWithValue("$FileId", actualId);
+                    deleteCmd.ExecuteNonQuery();
+                }
+            }
+
+            if (ownTransaction) transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            if (ownTransaction) transaction.Rollback();
+            _logger.LogError(ex, "Error upserting file {FileName}", entry.FileName);
+            throw;
+        }
     }
 
     public void DeleteFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string fileId)
