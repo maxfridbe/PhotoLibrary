@@ -667,18 +667,18 @@ public class CommunicationLayer : ICommunicationLayer
                 if (req.generatePreview) { sizes.Add(300); sizes.Add(1024); }
 
                 IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
-                var pathToFileId = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+                var filesToCleanup = new ConcurrentBag<string>();
+
                 indexer.RegisterFileProcessedHandler((id, path) => {
-                    pathToFileId[path] = id;
-                    _ = _broadcast(new { type = "file.imported", fileEntryId = id, path, rootId = req.targetRootId });
+                    // Note: We'll broadcast this manually inside the transaction in the consumer
                 });
 
-                // Channel for items ready to be copied
-                var copyChannel = System.Threading.Channels.Channel.CreateBounded<(string src, string dst, string rel)>(new System.Threading.Channels.BoundedChannelOptions(5) {
+                // Channel for items ready to be processed and then copied
+                var copyChannel = System.Threading.Channels.Channel.CreateBounded<(string src, string dst, string rel, string? hash)>(new System.Threading.Channels.BoundedChannelOptions(5) {
                     FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait
                 });
 
-                // STAGE 1: Producer (Hash & Thumbnail)
+                // STAGE 1: Producer (Hash only)
                 var processingTask = Task.Run(async () => {
                     foreach (var sourceFile in req.sourceFiles)
                     {
@@ -708,24 +708,21 @@ public class CommunicationLayer : ICommunicationLayer
                             }
 
                             string? hash = null;
-                            if (req.preventDuplicateHash) {
-                                _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "hashing", percent = 10 });
-                                using (var fs = File.OpenRead(absSource)) {
-                                    var hasher = new System.IO.Hashing.XxHash64();
-                                    hasher.Append(fs);
-                                    hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
-                                }
-                                if (_db.FileExistsByHash(hash)) {
-                                    _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
-                                    continue;
-                                }
+                            _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "hashing", percent = 10 });
+                            using (var fs = File.OpenRead(absSource)) {
+                                var hasher = new System.IO.Hashing.XxHash64();
+                                hasher.Append(fs);
+                                hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
                             }
 
-                            _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "thumbnailing", percent = 30 });
-                            indexer.ProcessSingleFileFromSource(new FileInfo(absSource), targetPath, absTargetRoot, hash);
+                            if (req.preventDuplicateHash && _db.FileExistsByHash(hash)) {
+                                _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
+                                continue;
+                            }
 
-                            await copyChannel.Writer.WriteAsync((absSource, targetPath, sourceFile), cts.Token);
+                            await copyChannel.Writer.WriteAsync((absSource, targetPath, sourceFile, hash), cts.Token);
                         }
+                        catch (OperationCanceledException) { break; }
                         catch (Exception ex) {
                             _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = ex.Message });
                         }
@@ -733,34 +730,58 @@ public class CommunicationLayer : ICommunicationLayer
                     copyChannel.Writer.Complete();
                 });
 
-                // STAGE 2: Consumer (Copy)
+                // STAGE 2: Consumer (Thumbnail, DB, then Copy)
                 int count = 0;
-                await foreach (var (src, dst, rel) in copyChannel.Reader.ReadAllAsync(cts.Token))
+                try 
                 {
-                    try {
-                        _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "copying", percent = 80 });
+                    await foreach (var (src, dst, rel, hash) in copyChannel.Reader.ReadAllAsync(cts.Token))
+                    {
+                        using var dbConn = _db.GetOpenConnection();
+                        using var transaction = _db.BeginTransaction(dbConn);
                         
-                        // Optimized copy with buffer for network
-                        using (var sourceStream = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
-                        using (var destStream = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
-                        {
-                            await sourceStream.CopyToAsync(destStream, 1024 * 1024, cts.Token); // 1MB buffer
-                        }
+                        try {
+                            // 1. Process Previews and Database Entry
+                            _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "thumbnailing", percent = 30 });
+                            
+                            // Create temporary indexer for this transaction
+                            var fileIndexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray(), dbConn, transaction);
+                            fileIndexer.ProcessSingleFileFromSource(new FileInfo(src), dst, absTargetRoot, hash);
 
-                        string? fileEntryId = null;
-                        pathToFileId.TryGetValue(dst, out fileEntryId);
-                        _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, targetPath = dst, fileEntryId, success = true });
-                        
-                        count++;
-                        ImageIndexer.SetProgress(true, count, req.sourceFiles.Length);
+                            // 2. Perform Copy
+                            _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "copying", percent = 80 });
+                            filesToCleanup.Add(dst);
+
+                            using (var sourceStream = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, true))
+                            using (var destStream = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+                            {
+                                await sourceStream.CopyToAsync(destStream, 1024 * 1024, cts.Token);
+                            }
+
+                            // 3. Commit both DB and confirm finish
+                            transaction.Commit();
+
+                            string? fileEntryId = _db.GetFileId(req.targetRootId, Path.GetFileName(dst));
+                            _ = _broadcast(new { type = "file.imported", fileEntryId, path = dst, rootId = req.targetRootId });
+                            _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, targetPath = dst, fileEntryId, success = true });
+                            
+                            count++;
+                            ImageIndexer.SetProgress(true, count, req.sourceFiles.Length);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex) {
+                            transaction.Rollback();
+                            try { if (File.Exists(dst)) File.Delete(dst); } catch { }
+                            _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, success = false, error = $"Process failed: {ex.Message}" });
+                        }
                     }
-                    catch (Exception ex) {
-                        _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, success = false, error = $"Copy failed: {ex.Message}" });
-                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogInformation("[IMPORT] ABORTED {Id}. Last file rolled back.", taskId);
+                    _ = _broadcast(new { type = "ui.notification", message = "Import stopped", status = "info" });
                 }
 
                 await processingTask;
-                _logger?.LogInformation("[IMPORT] TASK FINISHED {Id}. Imported {Count} files total.", taskId, count);
                 await _broadcast(new { type = "scan.finished" });
             }
             catch (Exception ex) { _logger?.LogCritical(ex, "[IMPORT] CRITICAL FAILURE {Id}", taskId); }

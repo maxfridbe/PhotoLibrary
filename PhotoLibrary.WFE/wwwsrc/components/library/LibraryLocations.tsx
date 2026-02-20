@@ -92,7 +92,7 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                             style={{ padding: '0 2.5em', background: '#8b0000', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                             on={{ click: onCancelScan }}
                         >
-                            CANCEL
+                            STOP
                         </button>
                     ) : (
                         <button

@@ -368,7 +368,7 @@ export class LibraryManager {
             estimatedRemainingMs: estimatedRemainingMs,
             onAbort: () => {
                 Api.api_library_cancel_task({ taskId: taskId });
-                hub.pub(ps.UI_NOTIFICATION, { message: 'Import abort requested', type: 'info' });
+                hub.pub(ps.UI_NOTIFICATION, { message: 'Import stop requested', type: 'info' });
             },
             onShowInGrid: (id: string) => {
                 hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'grid', fileEntryId: id });

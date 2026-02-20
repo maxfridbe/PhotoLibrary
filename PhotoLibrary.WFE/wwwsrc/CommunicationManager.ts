@@ -99,6 +99,8 @@ export class CommunicationManager {
                         hub.pub(ps.PREVIEW_GENERATING, { fileEntryId: msg.fileEntryId });
                     } else if (msg.type === sk.PREVIEW_DELETED) {
                         hub.pub(ps.PREVIEW_DELETED, { fileEntryId: msg.fileEntryId });
+                    } else if (msg.type === 'ui.notification') {
+                        hub.pub(ps.UI_NOTIFICATION, { message: msg.message, type: msg.status || 'info' });
                     } else if (msg.type === 'runtime.stats') {
                         hub.pub(ps.RUNTIME_STATS, msg);
                     }

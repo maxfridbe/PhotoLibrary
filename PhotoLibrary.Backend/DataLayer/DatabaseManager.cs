@@ -40,6 +40,11 @@ public class DatabaseManager : IDatabaseManager
         return connection;
     }
 
+    public SqliteTransaction BeginTransaction(SqliteConnection connection)
+    {
+        return connection.BeginTransaction();
+    }
+
     public void Initialize()
     {
         using var connection = new SqliteConnection(_connectionString);

@@ -48,7 +48,7 @@ export function ImportStatusTab(props: ImportStatusTabProps): VNode {
                     style={{ padding: '4px 12px', background: '#8b0000', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em', fontWeight: 'bold' }}
                     on={{ click: onAbort }}
                 >
-                    ABORT IMPORT
+                    STOP IMPORT
                 </button>
             </div>
             <div style={{ flex: '1', overflowY: 'auto' }}>

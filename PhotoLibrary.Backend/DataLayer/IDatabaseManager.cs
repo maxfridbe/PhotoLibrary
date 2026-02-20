@@ -11,6 +11,7 @@ public interface IDatabaseManager
 
     void ClearCaches();
     SqliteConnection GetOpenConnection();
+    SqliteTransaction BeginTransaction(SqliteConnection connection);
     void Initialize();
     void NormalizeRoots();
     string? GetSetting(string? key);

@@ -24,6 +24,7 @@ public class ImageIndexer : IImageIndexer
     private static readonly Process _currentProcess = Process.GetCurrentProcess();
     
     private Microsoft.Data.Sqlite.SqliteConnection? _sharedConnection;
+    private Microsoft.Data.Sqlite.SqliteTransaction? _sharedTransaction;
     private int _processedSinceCleanup = 0;
 
     private Action<string, string>? _onFileProcessed;
@@ -36,13 +37,14 @@ public class ImageIndexer : IImageIndexer
         TotalToIndex = total;
     }
 
-    public ImageIndexer(DatabaseManager db, ILogger<ImageIndexer> logger, PreviewManager? previewManager = null, int[]? longEdges = null, Microsoft.Data.Sqlite.SqliteConnection? connection = null)
+    public ImageIndexer(DatabaseManager db, ILogger<ImageIndexer> logger, PreviewManager? previewManager = null, int[]? longEdges = null, Microsoft.Data.Sqlite.SqliteConnection? connection = null, Microsoft.Data.Sqlite.SqliteTransaction? transaction = null)
     {
         _db = db;
         _logger = logger;
         _previewManager = previewManager;
         _longEdges = longEdges ?? Array.Empty<int>();
         _sharedConnection = connection;
+        _sharedTransaction = transaction;
     }
 
     public void Scan(string directoryPath, bool testOne = false, int? limit = null)
@@ -254,13 +256,13 @@ public class ImageIndexer : IImageIndexer
                 Hash = hash
             };
 
-            _db.UpsertFileEntryWithConnection(_sharedConnection!, null, entry);
-            var fileId = _db.GetFileIdWithConnection(_sharedConnection!, null, entry.RootPathId, entry.FileName!);
+            _db.UpsertFileEntryWithConnection(_sharedConnection!, _sharedTransaction, entry);
+            var fileId = _db.GetFileIdWithConnection(_sharedConnection!, _sharedTransaction, entry.RootPathId, entry.FileName!);
 
             if (fileId != null)
             {
                 var metadata = ExtractMetadata(stream, sourceFile.Extension);
-                _db.InsertMetadataWithConnection(_sharedConnection!, null, fileId, metadata);
+                _db.InsertMetadataWithConnection(_sharedConnection!, _sharedTransaction, fileId, metadata);
 
                 if (_previewManager != null && _longEdges.Length > 0)
                 {
