@@ -355,6 +355,7 @@ public static class WebServer
                                 finally { 
                                     Interlocked.Decrement(ref _activeMagickTasks); 
                                     fileLock.Release(); 
+                                    _currentProcess.Refresh();
                                     if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
                                 }
                                 item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;

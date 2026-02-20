@@ -310,6 +310,19 @@ public class ImageIndexer : IImageIndexer
                 }
             }
         }
+
+        // REQ-SVC-00007: Aggressive memory cleanup for pipelined blobs
+        _processedSinceCleanup++;
+        if (_processedSinceCleanup >= 10)
+        {
+            _currentProcess.Refresh();
+            if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) // 1GB Threshold
+            {
+                _logger.LogDebug("[MEMORY] Working set high ({MB}MB). Triggering GC.", _currentProcess.WorkingSet64 / 1024 / 1024);
+                GC.Collect(1, GCCollectionMode.Optimized, false);
+            }
+            _processedSinceCleanup = 0;
+        }
     }
 
     private string CalculateHash(Stream stream)
