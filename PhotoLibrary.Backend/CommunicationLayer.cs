@@ -715,6 +715,9 @@ public class CommunicationLayer : ICommunicationLayer
                                     continue;
                                 }
 
+                                // Signal that processing is done and it's waiting for its turn in the copy queue
+                                _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "queued", percent = 40 });
+
                                 await copyChannel.Writer.WriteAsync((absSource, targetPath, sourceFile, fileData), token);
                             }
                             catch (OperationCanceledException) { break; }

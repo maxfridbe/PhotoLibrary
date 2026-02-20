@@ -28,7 +28,7 @@ jobs:
         node-version: '20'
 
     - name: Install dependencies
-      run: npm install -g typescript
+      run: npm install -g typescript@next
 
     - name: Build Windows Installer
       run: Tooling/publish-windows-installer.sh
@@ -60,7 +60,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y zip
-        npm install -g typescript
+        npm install -g typescript@next
 
     - name: Run build script
       run: Tooling/buildAndPublish.sh
