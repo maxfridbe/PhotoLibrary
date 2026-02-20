@@ -24,7 +24,7 @@ public class DatabaseManager : IDatabaseManager
     public DatabaseManager(string dbPath, ILogger<DatabaseManager> logger)
     {
         DbPath = dbPath;
-        _connectionString = $"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Default Timeout=30;";
+        _connectionString = $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=30;";
         _logger = logger;
     }
 
@@ -660,6 +660,7 @@ public class DatabaseManager : IDatabaseManager
             
             // 1. Try to find the deepest existing root that contains this path
             var allRoots = new List<(string id, string path)>();
+            var rootIds = new List<string>();
             using (var cmd = connection.CreateCommand())
             {
                 // We only need base roots or roots that might be parents. 
@@ -668,10 +669,14 @@ public class DatabaseManager : IDatabaseManager
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
-                    string id = reader.GetString(0);
-                    string? path = GetRootAbsolutePath(connection, id);
-                    if (path != null) allRoots.Add((id, path));
+                    rootIds.Add(reader.GetString(0));
                 }
+            }
+
+            foreach (var id in rootIds)
+            {
+                string? path = GetRootAbsolutePath(connection, id);
+                if (path != null) allRoots.Add((id, path));
             }
 
             // Sort by path length descending to find the "deepest" match first
@@ -1060,6 +1065,7 @@ public class DatabaseManager : IDatabaseManager
 
         try 
         {
+            var candidates = new List<(string rootPathId, string modifiedStr)>();
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = $@"
@@ -1071,15 +1077,17 @@ public class DatabaseManager : IDatabaseManager
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
-                    string rootPathId = reader.GetString(0);
-                    string modStr = reader.GetString(1);
-                    
-                    string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
-                    if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) 
-                    {
-                        if (DateTime.TryParse(modStr, out var mod)) return (true, mod);
-                        return (true, null);
-                    }
+                    candidates.Add((reader.GetString(0), reader.GetString(1)));
+                }
+            }
+
+            foreach (var (rootPathId, modStr) in candidates)
+            {
+                string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
+                if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) 
+                {
+                    if (DateTime.TryParse(modStr, out var mod)) return (true, mod);
+                    return (true, null);
                 }
             }
             return (false, null);
@@ -1109,6 +1117,7 @@ public class DatabaseManager : IDatabaseManager
         try 
         {
             // 1. Quick check for filename
+            var candidates = new List<string>();
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = $"SELECT {Column.FileEntry.RootPathId} FROM {TableName.FileEntry} WHERE {Column.FileEntry.FileName} = $FileName";
@@ -1117,11 +1126,15 @@ public class DatabaseManager : IDatabaseManager
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
-                    string rootPathId = reader.GetString(0);
-                    // 2. Verify path matches for this candidate
-                    string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
-                    if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) return true;
+                    candidates.Add(reader.GetString(0));
                 }
+            }
+
+            foreach (var rootPathId in candidates)
+            {
+                // 2. Verify path matches for this candidate
+                string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
+                if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) return true;
             }
             return false;
         }
