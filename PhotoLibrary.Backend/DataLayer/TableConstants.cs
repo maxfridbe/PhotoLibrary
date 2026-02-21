@@ -99,4 +99,13 @@ public static class TableConstants
             public const string Value = "Value";
         }
     }
+
+    public static class MetadataTag
+    {
+        public const string GpsDirectory = "GPS";
+        public const string GpsLatitude = "GPS Latitude";
+        public const string GpsLongitude = "GPS Longitude";
+        public const string GpsLatitudeRef = "GPS Latitude Ref";
+        public const string GpsLongitudeRef = "GPS Longitude Ref";
+    }
 }

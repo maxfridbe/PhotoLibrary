@@ -598,7 +598,7 @@ public class DatabaseManager : IDatabaseManager
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
 
-        string where = $@"WHERE EXISTS (SELECT 1 FROM {TableName.Metadata} m WHERE m.{Column.Metadata.FileId} = f.{Column.FileEntry.Id} AND m.{Column.Metadata.Directory} = 'GPS' AND m.{Column.Metadata.Tag} = 'GPS Latitude')";
+        string where = $@"WHERE EXISTS (SELECT 1 FROM {TableName.Metadata} m WHERE m.{Column.Metadata.FileId} = f.{Column.FileEntry.Id} AND m.{Column.Metadata.Directory} = '{MetadataTag.GpsDirectory}' AND m.{Column.Metadata.Tag} = '{MetadataTag.GpsLatitude}')";
 
         using (var command = connection.CreateCommand())
         {
@@ -772,8 +772,8 @@ public class DatabaseManager : IDatabaseManager
                    m.{Column.Metadata.Tag}, m.{Column.Metadata.Value}
             FROM {TableName.FileEntry} f
             JOIN {TableName.Metadata} m ON f.{Column.FileEntry.Id} = m.{Column.Metadata.FileId}
-            WHERE m.{Column.Metadata.Directory} = 'GPS' 
-              AND m.{Column.Metadata.Tag} IN ('GPS Latitude', 'GPS Longitude', 'GPS Latitude Ref', 'GPS Longitude Ref')
+            WHERE m.{Column.Metadata.Directory} = '{MetadataTag.GpsDirectory}' 
+              AND m.{Column.Metadata.Tag} IN ('{MetadataTag.GpsLatitude}', '{MetadataTag.GpsLongitude}', '{MetadataTag.GpsLatitudeRef}', '{MetadataTag.GpsLongitudeRef}')
             ORDER BY f.{Column.FileEntry.CreatedAt} DESC";
 
         using var reader = command.ExecuteReader();
@@ -794,10 +794,10 @@ public class DatabaseManager : IDatabaseManager
                 data = (fileName, createdAt, "", "", "", "");
             }
 
-            if (tag == "GPS Latitude") data.Lat = val;
-            else if (tag == "GPS Latitude Ref") data.LatRef = val;
-            else if (tag == "GPS Longitude") data.Lng = val;
-            else if (tag == "GPS Longitude Ref") data.LngRef = val;
+            if (tag == MetadataTag.GpsLatitude) data.Lat = val;
+            else if (tag == MetadataTag.GpsLatitudeRef) data.LatRef = val;
+            else if (tag == MetadataTag.GpsLongitude) data.Lng = val;
+            else if (tag == MetadataTag.GpsLongitudeRef) data.LngRef = val;
 
             temp[id] = data;
         }

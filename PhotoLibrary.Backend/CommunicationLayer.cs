@@ -27,10 +27,35 @@ public class CommunicationLayer : ICommunicationLayer
     private readonly ILogger _logger;
     private readonly string _configPath;
     private readonly string _runtimeMode;
+    private readonly string _mapTilesPath;
     private readonly Func<object, Task> _broadcast;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks;
     private readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
     private readonly Process _currentProcess = Process.GetCurrentProcess();
+
+    private class QueuedImageRequest
+    {
+        public ImageRequest Request { get; }
+        public TaskCompletionSource<byte[]> Tcs { get; }
+        public CancellationToken ct { get; }
+        public long StartTime { get; }
+        
+        public double QueueMs { get; set; }
+        public double RetrievalMs { get; set; }
+        public double GeneratingMs { get; set; }
+        public byte[]? Payload { get; set; }
+
+        public QueuedImageRequest(ImageRequest request, TaskCompletionSource<byte[]> tcs, CancellationToken ct, long startTime)
+        {
+            Request = request; Tcs = tcs; this.ct = ct; StartTime = startTime;
+        }
+    }
+
+    private readonly PriorityQueue<QueuedImageRequest, double> _requestQueue = new();
+    private readonly SemaphoreSlim _queueSemaphore = new(0);
+    private readonly object _queueLock = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
+    private int _activeMagickTasks = 0;
 
     public CommunicationLayer(
         IDatabaseManager db, 
@@ -40,17 +65,311 @@ public class CommunicationLayer : ICommunicationLayer
         string configPath,
         Func<object, Task> broadcast,
         ConcurrentDictionary<string, CancellationTokenSource> activeTasks,
-        string runtimeMode = "WebHost")
+        string runtimeMode = "WebHost",
+        string mapTilesPath = "")
     {
+        _logger = loggerFactory.CreateLogger<CommunicationLayer>();
         _db = db;
         _pm = pm;
         _cm = cm;
         _loggerFactory = loggerFactory;
-        _logger = loggerFactory.CreateLogger<CommunicationLayer>();
         _configPath = configPath;
         _runtimeMode = runtimeMode;
+        _mapTilesPath = mapTilesPath;
         _broadcast = broadcast;
         _activeTasks = activeTasks;
+
+        // Start Background Workers for Image Processing
+        int workerCount = Math.Max(1, Environment.ProcessorCount / 2);
+        _logger.LogInformation("Starting {Count} background image worker threads.", workerCount);
+        for (int i = 0; i < workerCount; i++)
+        {
+            StartImageWorker();
+        }
+    }
+
+    private void StartImageWorker()
+    {
+        Task.Run(async () =>
+        {
+            while (true)
+            {
+                await _queueSemaphore.WaitAsync();
+                QueuedImageRequest? item = null;
+                lock (_queueLock)
+                {
+                    _requestQueue.TryDequeue(out item, out _);
+                }
+
+                if (item == null) continue;
+                if (item.Tcs.Task.IsCompleted) continue;
+
+                long dequeuedTime = Stopwatch.GetTimestamp();
+                item.QueueMs = Stopwatch.GetElapsedTime(item.StartTime, dequeuedTime).TotalMilliseconds;
+
+                if (item.ct.IsCancellationRequested)
+                {
+                    item.Tcs.TrySetCanceled();
+                    continue;
+                }
+
+                try
+                {
+                    var req = item.Request;
+                    byte[]? data = null;
+                    long retrievalStart = Stopwatch.GetTimestamp();
+
+                    if (req.size == 0)
+                    {
+                        string? fullPath = _db.GetFullFilePath(req.fileEntryId);
+                        if (fullPath != null && File.Exists(fullPath))
+                        {
+                            string ext = Path.GetExtension(fullPath);
+                            string sourcePath = fullPath;
+                            bool isRaw = TableConstants.RawExtensions.Contains(ext);
+
+                            if (isRaw)
+                            {
+                                string nameNoExt = Path.GetFileNameWithoutExtension(fullPath);
+                                string dir = Path.GetDirectoryName(fullPath) ?? "";
+                                string sidecar = Path.Combine(dir, nameNoExt + ".JPG");
+                                if (!File.Exists(sidecar)) sidecar = Path.Combine(dir, nameNoExt + ".jpg");
+                                if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
+                            }
+
+                            if (isRaw || Path.GetExtension(sourcePath).Equals(".png", StringComparison.OrdinalIgnoreCase))
+                            {
+                                item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                long genStart = Stopwatch.GetTimestamp();
+                                var fileLock = _fileLocks.GetOrAdd(req.fileEntryId, _ => new SemaphoreSlim(1, 1));
+                                await fileLock.WaitAsync();
+                                Interlocked.Increment(ref _activeMagickTasks);
+                                try
+                                {
+                                    using var fs = File.OpenRead(sourcePath);
+                                    using var tracker = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
+                                    
+                                    var settings = new MagickReadSettings {
+                                        Format = GetMagickFormat(sourcePath)
+                                    };
+                                    
+                                    using var image = new MagickImage(tracker, settings);
+                                    image.AutoOrient();
+                                    image.Format = MagickFormat.WebP;
+                                    image.Quality = 90;
+                                    data = image.ToByteArray();
+                                }
+                                finally { 
+                                    Interlocked.Decrement(ref _activeMagickTasks); 
+                                    fileLock.Release(); 
+                                    _currentProcess.Refresh();
+                                    if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) GC.Collect(1, GCCollectionMode.Optimized, false);
+                                }
+                                item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
+                            }
+                            else {
+                                data = await File.ReadAllBytesAsync(sourcePath, item.ct);
+                                RuntimeStatistics.Instance.RecordBytesReceived(data.Length);
+                                item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                            }
+                        }
+                    }
+                    else 
+                    {
+                        string? hash = _db.GetFileHash(req.fileEntryId);
+                        data = hash != null ? _pm.GetPreviewData(hash, req.size) : null;
+                        
+                        if (data == null)
+                        {
+                            string? fullPath = _db.GetFullFilePath(req.fileEntryId);
+                            if (fullPath != null && File.Exists(fullPath))
+                            {
+                                try {
+                                    string sourcePath = fullPath;
+                                    string ext = Path.GetExtension(fullPath);
+                                    bool isRaw = TableConstants.RawExtensions.Contains(ext);
+                                    if (isRaw) {
+                                        string sidecar = Path.ChangeExtension(fullPath, ".JPG");
+                                        if (!File.Exists(sidecar)) sidecar = Path.ChangeExtension(fullPath, ".jpg");
+                                        if (File.Exists(sidecar)) { sourcePath = sidecar; isRaw = false; }
+                                    }
+                                    
+                                    using (var fs = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                    using (var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b)))
+                                    {
+                                        if (hash == null) {
+                                            var hasher = new System.IO.Hashing.XxHash64();
+                                            hasher.Append(stream);
+                                            hash = Convert.ToHexString(hasher.GetCurrentHash()).ToLowerInvariant();
+                                            stream.Position = 0;
+                                            _db.UpdateFileHash(req.fileEntryId, hash);
+                                        }
+
+                                        data = _pm.GetPreviewData(hash, req.size);
+                                        if (data != null) {
+                                            item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                            item.Payload = data;
+                                            item.Tcs.TrySetResult(data);
+                                            continue;
+                                        }
+
+                                        long genStart = Stopwatch.GetTimestamp();
+                                        var fileLock = _fileLocks.GetOrAdd(hash!, _ => new SemaphoreSlim(1, 1));
+                                        await fileLock.WaitAsync();
+                                        
+                                        var existingData = _pm.GetPreviewData(hash!, req.size);
+                                        if (existingData != null)
+                                        {
+                                            fileLock.Release();
+                                            item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
+                                            item.Payload = existingData;
+                                            item.Tcs.TrySetResult(existingData);
+                                            continue;
+                                        }
+
+                                        Interlocked.Increment(ref _activeMagickTasks);
+                                        try
+                                        {
+                                            _currentProcess.Refresh();
+                                            long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                            
+                                            var settings = new MagickReadSettings {
+                                                Format = GetMagickFormat(sourcePath)
+                                            };
+                                            
+                                            using var image = new MagickImage(stream, settings);
+                                            _ = _broadcast(new { type = "preview.generating", fileEntryId = req.fileEntryId });
+                                            image.AutoOrient();
+                                            
+                                            _currentProcess.Refresh();
+                                            long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                            _logger?.LogDebug("[MAGICK] Loaded {Id}. Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active Tasks: {Active}", 
+                                                req.fileEntryId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
+
+                                            int[] targetSizes = { 300, 1024 };
+                                            foreach (var targetSize in targetSizes)
+                                            {
+                                                if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
+                                                {
+                                                    var bytes = File.ReadAllBytes(sourcePath);
+                                                    _pm.SavePreview(hash, targetSize, bytes);
+                                                    if (targetSize == req.size) data = bytes;
+                                                    continue;
+                                                }
+
+                                                using (var clone = image.Clone())
+                                                {
+                                                    if (clone.Width > clone.Height) clone.Resize((uint)targetSize, 0);
+                                                    else clone.Resize(0, (uint)targetSize);
+                                                    
+                                                    clone.Format = MagickFormat.WebP;
+                                                    clone.Quality = 80;
+                                                    var generated = clone.ToByteArray();
+                                                    
+                                                    _pm.SavePreview(hash, targetSize, generated);
+                                                    if (targetSize == req.size) data = generated;
+                                                }
+                                            }
+                                        }
+                                        finally { 
+                                            Interlocked.Decrement(ref _activeMagickTasks); 
+                                            fileLock.Release(); 
+                                            _currentProcess.Refresh();
+                                            if (_currentProcess.WorkingSet64 > 1024L * 1024 * 1024) {
+                                                GC.Collect(1, GCCollectionMode.Optimized, false);
+                                            }
+                                        }
+                                        item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
+                                        
+                                        string? fileRootId = _db.GetFileRootId(req.fileEntryId);
+                                        _ = _broadcast(new { type = "preview.generated", fileEntryId = req.fileEntryId, rootId = fileRootId });
+                                    }
+                                } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
+                            }
+                        }
+                        item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds - item.GeneratingMs;
+                    }
+
+                    byte[] finalData = data ?? Array.Empty<byte>();
+                    item.Payload = finalData;
+
+                    // Final diagnostic logging
+                    string shortId = req.fileEntryId.Length > 12 ? $"{req.fileEntryId.Substring(0, 4)}...{req.fileEntryId.Substring(req.fileEntryId.Length - 4)}" : req.fileEntryId;
+                    _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | Q: {Queue,8:F1}ms | Ret: {Ret,8:F1}ms | Gen: {Gen,8:F1}ms",
+                        shortId, req.priority, Stopwatch.GetElapsedTime(item.StartTime).TotalMilliseconds, item.QueueMs, item.RetrievalMs, item.GeneratingMs);
+
+                    item.Tcs.TrySetResult(finalData);
+                }
+                catch (Exception ex)
+                {
+                    item.Tcs.TrySetException(ex);
+                }
+            }
+        });
+    }
+
+    public async Task<byte[]> GetImageAsync(ImageRequest req, CancellationToken ct)
+    {
+        long startTime = Stopwatch.GetTimestamp();
+        string? hash = _db.GetFileHash(req.fileEntryId);
+        byte[]? immediateData = (hash != null && req.size > 0) ? _pm.GetPreviewData(hash, req.size) : null;
+
+        if (immediateData != null)
+        {
+            string shortId = req.fileEntryId.Length > 12 ? $"{req.fileEntryId.Substring(0, 4)}...{req.fileEntryId.Substring(req.fileEntryId.Length - 4)}" : req.fileEntryId;
+            _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | FASTPATH",
+                shortId, req.priority, Stopwatch.GetElapsedTime(startTime).TotalMilliseconds);
+            return immediateData;
+        }
+
+        var tcs = new TaskCompletionSource<byte[]>();
+        lock (_queueLock)
+        {
+            var reqObj = new QueuedImageRequest(req, tcs, ct, startTime);
+            _requestQueue.Enqueue(reqObj, -req.priority);
+        }
+        _queueSemaphore.Release();
+        return await tcs.Task;
+    }
+
+    public async Task<byte[]?> GetMapTileAsync(int z, int x, int y)
+    {
+        if (string.IsNullOrEmpty(_mapTilesPath) || !File.Exists(_mapTilesPath))
+        {
+            return null;
+        }
+
+        try {
+            using var connection = new SqliteConnection($"Data Source={_mapTilesPath};Mode=ReadOnly");
+            await connection.OpenAsync();
+
+            // MBTiles uses TMS (y-axis is flipped)
+            int tmsY = (1 << z) - 1 - y;
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT tile_data FROM tiles WHERE zoom_level = @z AND tile_column = @x AND tile_row = @y";
+            command.Parameters.AddWithValue("@z", z);
+            command.Parameters.AddWithValue("@x", x);
+            command.Parameters.AddWithValue("@y", tmsY);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var data = reader.GetStream(0);
+                var bytes = new byte[data.Length];
+                await data.ReadExactlyAsync(bytes);
+                return bytes;
+            }
+        } catch (Exception ex) {
+            _logger?.LogError(ex, "[Tiles] Error reading MBTiles at {Z}/{X}/{Y}", z, x, y);
+        }
+
+        return null;
+    }
+
+    public Task Broadcast(object message, string? targetClientId = null)
+    {
+        return _broadcast(message);
     }
 
     public ApplicationSettingsResponse GetApplicationSettings()

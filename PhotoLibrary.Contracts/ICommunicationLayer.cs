@@ -45,4 +45,7 @@ public interface ICommunicationLayer
     string? GetExportZipName(string token);
     Task DownloadExport(string token, Stream outputStream);
     PhysicalFileResult? DownloadFile(string fileEntryId);
+    Task<byte[]> GetImageAsync(ImageRequest req, CancellationToken ct);
+    Task<byte[]?> GetMapTileAsync(int z, int x, int y);
+    Task Broadcast(object message, string? targetClientId = null);
 }
