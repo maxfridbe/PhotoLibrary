@@ -98,6 +98,7 @@ class App {
     public timelineSortOrder: 'newest-first' | 'oldest-first' = 'newest-first';
 
     public searchResultIds: string[] = [];
+    private currentModeRequestId = 0;
     public searchTitle: string = '';
     public searchTag: string | null = null;
     public searchValue: string | null = null;
@@ -1172,6 +1173,7 @@ class App {
     }
 
     private async applyUrlState(forceRefresh: boolean = false) {
+        const requestId = ++this.currentModeRequestId;
         const hash = window.location.hash;
         if (!hash.startsWith('#!/')) return;
 
@@ -1179,15 +1181,24 @@ class App {
         try {
             const [pathPart, queryPart] = hash.substring(3).split('?');
             const parts = pathPart.split('/');
-            if (parts.length < 2) return;
+            if (parts.length < 2) {
+                this.isApplyingUrl = false;
+                return;
+            }
 
             const mode = parts[0];
             const type = parts[1];
 
+            const oldMode = (this.isLoupeMode ? 'loupe' : (this.isLibraryMode ? 'library' : (this.isTimelineMode ? 'timeline' : (this.isMapMode ? 'map' : 'grid'))));
+            
             this.isLoupeMode = (mode === 'loupe');
             this.isLibraryMode = (mode === 'library');
             this.isTimelineMode = (mode === 'timeline');
             this.isMapMode = (mode === 'map');
+
+            if (mode !== oldMode) {
+                this.updateViewModeUI();
+            }
 
             let sortChanged = false;
             let stackChanged = false;
@@ -1296,14 +1307,24 @@ class App {
                     this.searchResultIds = await Api.api_search({ tag: 'FileName', value: this.searchTitle });
                 }
 
+                if (requestId !== this.currentModeRequestId) { this.isApplyingUrl = false; return; }
+
                 if (this.selectedRootId) {
                     await this.loadHiddenSettings(this.selectedRootId);
                 } else {
                     this.hiddenIds.clear();
                 }
 
-                await this.refreshPhotos(true);
+                if (requestId !== this.currentModeRequestId) { this.isApplyingUrl = false; return; }
+
+                if (this.isMapMode) {
+                    await this.enterMapMode();
+                } else {
+                    await this.refreshPhotos(true);
+                }
                 
+                if (requestId !== this.currentModeRequestId) { this.isApplyingUrl = false; return; }
+
                 if (this.isTimelineMode && restoreDate !== null) {
                     setTimeout(() => this.timelineViewManager.scrollToDate(restoreDate!), 100);
                 } else if (this.isTimelineMode && restoreScroll !== null) {
@@ -1519,6 +1540,12 @@ class App {
     }
 
     private initLayout(type: 'standard' | 'timeline' | 'map', overrideConfig?: LayoutConfig) {
+        console.log(`[App] initLayout from ${this.currentLayoutType} to ${type}`);
+        
+        if (this.currentLayoutType === 'map' && type !== 'map') {
+            this.mapViewManager.destroy();
+        }
+
         this.currentLayoutType = type;
         this.$mapVNode = null;
         this.$libraryVNode = null;
@@ -2471,14 +2498,16 @@ class App {
             console.log('[App] renderMap() called with container');
             this.$mapVNode = patch(container, this.mapViewManager.render());
             this.mapViewManager.ensureMap();
+            setTimeout(() => this.mapViewManager.resize(), 100);
             return;
         }
         
         const mount = document.getElementById('map-container-el')?.parentElement || null;
-        console.log('[App] renderMap() searching for mount:', !!mount);
+        console.log('[App] renderMap() searching for mount:', !!mount, 'mapVNode exists:', !!this.$mapVNode);
         if (!mount) return;
         this.$mapVNode = patch(this.$mapVNode || mount, this.mapViewManager.render());
         this.mapViewManager.ensureMap();
+        setTimeout(() => this.mapViewManager.resize(), 100);
     }
 
     // REQ-WFE-00019
@@ -2541,6 +2570,7 @@ class App {
 
     // REQ-WFE-00012
     enterGridMode() {
+        this.currentModeRequestId++;
         this.isLoupeMode = false;
         this.isLibraryMode = false;
         this.isTimelineMode = false;
@@ -2548,10 +2578,12 @@ class App {
         this.updateViewModeUI();
         if (this.selectedId) this.gridViewManager.scrollToPhoto(this.selectedId);
         this.gridViewManager.update(true);
+        hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'grid', fileEntryId: this.selectedId || undefined });
         this.syncUrl();
     }
 
     enterTimelineMode() {
+        this.currentModeRequestId++;
         this.isLoupeMode = false;
         this.isLibraryMode = false;
         this.isTimelineMode = true;
@@ -2581,6 +2613,7 @@ class App {
     }
 
     async enterMapMode() {
+        const requestId = ++this.currentModeRequestId;
         this.isLoupeMode = false;
         this.isLibraryMode = false;
         this.isTimelineMode = false;
@@ -2590,10 +2623,12 @@ class App {
         
         // 1. Get geotagged photo IDs and coordinates
         const mapRes = await Api.api_map_photos();
-        const ids = mapRes.photos.map(p => p.fileEntryId);
+        if (requestId !== this.currentModeRequestId) return;
 
         // 2. Get full photo objects for the grid using the new paged endpoint
         const photosRes = await Api.api_photos_geotagged({ limit: 100000, offset: 0 });
+        if (requestId !== this.currentModeRequestId) return;
+
         if (photosRes.photos) {
             this.allPhotosFlat = photosRes.photos as Photo[];
             this.photoMap.clear();
@@ -2618,6 +2653,7 @@ class App {
 
     // REQ-WFE-00012
     enterLibraryMode() {
+        this.currentModeRequestId++;
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.isTimelineMode = false;
@@ -2627,6 +2663,7 @@ class App {
             this.libraryManager.initLayout('library-view', () => { });
         }
         this.libraryManager.loadLibraryInfo();
+        hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'library', fileEntryId: this.selectedId || undefined });
         this.syncUrl();
     }
 

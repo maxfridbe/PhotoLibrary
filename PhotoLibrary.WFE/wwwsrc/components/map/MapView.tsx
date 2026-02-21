@@ -113,23 +113,43 @@ export class MapView {
         }
     }
 
-    public ensureMap() {
-        if (this.map) return;
-        const el = document.getElementById('map-container-el');
-        if (el) {
-            this.init(el);
-        } else {
-            console.log('[MapView] map-container-el not found in DOM yet.');
+    public destroy() {
+        console.log('[MapView] destroy() called explicitly');
+        if (this.map) {
+            this.map.remove();
+            this.map = null;
         }
+        this.markers.clear();
+        this.$mapContainer = null;
+    }
+
+    public ensureMap() {
+        const el = document.getElementById('map-container-el');
+        if (!el) {
+            console.log('[MapView] map-container-el not found in DOM yet.');
+            return;
+        }
+
+        if (this.map) {
+            if (this.map.getContainer() === el) {
+                this.map.resize();
+                return;
+            }
+            console.log('[MapView] Map container mismatch, re-initializing');
+            this.map.remove();
+            this.map = null;
+        }
+        
+        this.init(el);
     }
 
     public init(container: HTMLElement) {
         console.log('[MapView] init() called with container:', container.id, 'Size:', container.clientWidth, 'x', container.clientHeight);
         this.$mapContainer = container;
         if (this.map) {
-            console.log('[MapView] Map already exists, resizing');
-            this.map.resize();
-            return;
+            console.log('[MapView] Map already exists, removing old instance');
+            this.map.remove();
+            this.map = null;
         }
 
         if (typeof maplibregl === 'undefined') {
