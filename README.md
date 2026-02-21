@@ -4,6 +4,8 @@ A high-performance C# application designed to scan photo directories, index meta
 
 ![Grid View](Documentation/Screenshots/gridview.jpg)
 ![Loupe View](Documentation/Screenshots/loupeview.jpg)
+![Timeline Vertical](Documentation/Screenshots/timeline_vert.png)
+![Timeline Horizontal](Documentation/Screenshots/timeline_horizontal.png)
 ![Map View](Documentation/Screenshots/map_view.png)
 ![Library Maintenance](Documentation/Screenshots/library.jpg)
 ![Indexing](Documentation/Screenshots/Index_In_place.png)
@@ -30,14 +32,20 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Predictable Navigation**: Advanced arrow-key logic maintains your "track" (row or column) across different days, ensuring seamless movement even when groups have varying item counts.
     *   **Quick Jump Legend**: An interactive date-based legend allows for rapid scrolling across years and months with a real-time position indicator.
     *   **Bi-directional Sorting**: Effortlessly switch between **Newest First** and **Oldest First** with persistent chronological accuracy.
+-   **Interactive Map Experience**:
+    *   **Geospatial Visualization**: Visualize your entire library on a high-performance vector-based map using integrated MapLibre technology.
+    *   **Bi-directional Synchronization**: Click a map pin to instantly scroll the grid/timeline to the corresponding photo (stack-aware).
+    *   **Self-Hosted Tiles**: Serves map tiles directly from a local MBTiles database, ensuring complete privacy and offline functionality.
 -   **Advanced Search & Discovery**:
     *   **Multi-Criteria Search**: Powerful query engine supporting path segments, metadata tag existence/values (e.g., `tag:ISO`), and numeric file size comparisons (e.g., `size > 2mb`).
     *   **Interactive Query Builder**: On-the-fly search assistance via a dynamic overlay helping construct complex queries.
     *   **Reveal in Folders**: Jump instantly from search results to the source directory while preserving your selection.
     *   **Find New Images**: Scans your directories and identifies files not yet in the database with a visual search overlay.
 -   **Robust Backend & Architecture**:
+    *   **Strict Layer Separation**: Decoupled RPC-style architecture where the `CommunicationLayer` orchestrates processing logic, entirely isolated from the web transport layer.
     *   **WebP Optimized Previews**: All thumbnails and previews use the WebP format (Quality 80) for 30% smaller database size and faster network delivery.
-    *   **Concurrent WebSocket Processing**: Backend processes image requests in parallel, preventing slow RAW conversions from blocking high-priority navigation.
+    *   **Priority-Based Image Workers**: Background worker threads process image requests based on UI visibility and priority (e.g., Loupe > Grid).
+    *   **Concurrent WebSocket Processing**: Parallel processing of image requests ensures low-latency delivery even during massive library scans.
     *   **Frontend Request De-duplication**: Intelligent caching of pending requests ensures only one WebSocket message is sent for the same image across multiple UI components.
     *   **Multi-Client Support**: Trackable client identifiers ensure private responses are routed correctly while maintaining global real-time library synchronization across all open tabs.
     *   **Decoupled PubSub**: Frontend uses a type-safe, constant-driven event bus for seamless communication between components.
