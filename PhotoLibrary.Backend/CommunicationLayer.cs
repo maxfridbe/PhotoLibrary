@@ -722,8 +722,13 @@ public class CommunicationLayer : ICommunicationLayer
                             }
                             catch (OperationCanceledException) { break; }
                             catch (Exception ex) {
+                                string errorMsg = ex.Message;
+                                if (ex.Message.Contains("Input/output error", StringComparison.OrdinalIgnoreCase)) {
+                                    errorMsg = "Disk Read Error (Hardware/Drive Failure)";
+                                    _logger?.LogCritical("[IMPORT] HARDWARE ERROR processing {File}: {Msg}", sourceFile, ex.Message);
+                                }
                                 _logger?.LogError(ex, "[IMPORT] Processing failed for {File}", sourceFile);
-                                _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = ex.Message });
+                                _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = errorMsg });
                             }
                         }
                     } 
@@ -765,6 +770,12 @@ public class CommunicationLayer : ICommunicationLayer
                         catch (OperationCanceledException) { break; }
                         catch (ObjectDisposedException) { break; }
                         catch (Exception ex) {
+                            string errorMsg = ex.Message;
+                            if (ex.Message.Contains("Input/output error", StringComparison.OrdinalIgnoreCase)) {
+                                errorMsg = "Disk Read Error (Hardware/Drive Failure)";
+                                _logger?.LogCritical("[IMPORT] HARDWARE ERROR reading {File}: {Msg}", rel, ex.Message);
+                            }
+
                             // Cleanup: Copy failed, so the DB entry is now invalid.
                             await _db.ExecuteWriteAsync(async (conn, trans) => {
                                 _logger?.LogWarning("[IMPORT] Copy failed for {File}. Rolling back DB entry {Id}.", dst, fileData.Entry.Id);
@@ -773,7 +784,7 @@ public class CommunicationLayer : ICommunicationLayer
                             });
 
                             try { if (File.Exists(dst)) File.Delete(dst); } catch { }
-                            _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, success = false, error = $"Copy failed: {ex.Message}" });
+                            _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = rel, success = false, error = errorMsg });
                         }
 
                         // Small yield to let other tasks breathe

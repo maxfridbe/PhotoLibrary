@@ -268,8 +268,28 @@ public class ImageIndexer : IImageIndexer
         using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
         using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
         
-        string hash = providedHash ?? CalculateHash(stream);
-        stream.Position = 0;
+        // REQ-SVC-00001: Only read headers for metadata
+        var metadata = ExtractMetadata(stream, sourceFile.Extension).ToList();
+        
+        // Hashing logic: Only hash if providedHash is missing AND we are in a mode that needs it.
+        // For 'Index Locations', we might skip this if preview generation is off.
+        string? hash = providedHash;
+        var previews = new List<GeneratedPreview>();
+
+        bool needsThumbnails = _previewManager != null && _longEdges.Length > 0;
+
+        if (hash == null && needsThumbnails)
+        {
+            // If we need thumbnails, we MUST have a hash for the preview database key.
+            stream.Position = 0;
+            hash = CalculateHash(stream);
+        }
+
+        if (needsThumbnails)
+        {
+            stream.Position = 0;
+            previews = GeneratePreviewsInternal(stream, sourceFile.Name, sourceFile.Extension, sourceFile.DirectoryName!);
+        }
 
         var entry = new FileEntry
         {
@@ -280,15 +300,6 @@ public class ImageIndexer : IImageIndexer
             ModifiedAt = sourceFile.LastWriteTime,
             Hash = hash
         };
-
-        var metadata = ExtractMetadata(stream, sourceFile.Extension).ToList();
-        var previews = new List<GeneratedPreview>();
-
-        if (_previewManager != null && _longEdges.Length > 0)
-        {
-            stream.Position = 0;
-            previews = GeneratePreviewsInternal(stream, sourceFile.Name, sourceFile.Extension, sourceFile.DirectoryName!);
-        }
 
         return new ProcessedFileData(entry, metadata, previews);
     }
