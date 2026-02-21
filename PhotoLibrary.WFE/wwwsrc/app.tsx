@@ -23,6 +23,7 @@ import { ShortcutsDialog } from './components/common/ShortcutsDialog.js';
 import { SettingsModal } from './components/common/SettingsModal.js';
 import { TemplateEditorModal } from './components/common/TemplateEditorModal.js';
 import { NotificationManager, Notification } from './components/common/NotificationManager.js';
+import { MapView } from './components/map/MapView.js';
 
 const ps = constants.pubsub;
 
@@ -62,7 +63,8 @@ class App {
     public libraryManager: LibraryManager;
     public gridViewManager: GridView;
     public timelineViewManager: TimelineView;
-    private currentLayoutType: 'standard' | 'timeline' | 'none' = 'none';
+    public mapViewManager: MapView;
+    private currentLayoutType: 'standard' | 'timeline' | 'map' | 'none' = 'none';
 
     private allPhotosFlat: Photo[] = [];
     public photos: Photo[] = []; // Processed list
@@ -113,6 +115,7 @@ class App {
     public isLoupeMode = false;
     public isLibraryMode = false;
     public isTimelineMode = false;
+    public isMapMode = false;
     public isIndexing = false;
     private overlayFormat = '{Filename}\n{Takendate}\n{Takentime}';
 
@@ -234,6 +237,7 @@ class App {
     private $apertureVNode: VNode | HTMLElement | null = null;
     private $libraryVNode: VNode | HTMLElement | null = null;
     private $loupeVNode: VNode | HTMLElement | null = null;
+    private $mapVNode: VNode | HTMLElement | null = null;
     private $metadataVNode: VNode | HTMLElement | null = null;
     private $modalsVNode: VNode | HTMLElement | null = null;
     private $notificationsVNode: VNode | HTMLElement | null = null;
@@ -287,6 +291,7 @@ class App {
             const totalPriority = this.prioritySession + subPriority;
             return totalPriority;
         });
+        this.mapViewManager = new MapView(this.photoMap);
 
         hub.sub(ps.FOLDER_PROGRESS, (data) => {
             let prog = this.folderProgress.get(data.rootId);
@@ -569,6 +574,9 @@ class App {
             // Sync Grid
             this.gridViewManager.setSelected(this.selectedId, this.selectedIds);
             this.timelineViewManager.setSelected(this.selectedId, this.selectedIds);
+            if (this.isMapMode) {
+                this.mapViewManager.setSelected(this.selectedId);
+            }
 
             // Sync selection UI (legacy/filmstrip scrolling)
             // We only scroll to the active one
@@ -608,6 +616,7 @@ class App {
             this.isLoupeMode = data.mode === 'loupe';
             this.isLibraryMode = data.mode === 'library';
             this.isTimelineMode = data.mode === 'timeline';
+            this.isMapMode = data.mode === 'map';
             this.updateViewModeUI();
             if (data.mode === 'loupe' && data.fileEntryId) {
                 hub.pub(ps.PHOTO_SELECTED, { fileEntryId: data.fileEntryId, photo: this.photoMap.get(data.fileEntryId)! });
@@ -615,6 +624,8 @@ class App {
             } else if (data.mode === 'grid' && data.fileEntryId) {
                 this.selectPhoto(data.fileEntryId);
             } else if (data.mode === 'timeline' && data.fileEntryId) {
+                this.selectPhoto(data.fileEntryId);
+            } else if (data.mode === 'map' && data.fileEntryId) {
                 this.selectPhoto(data.fileEntryId);
             } else if (data.mode === 'loupe') {
                 this.renderLoupe();
@@ -1121,6 +1132,7 @@ class App {
         if (this.isLoupeMode) mode = 'loupe';
         else if (this.isLibraryMode) mode = 'library';
         else if (this.isTimelineMode) mode = 'timeline';
+        else if (this.isMapMode) mode = 'map';
 
         let filterPart = 'all';
         if (this.selectedRootId) filterPart = `folder/${this.selectedRootId}`;
@@ -1170,6 +1182,7 @@ class App {
             this.isLoupeMode = (mode === 'loupe');
             this.isLibraryMode = (mode === 'library');
             this.isTimelineMode = (mode === 'timeline');
+            this.isMapMode = (mode === 'map');
 
             let sortChanged = false;
             let stackChanged = false;
@@ -1323,6 +1336,8 @@ class App {
             this.updateViewModeUI();
             if (this.isLibraryMode) {
                 this.enterLibraryMode();
+            } else if (this.isMapMode) {
+                this.enterMapMode();
             }
         } finally {
             this.isApplyingUrl = false;
@@ -1423,14 +1438,24 @@ class App {
         }
         this.isLoadingChunk.clear();
 
-        const params: Req.PagedPhotosRequest = {
-            limit: 100000, offset: 0,
-            rootId: this.selectedRootId || undefined,
-            pickedOnly: this.filterType === 'picked',
-            rating: this.filterRating,
-            specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined))
-        };
-        const [data, stats] = await Promise.all([Api.api_photos(params), Api.api_stats()]);
+        let data: Res.PagedPhotosResponse;
+        if (this.isMapMode) {
+            data = await Api.api_photos_geotagged({ limit: 100000, offset: 0 });
+            // Also update markers whenever we refresh map data
+            const mapRes = await Api.api_map_photos();
+            this.mapViewManager.setPhotos(mapRes.photos);
+        } else {
+            const params: Req.PagedPhotosRequest = {
+                limit: 100000, offset: 0,
+                rootId: this.selectedRootId || undefined,
+                pickedOnly: this.filterType === 'picked',
+                rating: this.filterRating,
+                specificFileEntryIds: (this.filterType === 'collection' ? this.collectionFiles : (this.filterType === 'search' ? this.searchResultIds : undefined))
+            };
+            data = await Api.api_photos(params);
+        }
+        
+        const stats = await Api.api_stats();
 
         this.allPhotosFlat = data.photos as Photo[];
         this.photoMap.clear();
@@ -1482,14 +1507,18 @@ class App {
     }
 
     public resetLayout() {
-        this.initLayout();
+        this.initLayout('standard');
         this.isSettingsVisible = false;
         this.renderModals();
         this.showNotification('Layout reset to default', 'success');
     }
 
-    private initLayout(overrideConfig?: LayoutConfig) {
-        this.currentLayoutType = overrideConfig ? 'timeline' : 'standard';
+    private initLayout(type: 'standard' | 'timeline' | 'map', overrideConfig?: LayoutConfig) {
+        this.currentLayoutType = type;
+        this.$mapVNode = null;
+        this.$libraryVNode = null;
+        this.$metadataVNode = null;
+        this.$loupeVNode = null;
         
         if (this.layout) {
             this.layout.destroy();
@@ -1717,6 +1746,13 @@ class App {
                 self.timelineViewManager.update(true);
             });
             resizeObserver.observe(wrapper);
+        });
+        this.layout.registerComponentFactoryFunction('world', function (container: any) {
+            const wrapper = document.createElement('div');
+            wrapper.style.height = '100%';
+            wrapper.style.width = '100%';
+            container.element.append(wrapper);
+            self.renderMap(wrapper);
         });
         this.layout.registerComponentFactoryFunction('workspace', function (container: any) {
             self.$workspaceEl = document.createElement('div');
@@ -2400,6 +2436,8 @@ class App {
     renderGrid() {
         if (this.isTimelineMode) {
             this.timelineViewManager.update(true);
+        } else if (this.isMapMode) {
+            this.gridViewManager.update(true);
         } else {
             this.gridViewManager.update(true);
         }
@@ -2420,6 +2458,21 @@ class App {
             const headerCountEl = this.$gridHeader.querySelector('#header-count');
             if (headerCountEl) headerCountEl.textContent = `${this.totalPhotos} items`;
         }
+    }
+
+    renderMap(container?: HTMLElement) {
+        if (container) {
+            console.log('[App] renderMap() called with container');
+            this.$mapVNode = patch(container, this.mapViewManager.render());
+            this.mapViewManager.ensureMap();
+            return;
+        }
+        
+        const mount = document.getElementById('map-container-el')?.parentElement || null;
+        console.log('[App] renderMap() searching for mount:', !!mount);
+        if (!mount) return;
+        this.$mapVNode = patch(this.$mapVNode || mount, this.mapViewManager.render());
+        this.mapViewManager.ensureMap();
     }
 
     // REQ-WFE-00019
@@ -2473,6 +2526,8 @@ class App {
         this.prioritySession++;
         this.isLoupeMode = true;
         this.isLibraryMode = false;
+        this.isTimelineMode = false;
+        this.isMapMode = false;
         this.updateViewModeUI();
         hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'loupe', fileEntryId: this.selectedId || undefined });
         this.syncUrl();
@@ -2483,6 +2538,7 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = false;
         this.isTimelineMode = false;
+        this.isMapMode = false;
         this.updateViewModeUI();
         if (this.selectedId) this.gridViewManager.scrollToPhoto(this.selectedId);
         this.gridViewManager.update(true);
@@ -2493,6 +2549,7 @@ class App {
         this.isLoupeMode = false;
         this.isLibraryMode = false;
         this.isTimelineMode = true;
+        this.isMapMode = false;
         
         // Reset filters for timeline mode
         this.filterType = 'all';
@@ -2517,11 +2574,48 @@ class App {
         this.syncUrl();
     }
 
+    async enterMapMode() {
+        this.isLoupeMode = false;
+        this.isLibraryMode = false;
+        this.isTimelineMode = false;
+        this.isMapMode = true;
+
+        this.updateViewModeUI();
+        
+        // 1. Get geotagged photo IDs and coordinates
+        const mapRes = await Api.api_map_photos();
+        const ids = mapRes.photos.map(p => p.fileEntryId);
+
+        // 2. Get full photo objects for the grid using the new paged endpoint
+        const photosRes = await Api.api_photos_geotagged({ limit: 100000, offset: 0 });
+        if (photosRes.photos) {
+            this.allPhotosFlat = photosRes.photos as Photo[];
+            this.photoMap.clear();
+            this.allPhotosFlat.forEach(p => {
+                this.photoMap.set(p.fileEntryId, p);
+                if (p.rotation) this.rotationMap.set(p.fileEntryId, p.rotation);
+            });
+            this.processUIStacks();
+        } else {
+            this.allPhotosFlat = [];
+            this.photos = [];
+            this.processUIStacks();
+        }
+
+        // 3. Render map first so it can initialize
+        this.renderMap();
+        this.mapViewManager.setPhotos(mapRes.photos);
+        
+        hub.pub(ps.VIEW_MODE_CHANGED, { mode: 'map', fileEntryId: this.selectedId || undefined });
+        this.syncUrl();
+    }
+
     // REQ-WFE-00012
     enterLibraryMode() {
         this.isLoupeMode = false;
         this.isLibraryMode = true;
         this.isTimelineMode = false;
+        this.isMapMode = false;
         this.updateViewModeUI();
         if (!this.libraryManager.isInitialized()) {
             this.libraryManager.initLayout('library-view', () => { });
@@ -2547,6 +2641,9 @@ class App {
             if (this.isTimelineMode) {
                 document.getElementById('nav-timeline')?.classList.add('active');
                 this.refreshTimelineLayout();
+            } else if (this.isMapMode) {
+                document.getElementById('nav-map')?.classList.add('active');
+                this.refreshMapLayout();
             } else {
                 document.getElementById('nav-grid')?.classList.add('active');
                 this.refreshStandardLayout();
@@ -2566,13 +2663,30 @@ class App {
                     ]
                 }
             };
-            this.initLayout(config);
+            this.initLayout('timeline', config);
+        }
+    }
+
+    private refreshMapLayout() {
+        if (this.currentLayoutType !== 'map') {
+            const config: LayoutConfig = {
+                settings: { showPopoutIcon: false },
+                dimensions: { headerHeight: 45 },
+                root: {
+                    type: 'row',
+                    content: [
+                        { type: 'component', componentType: 'workspace', width: 50, title: 'Photos' },
+                        { type: 'component', componentType: 'world', width: 50, title: 'World' }
+                    ]
+                }
+            };
+            this.initLayout('map', config);
         }
     }
 
     private refreshStandardLayout() {
         if (this.currentLayoutType !== 'standard') {
-            this.initLayout();
+            this.initLayout('standard');
         } else {
             // Ensure standard elements are visible
             const gridCont = (this.$workspaceEl?.querySelector('#grid-container') as HTMLElement);

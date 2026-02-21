@@ -83,6 +83,14 @@ export async function api_picked_ids(): Promise<string[]> {
     return await post('/api/picked/ids');
 }
 
+export async function api_map_photos(): Promise<Res.PagedMapPhotoResponse> {
+    return await post('/api/map/photos');
+}
+
+export async function api_photos_geotagged(data: Req.PagedMapPhotosRequest): Promise<Res.PagedPhotosResponse> {
+    return await post('/api/photos/geotagged', data);
+}
+
 export async function api_stats(): Promise<Res.StatsResponse> {
     return await post('/api/stats');
 }

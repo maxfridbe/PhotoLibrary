@@ -25,6 +25,7 @@ class Program
     {
         public string? LibraryPath { get; set; }
         public string? PreviewDbPath { get; set; }
+        public string? MapTilesPath { get; set; }
         public int Port { get; set; } = 8080;
         public string Bind { get; set; } = "localhost";
         public string Mode { get; set; } = "WebHost";
@@ -44,6 +45,7 @@ class Program
         var testOneOption = new Option<bool>("--testone") { Description = "Only process one file and exit" };
         var updatePreviewsOption = new Option<bool>("--updatepreviews") { Description = "Generate previews for the scanned files" };
         var previewDbOption = new Option<string?>("--previewdb") { Description = "Path to the SQLite database for previews" };
+        var mapTilesOption = new Option<string?>("--maptiles") { Description = "Path to the MBTiles file for map view" };
         
         var longEdgeOption = new Option<int[]>("--longedge")
         {
@@ -59,6 +61,7 @@ class Program
         rootCommand.Add(testOneOption);
         rootCommand.Add(updatePreviewsOption);
         rootCommand.Add(previewDbOption);
+        rootCommand.Add(mapTilesOption);
         rootCommand.Add(longEdgeOption);
         rootCommand.Add(hostOption);
         rootCommand.Add(modeOption);
@@ -70,17 +73,18 @@ class Program
             var testOne = parseResult.GetValue(testOneOption);
             var updatePreviews = parseResult.GetValue(updatePreviewsOption);
             var previewDb = parseResult.GetValue(previewDbOption);
+            var mapTiles = parseResult.GetValue(mapTilesOption);
             var longEdges = parseResult.GetValue(longEdgeOption) ?? Array.Empty<int>();
             var hostPort = parseResult.GetValue(hostOption);
             var mode = parseResult.GetValue(modeOption) ?? "WebHost";
 
-            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, longEdges, hostPort, mode);
+            await Run(libraryPath, scanDir, testOne, updatePreviews, previewDb, mapTiles, longEdges, hostPort, mode);
         });
 
         return await rootCommand.Parse(args).InvokeAsync();
     }
 
-    static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, int[] longEdges, int? hostPort, string mode)
+    static async Task Run(string? libraryPath, string? scanDir, bool testOne, bool updatePreviews, string? previewDb, string? mapTiles, int[] longEdges, int? hostPort, string mode)
     {
         var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
         _logger.LogInformation("PhotoLibrary v{Version} (Mode: {Mode}) Starting...", version, mode);
@@ -110,6 +114,7 @@ class Program
                 config = new AppConfig {
                     LibraryPath = Path.Combine(configDir, "library.db"),
                     PreviewDbPath = Path.Combine(configDir, "previews.db"),
+                    MapTilesPath = Path.Combine(configDir, "map.mbtiles"),
                     Port = 8080,
                     Bind = "localhost",
                     Mode = "WebHost"
@@ -119,18 +124,38 @@ class Program
             // Apply CLI overrides to config object
             if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = PathUtils.ResolvePath(libraryPath);
             if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = PathUtils.ResolvePath(previewDb);
+            if (!string.IsNullOrEmpty(mapTiles)) config.MapTilesPath = PathUtils.ResolvePath(mapTiles);
             if (hostPort.HasValue) config.Port = hostPort.Value;
             if (!string.IsNullOrEmpty(mode)) config.Mode = mode;
 
             // If paths are still null (shouldn't happen with defaults but safety first)
             if (string.IsNullOrEmpty(config.LibraryPath)) config.LibraryPath = Path.Combine(configDir, "library.db");
             if (string.IsNullOrEmpty(config.PreviewDbPath)) config.PreviewDbPath = Path.Combine(configDir, "previews.db");
+            if (string.IsNullOrEmpty(config.MapTilesPath)) config.MapTilesPath = Path.Combine(configDir, "map.mbtiles");
+
+            // Extract embedded map if missing
+            if (!File.Exists(config.MapTilesPath))
+            {
+                _logger.LogInformation("Extracting embedded map tiles to {MapTilesPath}...", config.MapTilesPath);
+                var assembly = Assembly.GetExecutingAssembly();
+                using var resource = assembly.GetManifestResourceStream("PhotoLibrary.map.mbtiles");
+                if (resource != null)
+                {
+                    using var file = new FileStream(config.MapTilesPath, FileMode.Create, FileAccess.Write);
+                    resource.CopyTo(file);
+                }
+                else
+                {
+                    _logger.LogWarning("Embedded map tiles not found in assembly resources.");
+                }
+            }
 
             // Save updated config
             File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
             string finalLibraryPath = PathUtils.ResolvePath(config.LibraryPath);
             string finalPreviewDbPath = PathUtils.ResolvePath(config.PreviewDbPath);
+            string finalMapTilesPath = PathUtils.ResolvePath(config.MapTilesPath);
             string bindAddr = config.Bind == "public" ? "*" : "localhost";
 
             IDatabaseManager dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
@@ -160,7 +185,7 @@ class Program
                     {
                         _logger.LogInformation("Starting Photino Desktop Host...");
                         // Start Web Server in background
-                        _ = WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, "localhost", configPath, "PhotinoNet");
+                        _ = WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, "localhost", configPath, "PhotinoNet", finalMapTilesPath);
 
                         // Initialize Photino Window
                         var window = new PhotinoWindow()
@@ -192,7 +217,7 @@ class Program
                     _logger.LogInformation("Starting Web Server on {BindAddr}:{Port}...", bindAddr, config.Port);
                     _logger.LogInformation("  Library: {LibraryPath}", finalLibraryPath);
                     _logger.LogInformation("  Previews: {PreviewDbPath}", finalPreviewDbPath);
-                    await WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath, "WebHost");
+                    await WebServer.StartAsync(config.Port, dbManager, previewManager, cameraManager, _loggerFactory, bindAddr, configPath, "WebHost", finalMapTilesPath);
                 }
             }
         }

@@ -123,3 +123,18 @@ public record ValidateImportResponse
 {
     public List<string> ExistingSourceFiles { get; init; } = new();
 }
+
+public record MapPhotoResponse
+{
+    public string FileEntryId { get; init; } = "";
+    public string? FileName { get; init; }
+    public double Latitude { get; init; }
+    public double Longitude { get; init; }
+    public DateTime CreatedAt { get; init; }
+}
+
+public record PagedMapPhotoResponse
+{
+    public IEnumerable<MapPhotoResponse> Photos { get; set; } = new List<MapPhotoResponse>();
+    public int Total { get; set; }
+}

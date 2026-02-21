@@ -24,6 +24,7 @@ public record GenerateThumbnailsRequest(string rootId, bool recursive, bool forc
 public record FolderAnnotationRequest(string folderId, string annotation, string? color);
 public record ForceUpdatePreviewRequest(string fileEntryId);
 public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificFileEntryIds, bool? stacked);
+public record PagedMapPhotosRequest(int? limit, int? offset);
 public record ForgetRootRequest(string rootId, bool keepPreviews);
 
 public record ImageRequest { public int requestId { get; init; } public string fileEntryId { get; init; } = ""; public int size { get; init; } public double priority { get; init; } }

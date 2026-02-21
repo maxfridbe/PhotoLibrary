@@ -65,7 +65,7 @@ public static class WebServer
         _queueSemaphore.Release();
     }
 
-    public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "", string runtimeMode = "WebHost")
+    public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "", string runtimeMode = "WebHost", string mapTilesPath = "")
     {
         _logger = loggerFactory.CreateLogger("WebServer");
 
@@ -177,6 +177,10 @@ public static class WebServer
 
         app.MapPost("/api/picked/ids", () => Results.Ok(_commLayer?.GetPickedIds()));
 
+        app.MapPost("/api/map/photos", () => Results.Ok(_commLayer?.GetMapPhotos()));
+
+        app.MapPost("/api/photos/geotagged", (PagedMapPhotosRequest req) => Results.Ok(_commLayer?.GetGeotaggedPhotosPaged(req)));
+
         app.MapPost("/api/stats", () => Results.Ok(_commLayer?.GetStats()));
 
         app.MapPost("/api/fs/list", (NameRequest req) => Results.Ok(_commLayer?.ListFileSystem(req)));
@@ -248,6 +252,41 @@ public static class WebServer
         app.MapGet("/api/download/{fileEntryId}", (string fileEntryId) => {
             var res = _commLayer?.DownloadFile(fileEntryId);
             return res == null ? Results.NotFound() : Results.File(res.FullPath, GetContentType(res.FullPath), res.FileName);
+        });
+
+        // Map Tile Serving
+        app.MapGet("/tiles/{z}/{x}/{y}.pbf", async (int z, int x, int y, HttpContext context) => {
+            if (string.IsNullOrEmpty(mapTilesPath) || !File.Exists(mapTilesPath)) {
+                _logger?.LogWarning("[Tiles] MBTiles file not found at: {Path}", mapTilesPath ?? "NULL");
+                return Results.NotFound();
+            }
+
+            using var connection = new SqliteConnection($"Data Source={mapTilesPath};Mode=ReadOnly");
+            await connection.OpenAsync();
+
+            // MBTiles uses TMS (y-axis is flipped)
+            int tmsY = (1 << z) - 1 - y;
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT tile_data FROM tiles WHERE zoom_level = @z AND tile_column = @x AND tile_row = @y";
+            command.Parameters.AddWithValue("@z", z);
+            command.Parameters.AddWithValue("@x", x);
+            command.Parameters.AddWithValue("@y", tmsY);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var data = reader.GetStream(0);
+                var bytes = new byte[data.Length];
+                await data.ReadExactlyAsync(bytes);
+                
+                context.Response.Headers.ContentEncoding = "gzip";
+                _logger?.LogDebug("[Tiles] Served tile {Z}/{X}/{Y} ({Size} bytes)", z, x, y, bytes.Length);
+                return Results.File(bytes, "application/x-protobuf");
+            }
+
+            _logger?.LogDebug("[Tiles] Tile not found: {Z}/{X}/{Y}", z, x, y);
+            return Results.NotFound();
         });
 
         app.MapGet("/", () => ServeEmbeddedFile($"{_assemblyName}.wwwroot.index.html", "text/html"));

@@ -591,6 +591,62 @@ public class DatabaseManager : IDatabaseManager
         return result;
     }
 
+    public PagedPhotosResponse GetGeotaggedPhotosPaged(int limit, int offset)
+    {
+        var result = new PagedPhotosResponse();
+        var entries = new List<PhotoResponse>();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        string where = $@"WHERE EXISTS (SELECT 1 FROM {TableName.Metadata} m WHERE m.{Column.Metadata.FileId} = f.{Column.FileEntry.Id} AND m.{Column.Metadata.Directory} = 'GPS' AND m.{Column.Metadata.Tag} = 'GPS Latitude')";
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $@"
+                SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.Size}, f.{Column.FileEntry.CreatedAt}, f.{Column.FileEntry.ModifiedAt}, f.{Column.FileEntry.Hash},
+                       CASE WHEN (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id}) IS NOT NULL THEN 1 ELSE 0 END as IsPicked,
+                       COALESCE((SELECT r.{Column.ImageRatings.Rating} FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id}), 0) as Rating,
+                       COALESCE(json_extract(s.Value, '$.rotation'), 0) as Rotation,
+                       f.{Column.FileEntry.BaseName}
+                FROM {TableName.FileEntry} f
+                LEFT JOIN {TableName.Settings} s ON s.Key = f.{Column.FileEntry.Hash} || '-pref-img'
+                {where}
+                ORDER BY f.{Column.FileEntry.CreatedAt} DESC 
+                LIMIT $Limit OFFSET $Offset";
+
+            command.Parameters.AddWithValue("$Limit", limit);
+            command.Parameters.AddWithValue("$Offset", offset);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                entries.Add(new PhotoResponse {
+                    FileEntryId = reader.GetString(0),
+                    RootPathId = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    FileName = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Size = reader.GetInt64(3),
+                    CreatedAt = DateTime.Parse(reader.GetString(4)),
+                    ModifiedAt = DateTime.Parse(reader.GetString(5)),
+                    Hash = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    IsPicked = reader.GetInt32(7) == 1,
+                    Rating = reader.GetInt32(8),
+                    Rotation = reader.GetInt32(9),
+                    StackCount = 1,
+                    BaseName = reader.IsDBNull(10) ? null : reader.GetString(10)
+                });
+            }
+        }
+        result.Photos = entries;
+        
+        using (var countCmd = connection.CreateCommand())
+        {
+            countCmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} f {where}";
+            result.Total = Convert.ToInt32(countCmd.ExecuteScalar());
+        }
+
+        return result;
+    }
+
     // --- Collections ---
     public string CreateCollection(string name)
     {
@@ -701,6 +757,96 @@ public class DatabaseManager : IDatabaseManager
             while (reader.Read()) list.Add(reader.GetString(0));
         }
         return list;
+    }
+
+    public PagedMapPhotoResponse GetMapPhotos()
+    {
+        var photos = new List<MapPhotoResponse>();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        // Query for photos that have GPS metadata
+        command.CommandText = $@"
+            SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.CreatedAt},
+                   m.{Column.Metadata.Tag}, m.{Column.Metadata.Value}
+            FROM {TableName.FileEntry} f
+            JOIN {TableName.Metadata} m ON f.{Column.FileEntry.Id} = m.{Column.Metadata.FileId}
+            WHERE m.{Column.Metadata.Directory} = 'GPS' 
+              AND m.{Column.Metadata.Tag} IN ('GPS Latitude', 'GPS Longitude', 'GPS Latitude Ref', 'GPS Longitude Ref')
+            ORDER BY f.{Column.FileEntry.CreatedAt} DESC";
+
+        using var reader = command.ExecuteReader();
+        var temp = new Dictionary<string, (string FileName, DateTime CreatedAt, string Lat, string LatRef, string Lng, string LngRef)>();
+
+        int rawRowCount = 0;
+        while (reader.Read())
+        {
+            rawRowCount++;
+            string id = reader.GetString(0);
+            string fileName = reader.GetString(1);
+            DateTime createdAt = DateTime.Parse(reader.GetString(2));
+            string tag = reader.GetString(3);
+            string val = reader.GetString(4);
+
+            if (!temp.TryGetValue(id, out var data))
+            {
+                data = (fileName, createdAt, "", "", "", "");
+            }
+
+            if (tag == "GPS Latitude") data.Lat = val;
+            else if (tag == "GPS Latitude Ref") data.LatRef = val;
+            else if (tag == "GPS Longitude") data.Lng = val;
+            else if (tag == "GPS Longitude Ref") data.LngRef = val;
+
+            temp[id] = data;
+        }
+
+        foreach (var kvp in temp)
+        {
+            var d = kvp.Value;
+            if (string.IsNullOrEmpty(d.Lat) || string.IsNullOrEmpty(d.Lng)) continue;
+
+            double? lat = ParseGps(d.Lat, d.LatRef);
+            double? lng = ParseGps(d.Lng, d.LngRef);
+
+            if (lat.HasValue && lng.HasValue)
+            {
+                photos.Add(new MapPhotoResponse
+                {
+                    FileEntryId = kvp.Key,
+                    FileName = d.FileName,
+                    Latitude = lat.Value,
+                    Longitude = lng.Value,
+                    CreatedAt = d.CreatedAt
+                });
+            }
+        }
+
+        _logger?.LogInformation("[DB] GetMapPhotos: Found {RawRows} metadata rows, processed into {PhotoCount} photos with valid GPS coordinates.", rawRowCount, photos.Count);
+
+        return new PagedMapPhotoResponse { Photos = photos, Total = photos.Count };
+    }
+
+    private double? ParseGps(string dms, string refStr)
+    {
+        try
+        {
+            // Format is usually: 59° 20' 0.58" or similar
+            var matches = System.Text.RegularExpressions.Regex.Matches(dms, @"(\d+(?:\.\d+)?)");
+            if (matches.Count < 3) return null;
+
+            double degrees = double.Parse(matches[0].Value);
+            double minutes = double.Parse(matches[1].Value);
+            double seconds = double.Parse(matches[2].Value);
+
+            double decimalDegrees = degrees + (minutes / 60.0) + (seconds / 3600.0);
+
+            if (refStr == "S" || refStr == "W") decimalDegrees = -decimalDegrees;
+
+            return decimalDegrees;
+        }
+        catch { return null; }
     }
 
     // --- Directory Logic ---

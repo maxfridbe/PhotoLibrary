@@ -29,6 +29,8 @@ public interface IDatabaseManager
     IEnumerable<string> GetCollectionFiles(string collectionId);
     void ClearPicked();
     IEnumerable<string> GetPickedIds();
+    PagedMapPhotoResponse GetMapPhotos();
+    PagedPhotosResponse GetGeotaggedPhotosPaged(int limit, int offset);
     string GetOrCreateBaseRoot(string absolutePath);
     string GetOrCreateBaseRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string absolutePath);
     string GetOrCreateChildRoot(string parentId, string name);

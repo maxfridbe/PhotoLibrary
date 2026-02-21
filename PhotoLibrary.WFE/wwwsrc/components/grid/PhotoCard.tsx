@@ -65,16 +65,22 @@ export function PhotoCard(props: PhotoCardProps): VNode {
                     hook={{
                         insert: (vnode) => {
                             if (!cachedUrl) {
-                                const manager = window.app.isTimelineMode ? window.app.timelineViewManager : window.app.gridViewManager;
-                                manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                const app = (window as any).app;
+                                const manager = app.isTimelineMode ? app.timelineViewManager : (app.isMapMode ? app.mapViewManager : app.gridViewManager);
+                                if (manager && typeof manager.lazyLoadImage === 'function') {
+                                    manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                }
                             }
                         },
                         update: (oldVnode, vnode) => {
                             const oldId = (oldVnode.elm?.parentElement as HTMLElement)?.dataset?.id;
                             const isSelected = props.isSelected;
                             if ((photo.fileEntryId !== oldId || isSelected) && !cachedUrl) {
-                                const manager = window.app.isTimelineMode ? window.app.timelineViewManager : window.app.gridViewManager;
-                                manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                const app = (window as any).app;
+                                const manager = app.isTimelineMode ? app.timelineViewManager : (app.isMapMode ? app.mapViewManager : app.gridViewManager);
+                                if (manager && typeof manager.lazyLoadImage === 'function') {
+                                    manager.lazyLoadImage(photo.fileEntryId, vnode.elm as HTMLImageElement, 300);
+                                }
                             }
                         }
                     }}

@@ -159,7 +159,9 @@ namespace TypeGen
                 bool isBlob = route.Contains("thumbnail") || route.Contains("download");
                 string postFunc = isBlob ? "postBlob" : "post";
 
-                if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
+                if (route.Contains("map/photos")) resType = "Res.PagedMapPhotoResponse";
+                else if (route.Contains("photos/geotagged")) resType = "Res.PagedPhotosResponse";
+                else if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
                 else if (route.Contains("metadata")) resType = "Res.MetadataGroupResponse[]";
                 else if (route.Contains("directories")) resType = "Res.DirectoryNodeResponse[]";
                 else if (route.Contains("collections/list")) resType = "Res.CollectionResponse[]";

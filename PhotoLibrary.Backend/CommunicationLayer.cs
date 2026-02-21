@@ -210,6 +210,16 @@ public class CommunicationLayer : ICommunicationLayer
         return _db.GetPickedIds();
     }
 
+    public PagedMapPhotoResponse GetMapPhotos()
+    {
+        return _db.GetMapPhotos();
+    }
+
+    public PagedPhotosResponse GetGeotaggedPhotosPaged(PagedMapPhotosRequest req)
+    {
+        return _db.GetGeotaggedPhotosPaged(req.limit ?? 100, req.offset ?? 0);
+    }
+
     public StatsResponse GetStats()
     {
         return _db.GetGlobalStats();

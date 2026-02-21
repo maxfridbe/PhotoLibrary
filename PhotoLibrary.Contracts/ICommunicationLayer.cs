@@ -25,6 +25,8 @@ public interface ICommunicationLayer
     IEnumerable<string> GetCollectionFiles(CollectionIdRequest req);
     void ClearPicked();
     IEnumerable<string> GetPickedIds();
+    PagedMapPhotoResponse GetMapPhotos();
+    PagedPhotosResponse GetGeotaggedPhotosPaged(PagedMapPhotosRequest req);
     StatsResponse GetStats();
     List<DirectoryResponse> ListFileSystem(NameRequest req);
     List<ScanFileResult> FindFiles(FindFilesRequest req);

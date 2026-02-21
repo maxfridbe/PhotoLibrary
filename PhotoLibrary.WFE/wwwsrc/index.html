@@ -7,7 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="lib/goldenlayout-base.css">
     <link rel="stylesheet" href="lib/goldenlayout-dark-theme.css">
+    <link rel="stylesheet" href="lib/maplibre-gl.css">
     <script src="lib/jquery.min.js"></script>
+    <script src="lib/maplibre-gl.js"></script>
     <!-- <script src="lib/golden-layout.min.js"></script> -->
     <style>
         body { margin: 0; background: var(--bg-main); color: var(--text-main); font-family: 'Segoe UI', sans-serif; height: 100vh; overflow: hidden; user-select: none; }
@@ -424,6 +426,7 @@
                 <div class="lr-nav-item" id="nav-library" onclick="app.enterLibraryMode()">LIBRARY</div>
                 <div class="lr-nav-item active" id="nav-grid" onclick="app.enterGridMode()">GRID</div>
                 <div class="lr-nav-item" id="nav-timeline" onclick="app.enterTimelineMode()">TIMELINE</div>
+                <div class="lr-nav-item" id="nav-map" onclick="app.enterMapMode()">MAP</div>
                 <div class="lr-nav-item" id="nav-loupe" onclick="if(app.selectedId) app.enterLoupeMode(app.selectedId)">LOUPE</div>
                 <div class="lr-nav-item" id="nav-help" onclick="app.showShortcuts()">HELP</div>
             </div>

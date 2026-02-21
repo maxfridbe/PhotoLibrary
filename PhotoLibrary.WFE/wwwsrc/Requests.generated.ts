@@ -106,6 +106,11 @@ export interface PagedPhotosRequest {
     stacked?: boolean | null;
 }
 
+export interface PagedMapPhotosRequest {
+    limit?: number | null;
+    offset?: number | null;
+}
+
 export interface ForgetRootRequest {
     rootId: string;
     keepPreviews: boolean;

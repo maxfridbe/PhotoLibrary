@@ -103,3 +103,16 @@ export interface ValidateImportResponse {
     existingSourceFiles: string[];
 }
 
+export interface MapPhotoResponse {
+    fileEntryId: string;
+    fileName?: string | null;
+    latitude: number;
+    longitude: number;
+    createdAt: string;
+}
+
+export interface PagedMapPhotoResponse {
+    photos: MapPhotoResponse[];
+    total: number;
+}
+
