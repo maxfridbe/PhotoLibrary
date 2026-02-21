@@ -4,7 +4,9 @@ A high-performance C# application designed to scan photo directories, index meta
 
 ![Grid View](Documentation/Screenshots/gridview.jpg)
 ![Loupe View](Documentation/Screenshots/loupeview.jpg)
+![Map View](Documentation/Screenshots/map_view.png)
 ![Library Maintenance](Documentation/Screenshots/library.jpg)
+![Indexing](Documentation/Screenshots/Index_In_place.png)
 ![Collections](Documentation/Screenshots/collections.jpg)
 
 ## Features
