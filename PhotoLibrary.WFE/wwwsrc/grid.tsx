@@ -115,6 +115,15 @@ export class GridView {
         this.update(true);
     }
 
+    private updateTimer: any = null;
+    public updateDebounced(force: boolean = false) {
+        if (this.updateTimer) clearTimeout(this.updateTimer);
+        this.updateTimer = setTimeout(() => {
+            this.update(force);
+            this.updateTimer = null;
+        }, 50);
+    }
+
     public update(force: boolean = false) {
         if (!this.$gridViewEl) return;
         const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
@@ -158,7 +167,7 @@ export class GridView {
                 cards.push(
                     <PhotoCard
                         photo={photo}
-                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
@@ -211,7 +220,7 @@ export class GridView {
                 cards.push(
                     <PhotoCard
                         photo={photo}
-                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="filmstrip"
@@ -301,8 +310,13 @@ export class GridView {
     }
 
     public scrollToPhoto(id: string) {
-        const index = this.photos.findIndex(p => p?.fileEntryId === id);
-        if (index === -1) return;
+        console.log(`[Grid] scrollToPhoto called for ${id}. Photos count: ${this.photos.length}`);
+        const index = this.photos.findIndex(p => p?.fileEntryId === id || (p?.stackFileIds && p.stackFileIds.indexOf(id) !== -1));
+        console.log(`[Grid] findIndex result: ${index}`);
+        if (index === -1) {
+            console.warn(`[Grid] Photo ${id} not found in current photo list.`);
+            return;
+        }
 
         if (this.$gridViewEl) {
             const row = Math.floor(index / this.cols);
@@ -311,14 +325,22 @@ export class GridView {
                 const currentScroll = gridContainer.scrollTop;
                 const viewHeight = gridContainer.clientHeight;
                 const targetTop = row * this.rowHeight;
+                console.log(`[Grid] Scrolling: row=${row}, cols=${this.cols}, targetTop=${targetTop}, currentScroll=${currentScroll}, viewHeight=${viewHeight}`);
                 
                 if (targetTop < currentScroll || targetTop + this.rowHeight > currentScroll + viewHeight) {
+                    console.log(`[Grid] Executing scrollTo top=${targetTop - (viewHeight / 2) + (this.rowHeight / 2)}`);
                     gridContainer.scrollTo({
                         top: targetTop - (viewHeight / 2) + (this.rowHeight / 2),
                         behavior: 'smooth'
                     });
+                } else {
+                    console.log(`[Grid] Already in view.`);
                 }
+            } else {
+                console.error(`[Grid] No parent container found for gridViewEl.`);
             }
+        } else {
+            console.warn(`[Grid] gridViewEl not set.`);
         }
 
         if (this.$filmstripEl) {

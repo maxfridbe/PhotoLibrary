@@ -169,6 +169,15 @@ export class TimelineView {
         }
     }
 
+    private updateTimer: any = null;
+    public updateDebounced(force: boolean = false) {
+        if (this.updateTimer) clearTimeout(this.updateTimer);
+        this.updateTimer = setTimeout(() => {
+            this.update(force);
+            this.updateTimer = null;
+        }, 50);
+    }
+
     public update(force: boolean = false) {
         if (!this.$viewEl) return;
         const container = this.$viewEl.parentElement as HTMLElement;
@@ -250,7 +259,7 @@ export class TimelineView {
                 cards.push(
                     <PhotoCard
                         photo={photo}
-                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
@@ -482,7 +491,7 @@ export class TimelineView {
                 cards.push(
                     <PhotoCard
                         photo={photo}
-                        isSelected={this.selectedIds.has(photo.fileEntryId)}
+                        isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
@@ -767,7 +776,7 @@ export class TimelineView {
     public getNavigationId(currentId: string | null, key: string): string | null {
         if (!currentId || this.photos.length === 0) return null;
 
-        const currentIndex = this.photos.findIndex(p => p.fileEntryId === currentId);
+        const currentIndex = this.photos.findIndex(p => p.fileEntryId === currentId || (p.stackFileIds && p.stackFileIds.indexOf(currentId) !== -1));
         if (currentIndex === -1) return null;
 
         const isHorizontal = this.orientation === 'horizontal';
@@ -887,7 +896,7 @@ export class TimelineView {
         let photoIndexInGroup = -1;
 
         for (let i = 0; i < this.groups.length; i++) {
-            const idx = this.groups[i].photos.findIndex(p => p.fileEntryId === id);
+            const idx = this.groups[i].photos.findIndex(p => p.fileEntryId === id || (p.stackFileIds && p.stackFileIds.indexOf(id) !== -1));
             if (idx !== -1) {
                 groupIndex = i;
                 photoIndexInGroup = idx;

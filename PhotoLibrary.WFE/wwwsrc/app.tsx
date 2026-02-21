@@ -279,14 +279,14 @@ class App {
         this.themeManager = new ThemeManager();
         this.libraryManager = new LibraryManager();
         this.gridViewManager = new GridView(this.imageUrlCache, this.rotationMap, (id) => {
-            const index = this.photos.findIndex(p => p.fileEntryId === id);
+            const index = this.photos.findIndex(p => p.fileEntryId === id || (p.stackFileIds && p.stackFileIds.indexOf(id) !== -1));
             const subPriority = index !== -1 ? (1 - (index / Math.max(1, this.photos.length))) : 0;
             const totalPriority = this.prioritySession + subPriority;
             // console.log(`[Priority] Requesting ${id} at index ${index} with priority ${totalPriority}`);
             return totalPriority;
         });
         this.timelineViewManager = new TimelineView(this.imageUrlCache, this.rotationMap, (id) => {
-            const index = this.photos.findIndex(p => p.fileEntryId === id);
+            const index = this.photos.findIndex(p => p.fileEntryId === id || (p.stackFileIds && p.stackFileIds.indexOf(id) !== -1));
             const subPriority = index !== -1 ? (1 - (index / Math.max(1, this.photos.length))) : 0;
             const totalPriority = this.prioritySession + subPriority;
             return totalPriority;
@@ -525,8 +525,8 @@ class App {
             if (mods.shift) {
                 // Range select from anchor
                 const anchor = this.anchorId || this.selectedId || id;
-                const startIdx = this.photos.findIndex(p => p.fileEntryId === anchor);
-                const endIdx = this.photos.findIndex(p => p.fileEntryId === id);
+                const startIdx = this.photos.findIndex(p => p.fileEntryId === anchor || (p.stackFileIds && p.stackFileIds.indexOf(anchor) !== -1));
+                const endIdx = this.photos.findIndex(p => p.fileEntryId === id || (p.stackFileIds && p.stackFileIds.indexOf(id) !== -1));
 
                 if (startIdx !== -1 && endIdx !== -1) {
                     const low = Math.min(startIdx, endIdx);
@@ -581,11 +581,16 @@ class App {
             // Sync selection UI (legacy/filmstrip scrolling)
             // We only scroll to the active one
             if (this.selectedId) {
-                if (this.isTimelineMode) {
-                    this.timelineViewManager.scrollToPhoto(this.selectedId);
-                } else {
-                    this.gridViewManager.scrollToPhoto(this.selectedId);
-                }
+                const targetId = this.selectedId;
+                setTimeout(() => {
+                    if (this.isTimelineMode) {
+                        this.timelineViewManager.scrollToPhoto(targetId);
+                        this.timelineViewManager.updateDebounced();
+                    } else {
+                        this.gridViewManager.scrollToPhoto(targetId);
+                        this.gridViewManager.updateDebounced();
+                    }
+                }, 50);
                 this.loadMetadata(this.selectedId);
                 if (this.isLoupeMode && this.selectedIds.has(this.selectedId)) {
                     // Ensure loupe matches active selection
@@ -1732,7 +1737,7 @@ class App {
             self.timelineViewManager.update(true);
 
             timelineCont.onscroll = () => {
-                self.timelineViewManager.update();
+                self.timelineViewManager.updateDebounced();
                 self.syncUrlDebounced();
             };
             timelineCont.onwheel = (e) => {
@@ -1920,11 +1925,12 @@ class App {
             $gridView.className = 'grid-view';
             $gridView.style.position = 'absolute';
             $gridView.style.top = '0'; $gridView.style.left = '0'; $gridView.style.right = '0';
+            gridContainer.appendChild(sentinel);
             gridContainer.appendChild($gridView);
             self.$workspaceEl.appendChild(gridContainer);
 
             self.$gridContainer = gridContainer;
-            gridContainer.onscroll = () => self.gridViewManager.update();
+            gridContainer.onscroll = () => self.gridViewManager.updateDebounced();
             console.log('[App] Assigning gridViewEl to manager');
             self.gridViewManager.$gridViewEl = $gridView;
             self.gridViewManager.$scrollSentinel = sentinel;
@@ -1960,7 +1966,7 @@ class App {
             self.$filmstrip = $filmstrip;
             self.gridViewManager.$filmstripEl = $filmstrip;
 
-            gridContainer.onscroll = () => self.gridViewManager.update();
+            gridContainer.onscroll = () => self.gridViewManager.updateDebounced();
 
             // Filmstrip Resizer Logic
             let isResizing = false;
@@ -3222,7 +3228,8 @@ class App {
     private navigate(key: string, shift: boolean = false) {
         if (this.photos.length === 0) return;
 
-        let index = this.selectedId ? this.photos.findIndex(p => p?.fileEntryId === this.selectedId) : -1;
+        const selId = this.selectedId;
+        let index = selId ? this.photos.findIndex(p => p?.fileEntryId === selId || (p?.stackFileIds && p.stackFileIds.indexOf(selId) !== -1)) : -1;
 
         if (this.isLoupeMode || this.isFullscreen) {
             if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'PageDown') index++;
@@ -3250,7 +3257,7 @@ class App {
             } else if (isTimeline) {
                 const targetId = this.timelineViewManager.getNavigationId(this.selectedId, key);
                 if (targetId) {
-                    index = this.photos.findIndex(p => p.fileEntryId === targetId);
+                    index = this.photos.findIndex(p => p.fileEntryId === targetId || (p.stackFileIds && p.stackFileIds.indexOf(targetId) !== -1));
                 }
             } else {
                 if (key === 'ArrowRight') index++;
