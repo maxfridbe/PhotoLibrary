@@ -26,12 +26,12 @@ A high-performance C# application designed to scan photo directories, index meta
     *   **Rotation**: Rotate images 90° with `[` and `]`, fully synced between Loupe, Grid, and Filmstrip views.
     *   **Staged Loading**: Both viewers use staged loading (300px -> 1024px -> Full-Res) with smooth CSS transitions to provide instant feedback even on slow connections.
     *   **Persistent Caching**: Previously loaded previews and full-res renders are cached in memory for the duration of the session, making back-and-forth navigation instantaneous.
--   **Chronological Timeline View**:
-    *   **Visual History**: Automatically groups photos by date, providing a clear chronological breakdown of your entire library.
-    *   **Dual Orientation**: Toggle between **Vertical** (standard scrolling) and **Horizontal** (side-scrolling) layouts to suit your browsing preference.
-    *   **Predictable Navigation**: Advanced arrow-key logic maintains your "track" (row or column) across different days, ensuring seamless movement even when groups have varying item counts.
-    *   **Quick Jump Legend**: An interactive date-based legend allows for rapid scrolling across years and months with a real-time position indicator.
-    *   **Bi-directional Sorting**: Effortlessly switch between **Newest First** and **Oldest First** with persistent chronological accuracy.
+-   **High-Performance Chronological Timeline**:
+    *   **Visual History & Grouping**: Automatically clusters your entire library by date with clear, stylized headers, providing an intuitive walkthrough of your visual history.
+    *   **Dual-Axis Virtualization**: Seamlessly toggle between **Vertical** (standard scrolling) and **Horizontal** (panoramic) orientations, both powered by a 60fps virtualized engine that handles hundreds of thousands of images with zero lag.
+    *   **Pro-Grade Navigation**: Implements "track-aware" arrow-key logic that preserves your relative position (column or row) when jumping across date boundaries, ensuring predictable movement through irregular groups.
+    *   **Interactive Temporal Legend**: A dynamic date-based navigator allows for instant jumps across years and months, featuring a real-time indicator that tracks your current scroll position.
+    *   **Fluid Scaling & Sorting**: Integrated zoom support allows you to adjust thumbnail density on the fly, while bi-directional sorting keeps your library ordered exactly how you want it.
 -   **Interactive Map Experience**:
     *   **Geospatial Visualization**: Visualize your entire library on a high-performance vector-based map using integrated MapLibre technology.
     *   **Bi-directional Synchronization**: Click a map pin to instantly scroll the grid/timeline to the corresponding photo (stack-aware).
