@@ -752,7 +752,7 @@ export class LibraryManager {
                 hub.pub(ps.UI_NOTIFICATION, { message: `Import task started`, type: 'success' });
                 await this.loadLibraryInfo();
             } else {
-                hub.pub(ps.UI_NOTIFICATION, { message: `Import failed: ${res?.error || 'Unknown error'}`, type: 'error' });
+                hub.pub(ps.UI_NOTIFICATION, { message: `Import failed: ${(res as any)?.error || 'Unknown error'}`, type: 'error' });
                 this.isLocalImporting = false;
                 this.render();
             }
@@ -1178,16 +1178,14 @@ export class LibraryManager {
         this.averageDuration = 0;
         this.render();
 
-        const res = await Api.api_library_import_batch({ 
+        await Api.api_library_import_batch({ 
             rootPath: path, 
             relativePaths: this.scanResults.map(r => r.path),
             generateLow: low, 
             generateMedium: med
         });
         
-        if (res) {
-            hub.pub(ps.UI_NOTIFICATION, { message: "Batch indexing started", type: "success" });
-        }
+        hub.pub(ps.UI_NOTIFICATION, { message: "Batch indexing started", type: "success" });
     }
 
     private async findNewFiles(path: string, limit: number) {

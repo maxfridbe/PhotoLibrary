@@ -199,58 +199,65 @@ namespace TypeGen
                 }
                 else
                 {
-                    // Find all possible method calls to _commLayer in the lambda body
-                    var allCalls = lambda.DescendantNodes();
-                    foreach (var node in allCalls)
+                    // 1. Try to find Anonymous Objects (High Priority)
+                    var anons = lambda.DescendantNodes().OfType<AnonymousObjectCreationExpressionSyntax>().ToList();
+                    if (anons.Any())
                     {
-                        string? methodName = null;
-                        if (node is InvocationExpressionSyntax invCall)
+                        var allProps = new Dictionary<string, string>();
+                        foreach (var anon in anons)
                         {
-                            string expr = invCall.Expression.ToString();
-                            if (expr.Contains("_commLayer?.")) methodName = expr.Split("?.")[1];
-                            else if (expr.Contains("_commLayer.")) methodName = expr.Split(".")[1];
-                        }
-                        else if (node is MemberBindingExpressionSyntax binding)
-                        {
-                            // This handles the .MethodName part of _commLayer?.MethodName
-                            methodName = binding.Name.Identifier.Text;
-                        }
-
-                        if (methodName != null && commMethods.TryGetValue(methodName, out var csRetType))
-                        {
-                            resType = MapType(csRetType);
-                            // Ensure contract types are prefixed
-                            var knownContractTypes = new[] { 
-                                "Response", "StatsResponse", "ScanFileResult", "DirectoryResponse", "CollectionCreatedResponse" 
-                            };
-                            
-                            if (!resType.StartsWith("Res.") && !resType.StartsWith("Rpc.") && !resType.Contains("[]") && !resType.Contains("<"))
+                            foreach (var init in anon.Initializers)
                             {
-                                if (knownContractTypes.Any(kt => resType.EndsWith(kt))) resType = "Res." + resType;
+                                string name = init.NameEquals?.Name.Identifier.Text ?? "unknown";
+                                string valExpr = init.Expression.ToString();
+                                string type = "any";
+                                if (valExpr.EndsWith(".Data") || valExpr.EndsWith(".token") || valExpr.Contains("taskId") || valExpr.Contains("GetSetting") || valExpr.EndsWith(".Error") || valExpr.EndsWith(".path")) type = "string";
+                                else if (valExpr == "true" || valExpr == "false") type = "boolean";
+                                
+                                if (!allProps.ContainsKey(name) || allProps[name] == "any") allProps[name] = type;
                             }
-                            else if (resType.Contains("[]"))
-                            {
-                                string baseType = resType.Replace("[]", "");
-                                if (knownContractTypes.Any(kt => baseType.EndsWith(kt)) && !baseType.StartsWith("Res."))
-                                    resType = "Res." + baseType + "[]";
-                            }
-
-                            if (resType.StartsWith("RpcResult")) resType = "Rpc." + resType;
-                            break;
                         }
+                        resType = "{ " + string.Join(", ", allProps.Select(kvp => $"{kvp.Key}?: {kvp.Value}")) + " }";
                     }
-
-                    // Special case: Results.Json(new { ... })
-                    if (resType == "any" && lambdaBody.Contains("Results.Json(new {"))
+                    else
                     {
-                        // Try to extract keys
-                        var anon = lambda.DescendantNodes().OfType<AnonymousObjectCreationExpressionSyntax>().FirstOrDefault();
-                        if (anon != null)
+                        // 2. Fallback to _commLayer method calls
+                        var allCalls = lambda.DescendantNodes();
+                        foreach (var node in allCalls)
                         {
-                            resType = "{ " + string.Join(", ", anon.Initializers.Select(i => {
-                                string name = i.NameEquals?.Name.Identifier.Text ?? "unknown";
-                                return $"{name}: any";
-                            })) + " }";
+                            string? methodName = null;
+                            if (node is InvocationExpressionSyntax invCall)
+                            {
+                                string expr = invCall.Expression.ToString();
+                                if (expr.Contains("_commLayer?.")) methodName = expr.Split("?.")[1];
+                                else if (expr.Contains("_commLayer.")) methodName = expr.Split(".")[1];
+                            }
+                            else if (node is MemberBindingExpressionSyntax binding)
+                            {
+                                methodName = binding.Name.Identifier.Text;
+                            }
+
+                            if (methodName != null && commMethods.TryGetValue(methodName, out var csRetType))
+                            {
+                                resType = MapType(csRetType);
+                                var knownContractTypes = new[] { 
+                                    "Response", "StatsResponse", "ScanFileResult", "DirectoryResponse", "CollectionCreatedResponse" 
+                                };
+                                
+                                if (!resType.StartsWith("Res.") && !resType.StartsWith("Rpc.") && !resType.Contains("[]") && !resType.Contains("<"))
+                                {
+                                    if (knownContractTypes.Any(kt => resType.EndsWith(kt))) resType = "Res." + resType;
+                                }
+                                else if (resType.Contains("[]"))
+                                {
+                                    string baseType = resType.Replace("[]", "");
+                                    if (knownContractTypes.Any(kt => baseType.EndsWith(kt)) && !baseType.StartsWith("Res."))
+                                        resType = "Res." + baseType + "[]";
+                                }
+
+                                if (resType.StartsWith("RpcResult")) resType = "Rpc." + resType;
+                                break;
+                            }
                         }
                     }
                 }

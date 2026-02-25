@@ -40,15 +40,15 @@ export async function api_library_info(): Promise<Res.LibraryInfoResponse> {
     return await post('/api/library/info');
 }
 
-export async function api_library_backup(): Promise<Rpc.RpcResult<string>> {
+export async function api_library_backup(): Promise<{ success?: boolean, path?: string, error?: string }> {
     return await post('/api/library/backup');
 }
 
-export async function api_pick(data: Req.PickRequest): Promise<void> {
+export async function api_pick(data: Req.PickRequest): Promise<{  }> {
     return await post('/api/pick', data);
 }
 
-export async function api_rate(data: Req.RateRequest): Promise<void> {
+export async function api_rate(data: Req.RateRequest): Promise<{  }> {
     return await post('/api/rate', data);
 }
 
@@ -64,11 +64,11 @@ export async function api_collections_create(data: Req.NameRequest): Promise<Res
     return await post('/api/collections/create', data);
 }
 
-export async function api_collections_delete(data: Req.CollectionIdRequest): Promise<void> {
+export async function api_collections_delete(data: Req.CollectionIdRequest): Promise<{  }> {
     return await post('/api/collections/delete', data);
 }
 
-export async function api_collections_add_files(data: Req.CollectionAddRequest): Promise<void> {
+export async function api_collections_add_files(data: Req.CollectionAddRequest): Promise<{  }> {
     return await post('/api/collections/add-files', data);
 }
 
@@ -76,7 +76,7 @@ export async function api_collections_get_files(data: Req.CollectionIdRequest): 
     return await post('/api/collections/get-files', data);
 }
 
-export async function api_picked_clear(): Promise<void> {
+export async function api_picked_clear(): Promise<{  }> {
     return await post('/api/picked/clear');
 }
 
@@ -116,7 +116,7 @@ export async function api_library_import_batch(data: Req.ImportBatchRequest): Pr
     return await post('/api/library/import-batch', data);
 }
 
-export async function api_library_import_local(data: Req.ImportLocalRequest): Promise<string> {
+export async function api_library_import_local(data: Req.ImportLocalRequest): Promise<{ success?: boolean, taskId?: string }> {
     return await post('/api/library/import-local', data);
 }
 
@@ -140,11 +140,11 @@ export async function api_library_repair(): Promise<void> {
     return await post('/api/library/repair');
 }
 
-export async function api_library_cancel_task(data: Req.TaskRequest): Promise<boolean> {
+export async function api_library_cancel_task(data: Req.TaskRequest): Promise<{ success?: boolean }> {
     return await post('/api/library/cancel-task', data);
 }
 
-export async function api_settings_get(data: Req.NameRequest): Promise<string> {
+export async function api_settings_get(data: Req.NameRequest): Promise<{ value?: string }> {
     return await post('/api/settings/get', data);
 }
 
@@ -152,7 +152,7 @@ export async function api_settings_set(data: Req.SettingRequest): Promise<void> 
     return await post('/api/settings/set', data);
 }
 
-export async function api_export_prepare(data: Req.ZipRequest): Promise<string> {
+export async function api_export_prepare(data: Req.ZipRequest): Promise<{ token?: any }> {
     return await post('/api/export/prepare', data);
 }
 
