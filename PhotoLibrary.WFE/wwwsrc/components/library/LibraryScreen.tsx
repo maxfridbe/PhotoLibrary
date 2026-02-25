@@ -18,11 +18,12 @@ export interface LibraryScreenProps {
     onIndexFiles: (path: string, low: boolean, med: boolean) => void;
     onCancelImport: () => void;
     onPathChange: (path: string) => void;
+    onFsContextMenu: (e: MouseEvent, path: string) => void;
 }
 
 export function LibraryScreen(props: LibraryScreenProps): VNode {
     try {
-        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, quickSelectRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange } = props;
+        const { containerId, info, scanResults, isIndexing, isScanning, isCancelling, currentScanPath, fsRoots, quickSelectRoots, onFsToggle, onFindNew, onIndexFiles, onCancelImport, onPathChange, onFsContextMenu } = props;
 
         return (
             <div 
@@ -94,6 +95,7 @@ export function LibraryScreen(props: LibraryScreenProps): VNode {
                             roots={fsRoots}
                             onToggle={onFsToggle}
                             onSelect={onPathChange}
+                            onContextMenu={onFsContextMenu}
                             selectedPath={currentScanPath}
                         />
 

@@ -32,6 +32,7 @@ export const constants = {
         IMPORT_VALIDATION_RESULT: 'import.validation-result' as const,
         CONNECTION_CHANGED: 'connection.changed' as const,
         RUNTIME_STATS: 'runtime.stats' as const,
+        FS_CONTEXT_MENU: 'fs.context-menu' as const,
     },
     socket: {
         IMAGE: 'image' as const,

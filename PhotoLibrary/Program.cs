@@ -9,14 +9,70 @@ using System.Drawing;
 using ImageMagick;
 using PhotoLibrary.Backend;
 using Photino.NET;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PhotoLibrary.Backend;
+
+public class CompactConsoleFormatter : ConsoleFormatter
+{
+    private string? _lastCategory;
+    private const string FormatterName = "compact";
+
+    public CompactConsoleFormatter() : base(FormatterName) { }
+
+    public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
+    {
+        var category = logEntry.Category;
+        var message = logEntry.Formatter(logEntry.State, logEntry.Exception);
+        if (string.IsNullOrEmpty(message)) return;
+
+        var logLevel = logEntry.LogLevel;
+        var color = GetColor(logLevel);
+        var reset = "\u001b[0m";
+
+        if (category != _lastCategory)
+        {
+            var shortLevel = GetShortLevel(logLevel);
+            var timestamp = DateTime.Now.ToString("HH:mm:ss");
+            // Header line: LEVEL TIME FULL NAME
+            textWriter.WriteLine($"{color}{shortLevel}{reset} {timestamp} {category}");
+            _lastCategory = category;
+        }
+
+        // Message line: indented one space
+        textWriter.WriteLine($" {message}");
+    }
+
+    private string GetColor(LogLevel level) => level switch
+    {
+        LogLevel.Trace => "\u001b[37m",      // White
+        LogLevel.Debug => "\u001b[36m",      // Cyan
+        LogLevel.Information => "\u001b[32m",// Green
+        LogLevel.Warning => "\u001b[33m",    // Yellow
+        LogLevel.Error => "\u001b[31m",      // Red
+        LogLevel.Critical => "\u001b[35m",   // Magenta
+        _ => "\u001b[0m"
+    };
+
+    private string GetShortLevel(LogLevel level) => level switch
+    {
+        LogLevel.Trace => "trce",
+        LogLevel.Debug => "dbug",
+        LogLevel.Information => "info",
+        LogLevel.Warning => "warn",
+        LogLevel.Error => "fail",
+        LogLevel.Critical => "crit",
+        _ => "unkn"
+    };
+}
 
 class Program
 {
     private static ILoggerFactory _loggerFactory = LoggerFactory.Create(builder => {
-        builder.AddConsole();
-        builder.SetMinimumLevel(LogLevel.Information);
+        builder.AddConsole(options => options.FormatterName = "compact")
+               .AddConsoleFormatter<CompactConsoleFormatter, ConsoleFormatterOptions>();
+        builder.SetMinimumLevel(LogLevel.Trace);
     });
 
     private static ILogger<Program> _logger = _loggerFactory.CreateLogger<Program>();
@@ -122,9 +178,9 @@ class Program
             }
 
             // Apply CLI overrides to config object
-            if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = PathUtils.ResolvePath(libraryPath);
-            if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = PathUtils.ResolvePath(previewDb);
-            if (!string.IsNullOrEmpty(mapTiles)) config.MapTilesPath = PathUtils.ResolvePath(mapTiles);
+            if (!string.IsNullOrEmpty(libraryPath)) config.LibraryPath = PathManager.Resolve(libraryPath);
+            if (!string.IsNullOrEmpty(previewDb)) config.PreviewDbPath = PathManager.Resolve(previewDb);
+            if (!string.IsNullOrEmpty(mapTiles)) config.MapTilesPath = PathManager.Resolve(mapTiles);
             if (hostPort.HasValue) config.Port = hostPort.Value;
             if (!string.IsNullOrEmpty(mode)) config.Mode = mode;
 
@@ -153,9 +209,9 @@ class Program
             // Save updated config
             File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
-            string finalLibraryPath = PathUtils.ResolvePath(config.LibraryPath);
-            string finalPreviewDbPath = PathUtils.ResolvePath(config.PreviewDbPath);
-            string finalMapTilesPath = PathUtils.ResolvePath(config.MapTilesPath);
+            string finalLibraryPath = PathManager.Resolve(config.LibraryPath);
+            string finalPreviewDbPath = PathManager.Resolve(config.PreviewDbPath);
+            string finalMapTilesPath = PathManager.Resolve(config.MapTilesPath);
             string bindAddr = config.Bind == "public" ? "*" : "localhost";
 
             IDatabaseManager dbManager = new DatabaseManager(finalLibraryPath, _loggerFactory.CreateLogger<DatabaseManager>());
@@ -169,7 +225,7 @@ class Program
             // CLI/Scanning Mode
             if (!string.IsNullOrEmpty(scanDir))
             {
-                scanDir = PathUtils.ResolvePath(scanDir);
+                scanDir = PathManager.Resolve(scanDir);
                 _logger.LogInformation("Library: {LibraryPath}", finalLibraryPath);
                 _logger.LogInformation("Scanning: {ScanDir}", scanDir);
                 

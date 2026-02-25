@@ -28,10 +28,16 @@ export interface LibraryLocationsProps {
     onCancelImport: () => void;
     onScanPathChange: (path: string) => void;
     onScanLimitChange: (limit: number) => void;
+    onResultContextMenu: (e: MouseEvent, path: string) => void;
+
+    // Ignored Directories
+    ignoredDirectories: string[];
+    onIgnoreDirectory: (path: string) => void;
+    onUnignoreDirectory: (path: string) => void;
 }
 
 export function LibraryLocations(props: LibraryLocationsProps): VNode {
-    const { roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, scanLimit, onFindNew, onCancelScan, onIndexFiles, onClearResults, onCancelImport, onScanPathChange, onScanLimitChange } = props;
+    const { roots, expandedFolders, activePath, onPathChange, onToggle, onFolderContextMenu, onAnnotationSave, onCancelTask, scanResults, isIndexing, lastItemDuration, estimatedRemainingTime, isScanning, isCancelling, currentScanPath, scanLimit, onFindNew, onCancelScan, onIndexFiles, onClearResults, onCancelImport, onScanPathChange, onScanLimitChange, ignoredDirectories, onIgnoreDirectory, onUnignoreDirectory, onResultContextMenu } = props;
 
     return (
         <div 
@@ -89,9 +95,10 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                     </div>
                     {isScanning ? (
                         <button
-                            style={{ padding: '0 2.5em', background: '#8b0000', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            style={{ padding: '0 2.5em', background: '#8b0000', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.5em' }}
                             on={{ click: onCancelScan }}
                         >
+                            <span class={{ spinner: true }} style={{ width: '1em', height: '1em', borderWidth: '2px', borderTopColor: '#fff' }} />
                             STOP
                         </button>
                     ) : (
@@ -128,22 +135,42 @@ export function LibraryLocations(props: LibraryLocationsProps): VNode {
                         overflowY: 'overlay' as any, position: 'relative' 
                     }}
                 >
-                    {isScanning ? (
-                        <div 
-                            style={{ 
-                                position: 'absolute', top: '0', left: '0', right: '0', bottom: '0', 
-                                background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                zIndex: '10'
-                            }}
-                        >
-                            <div class={{ spinner: true }} style={{ width: '2em', height: '2em', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
-                        </div>
-                    ) : null}
                     {scanResults.length === 0 
-                        ? <div style={{ padding: '3em', color: 'var(--text-muted)', textAlign: 'center' }}>No new files found.</div>
-                        : renderScanTable(scanResults, isIndexing)}
+                        ? <div style={{ padding: '3em', color: 'var(--text-muted)', textAlign: 'center' }}>{isScanning ? 'Scanning for images...' : 'No new files found.'}</div>
+                        : renderScanTable(scanResults, isIndexing, onResultContextMenu)}
                 </div>
                 {renderImportControls(isIndexing, isCancelling, scanResults, currentScanPath, onIndexFiles, onCancelImport, lastItemDuration, estimatedRemainingTime)}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1em', marginTop: 'auto', borderTop: '1px solid var(--border-main)', paddingTop: '2em' }}>
+                <h3 style={{ marginTop: '0', color: 'var(--text-bright)' }}>Ignored Directories</h3>
+                <p style={{ fontSize: '0.85em', color: 'var(--text-muted)', margin: '0' }}>Scanning will skip these locations and their subdirectories.</p>
+                <div 
+                    style={{ 
+                        border: '1px solid var(--border-main)', borderRadius: '4px', 
+                        background: 'var(--bg-panel-alt)', maxHeight: '150px', 
+                        overflowY: 'overlay' as any
+                    }}
+                >
+                    {ignoredDirectories.length === 0 ? (
+                        <div style={{ padding: '1em', color: 'var(--text-dim)', fontSize: '0.9em', fontStyle: 'italic' }}>No directories ignored.</div>
+                    ) : (
+                        ignoredDirectories.map(path => (
+                            <div 
+                                style={{ padding: '0.5em 1em', borderBottom: '1px solid var(--border-dim)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9em' }}
+                            >
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} attrs={{ title: path }}>{path}</span>
+                                <button 
+                                    style={{ background: 'transparent', border: 'none', color: '#ff4d4d', cursor: 'pointer', padding: '4px' }}
+                                    on={{ click: () => onUnignoreDirectory(path) }}
+                                    attrs={{ title: 'Remove from ignored list' }}
+                                >
+                                    {'\u2715'}
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -246,7 +273,7 @@ function renderHierarchicalFolderList(roots: Res.DirectoryNodeResponse[], expand
     return <div>{roots.map(r => renderNode(r, 1))}</div>;
 }
 
-function renderScanTable(results: { path: string, status: string, duration?: number }[], isIndexing: boolean) {
+function renderScanTable(results: { path: string, status: string, duration?: number }[], isIndexing: boolean, onContextMenu: (e: MouseEvent, path: string) => void) {
     let activeIndex = -1;
     if (isIndexing) {
         for (let i = results.length - 1; i >= 0; i--) {
@@ -276,7 +303,11 @@ function renderScanTable(results: { path: string, status: string, duration?: num
                             attrs={{ 'data-path': r.path }}
                             style={{ 
                                 borderBottom: '1px solid var(--border-dim)',
-                                background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent' 
+                                background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                                cursor: 'context-menu'
+                            }}
+                            on={{
+                                contextmenu: (e: MouseEvent) => { e.preventDefault(); onContextMenu(e, r.path); }
                             }}
                         >
                             <td style={{ padding: '0.5em 1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 'bold' : 'normal' }} attrs={{ title: r.path }}>{r.path}</td>

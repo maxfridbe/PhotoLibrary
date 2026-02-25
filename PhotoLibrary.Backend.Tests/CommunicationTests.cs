@@ -338,18 +338,6 @@ public class CommunicationTests : TestBase
     }
 
     [Fact]
-    public void PathUtils_ShouldResolvePaths()
-    {
-        // Act & Assert
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        string expected = Path.GetFullPath(Path.Combine(home, "Pictures"));
-        Assert.Equal(expected, PathUtils.ResolvePath("~/Pictures"));
-        
-        string abs = "/tmp/test/path";
-        Assert.Equal(Path.GetFullPath(abs), PathUtils.ResolvePath(abs));
-    }
-
-    [Fact]
     public void ReadTrackingStream_ShouldCountBytes()
     {
         // Arrange

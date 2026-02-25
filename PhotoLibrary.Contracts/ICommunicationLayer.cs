@@ -30,7 +30,7 @@ public interface ICommunicationLayer
     StatsResponse GetStats();
     List<DirectoryResponse> ListFileSystem(NameRequest req);
     List<ScanFileResult> FindFiles(FindFilesRequest req);
-    List<string> FindNewFiles(NameRequest req);
+    Task<List<string>> FindNewFiles(NameRequest req);
     ValidateImportResponse ValidateImport(ValidateImportRequest req);
     void ImportBatch(ImportBatchRequest req);
     string ImportLocal(ImportLocalRequest req);
@@ -47,5 +47,6 @@ public interface ICommunicationLayer
     PhysicalFileResult? DownloadFile(string fileEntryId);
     Task<byte[]> GetImageAsync(ImageRequest req, CancellationToken ct);
     Task<byte[]?> GetMapTileAsync(int z, int x, int y);
+    void RunRepairJob();
     Task Broadcast(object message, string? targetClientId = null);
 }

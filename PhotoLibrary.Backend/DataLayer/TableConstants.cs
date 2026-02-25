@@ -59,6 +59,7 @@ public static class TableConstants
             public const string Hash = "Hash";
             public const string Latitude = "Latitude";
             public const string Longitude = "Longitude";
+            public const string RecordTouched = "RecordTouched";
         }
 
         public static class Metadata

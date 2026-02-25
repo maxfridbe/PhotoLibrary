@@ -73,6 +73,7 @@ export class LibraryManager {
 
     private currentScanPath: string = '';
     private currentScanLimit: number = 1000;
+    private ignoredDirectories: string[] = [];
     private renderPending = false;
     
     private fsRoots: FSNode[] = [];
@@ -82,6 +83,9 @@ export class LibraryManager {
     private fsInitialized = false;
 
     private isBackingUp = false;
+    private isRepairing = false;
+    private repairProcessed = 0;
+    private repairMoved = 0;
     private lastImportTime = 0;
     private lastItemDuration = 0;
     private importDurations: number[] = [];
@@ -149,6 +153,10 @@ export class LibraryManager {
             this.loadLibraryInfo();
         });
 
+        hub.sub(ps.FS_CONTEXT_MENU, (data) => {
+            window.app.showFsContextMenu(data.event, data.path);
+        });
+
         hub.sub(ps.FIND_NEW_FILE_FOUND, (data) => {
             if (data && data.path) {
                 if (!this.scanResults.some(r => r.path === data.path)) {
@@ -191,6 +199,21 @@ export class LibraryManager {
             if (data && data.exists) {
                 this.existingFiles.add(data.path);
                 this.selectedLocalFiles.delete(data.path);
+                this.render();
+            }
+        });
+
+        hub.subPattern('repair.*', (data) => {
+            console.log('[LibMgr] Repair Event:', data);
+            if (data.event === 'repair.progress') {
+                this.isRepairing = true;
+                this.repairProcessed = data.data.repair_proc;
+                this.repairMoved = data.data.repair_mov;
+                this.render();
+            } else if (data.event === 'repair.finished') {
+                this.isRepairing = false;
+                this.repairProcessed = data.data.repair_proc;
+                this.repairMoved = data.data.repair_mov;
                 this.render();
             }
         });
@@ -401,31 +424,53 @@ export class LibraryManager {
         }));
     }
 
+    private async performBackup() {
+        if (this.isBackingUp) return;
+        this.isBackingUp = true;
+        this.render();
+        
+        try {
+            const res = await Api.api_library_backup();
+            if (res && res.success) {
+                hub.pub(ps.UI_NOTIFICATION, { message: `Backup created at ${res.path}`, type: 'success' });
+                await this.loadLibraryInfo();
+            } else {
+                hub.pub(ps.UI_NOTIFICATION, { message: `Backup failed: ${res?.error || 'Unknown error'}`, type: 'error' });
+            }
+        } catch (e) {
+            hub.pub(ps.UI_NOTIFICATION, { message: 'Backup request failed', type: 'error' });
+        } finally {
+            this.isBackingUp = false;
+            this.render();
+        }
+    }
+
+    private async performRepair() {
+        if (this.isRepairing) return;
+        this.isRepairing = true;
+        this.repairProcessed = 0;
+        this.repairMoved = 0;
+        this.render();
+        
+        try {
+            await Api.api_library_repair();
+        } catch (e) {
+            hub.pub(ps.UI_NOTIFICATION, { message: 'Repair request failed', type: 'error' });
+            this.isRepairing = false;
+            this.render();
+        }
+    }
+
     private _renderStats() {
         if (!this.$statsVNode) return;
         this.$statsVNode = patch(this.$statsVNode, LibraryStatistics(
             this.infoCache, 
             this.isBackingUp,
-            async () => {
-                if (this.isBackingUp) return;
-                this.isBackingUp = true;
-                this.render();
-                
-                try {
-                    const res = await Api.api_library_backup();
-                    if (res && res.success) {
-                        hub.pub(constants.pubsub.UI_NOTIFICATION, { message: `Backup created at ${res.path}`, type: 'success' });
-                        await this.loadLibraryInfo();
-                    } else {
-                        hub.pub(constants.pubsub.UI_NOTIFICATION, { message: `Backup failed: ${res?.error || 'Unknown error'}`, type: 'error' });
-                    }
-                } catch (e) {
-                    hub.pub(constants.pubsub.UI_NOTIFICATION, { message: 'Backup request failed', type: 'error' });
-                } finally {
-                    this.isBackingUp = false;
-                    this.render();
-                }
-            }
+            () => this.performBackup(),
+            this.isRepairing,
+            this.repairProcessed,
+            this.repairMoved,
+            () => this.performRepair()
         ));
     }
 
@@ -502,7 +547,25 @@ export class LibraryManager {
             onScanLimitChange: (limit: number) => {
                 this.currentScanLimit = limit;
                 this.render();
-            }
+            },
+            onResultContextMenu: (e: MouseEvent, filePath: string) => {
+                // If it's a relative path, we need to join it with currentScanPath
+                let fullPath = filePath;
+                if (!filePath.startsWith('/') && !filePath.includes(':')) {
+                    // Try to resolve absolute path from relative scan result
+                    fullPath = this.currentScanPath.replace(/[/\\]+$/, '') + '/' + filePath.replace(/^[/\\]+/, '');
+                }
+                
+                // Get the directory part
+                const lastSlash = Math.max(fullPath.lastIndexOf('/'), fullPath.lastIndexOf('\\'));
+                const dirPath = lastSlash !== -1 ? fullPath.substring(0, lastSlash) : fullPath;
+                
+                hub.pub(ps.FS_CONTEXT_MENU, { event: e, path: dirPath });
+            },
+            
+            ignoredDirectories: this.ignoredDirectories,
+            onIgnoreDirectory: (path: string) => this.ignoreDirectory(path),
+            onUnignoreDirectory: (path: string) => this.unignoreDirectory(path)
         };
 
         this.$locationsVNode = patch(this.$locationsVNode, LibraryLocations(props));
@@ -518,6 +581,9 @@ export class LibraryManager {
                 this.currentScanPath = path;
                 localStorage.setItem('import-source-path', path);
                 this.render();
+            },
+            onFsContextMenu: (e: MouseEvent, path: string) => {
+                hub.pub(ps.FS_CONTEXT_MENU, { event: e, path });
             },
             onScanPathChange: (path: string) => {
                 this.currentScanPath = path;
@@ -734,8 +800,42 @@ export class LibraryManager {
                 this.expandLibraryToPath(this.currentScanPath);
             }
 
+            await this.loadIgnoredDirectories();
             this.render();
         } catch (e) { console.error("Failed to load library info", e); }
+    }
+
+    private async loadIgnoredDirectories() {
+        const res = await Api.api_settings_get({ name: 'ignored-directories' });
+        if (res && res.value) {
+            try {
+                this.ignoredDirectories = JSON.parse(res.value);
+            } catch { this.ignoredDirectories = []; }
+        } else {
+            this.ignoredDirectories = [];
+        }
+    }
+
+    private async saveIgnoredDirectories() {
+        await Api.api_settings_set({ key: 'ignored-directories', value: JSON.stringify(this.ignoredDirectories) });
+        this.render();
+    }
+
+    public ignoreDirectory(path: string) {
+        if (!this.ignoredDirectories.includes(path)) {
+            this.ignoredDirectories.push(path);
+            this.saveIgnoredDirectories();
+            hub.pub(ps.UI_NOTIFICATION, { message: `Directory ignored: ${path}`, type: 'info' });
+        }
+    }
+
+    public unignoreDirectory(path: string) {
+        const idx = this.ignoredDirectories.indexOf(path);
+        if (idx !== -1) {
+            this.ignoredDirectories.splice(idx, 1);
+            this.saveIgnoredDirectories();
+            hub.pub(ps.UI_NOTIFICATION, { message: `Directory unignored: ${path}`, type: 'info' });
+        }
     }
 
     private normalizePath(p: string): string {

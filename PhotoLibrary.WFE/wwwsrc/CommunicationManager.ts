@@ -105,6 +105,8 @@ export class CommunicationManager {
                         hub.pub(ps.UI_NOTIFICATION, { message: msg.message, type: msg.status || 'info' });
                     } else if (msg.type === 'runtime.stats') {
                         hub.pub(ps.RUNTIME_STATS, msg);
+                    } else if (msg.type && msg.type.startsWith('repair.')) {
+                        hub.pub(msg.type, msg);
                     }
                 } catch (err) { console.error("Failed to parse WS text message", err); }
             } else {

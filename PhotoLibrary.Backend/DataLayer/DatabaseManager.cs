@@ -15,6 +15,7 @@ public class DatabaseManager : IDatabaseManager
 {
     private readonly string _connectionString;
     private readonly ILogger<DatabaseManager> _logger;
+    private readonly PathManager _pm = new();
     private readonly ConcurrentDictionary<string, string> _hashCache = new();
     private static readonly SemaphoreSlim _writeLock = new(1, 1);
     public string DbPath { get; }
@@ -124,6 +125,7 @@ public class DatabaseManager : IDatabaseManager
                 {Column.FileEntry.CreatedAt} TEXT,
                 {Column.FileEntry.ModifiedAt} TEXT,
                 {Column.FileEntry.Hash} TEXT,
+                RecordTouched INTEGER DEFAULT 0,
                 FOREIGN KEY({Column.FileEntry.RootPathId}) REFERENCES {TableName.RootPaths}({Column.RootPaths.Id}),
                 UNIQUE({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName})
             );",
@@ -209,107 +211,100 @@ public class DatabaseManager : IDatabaseManager
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
 
+        // Ensure RecordTouched column exists (Migration)
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"ALTER TABLE {TableName.FileEntry} ADD COLUMN RecordTouched INTEGER DEFAULT 0;";
+            command.ExecuteNonQuery();
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
+
         NormalizeRoots();
+    }
+
+    public void UpdateFileRootId(string fileId, string newRootId)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        ExecuteWrite((connection, transaction) => {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.RootPathId} = $NewId, RecordTouched = $Now WHERE {Column.FileEntry.Id} = $Id";
+                command.Parameters.AddWithValue("$NewId", newRootId);
+                command.Parameters.AddWithValue("$Now", now);
+                command.Parameters.AddWithValue("$Id", fileId);
+                command.ExecuteNonQuery();
+            }
+        });
+    }
+
+    public void TouchFile(SqliteConnection connection, SqliteTransaction? transaction, string fileId, long timestamp)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            if (transaction != null) command.Transaction = transaction;
+            command.CommandText = $"UPDATE {TableName.FileEntry} SET RecordTouched = $Timestamp WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$Timestamp", timestamp);
+            command.Parameters.AddWithValue("$Id", fileId);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    public void TouchFileWithRoot(SqliteConnection connection, SqliteTransaction? transaction, string fileId, string newRootId, long timestamp)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            if (transaction != null) command.Transaction = transaction;
+            command.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.RootPathId} = $NewId, RecordTouched = $Timestamp WHERE {Column.FileEntry.Id} = $Id";
+            command.Parameters.AddWithValue("$NewId", newRootId);
+            command.Parameters.AddWithValue("$Timestamp", timestamp);
+            command.Parameters.AddWithValue("$Id", fileId);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    public List<FileEntry> GetFileEntriesForRoot(string rootId, bool includeTouched = false)
+    {
+        var result = new List<FileEntry>();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using (var command = connection.CreateCommand())
+        {
+            string touchedFilter = includeTouched ? "" : " AND RecordTouched = 0";
+            command.CommandText = $@"
+                SELECT {Column.FileEntry.Id}, {Column.FileEntry.FileName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.RootPathId}
+                FROM {TableName.FileEntry} 
+                WHERE {Column.FileEntry.RootPathId} = $RootId {touchedFilter}";
+            command.Parameters.AddWithValue("$RootId", rootId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new FileEntry {
+                    Id = reader.GetString(0),
+                    FileName = reader.GetString(1),
+                    Size = reader.GetInt64(2),
+                    CreatedAt = DateTime.Parse(reader.GetString(3)),
+                    ModifiedAt = DateTime.Parse(reader.GetString(4)),
+                    RootPathId = reader.GetString(5)
+                });
+            }
+        }
+        return result;
     }
 
     public void NormalizeRoots()
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        NormalizeRootPaths(connection);
+        DeduplicateRoots();
     }
 
-    private void NormalizeRootPaths(SqliteConnection connection)
-    {
-        var baseRoots = new List<(string id, string path)>();
-        using (var cmd = connection.CreateCommand())
-        {
-            cmd.CommandText = $"SELECT {Column.RootPaths.Id}, {Column.RootPaths.Name} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} IS NULL";
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) 
-            {
-                var path = reader.GetString(1);
-                if (!string.IsNullOrWhiteSpace(path)) baseRoots.Add((reader.GetString(0), path));
-            }
-        }
-
-        if (baseRoots.Count < 2) return;
-
-        // Sort by path length so parents come first
-        baseRoots = baseRoots.OrderBy(r => r.path.Length).ToList();
-
-        using var transaction = connection.BeginTransaction();
-        try 
-        {
-            for (int i = 0; i < baseRoots.Count; i++)
-            {
-                for (int j = i + 1; j < baseRoots.Count; j++)
-                {
-                    var parent = baseRoots[i];
-                    var child = baseRoots[j];
-
-                    if (child.path.StartsWith(parent.path + Path.DirectorySeparatorChar) || child.path.StartsWith(parent.path + "/"))
-                    {
-                        // child is actually inside parent.
-                        string relative = Path.GetRelativePath(parent.path, child.path);
-                        string[] parts = relative.Split(new[] { Path.DirectorySeparatorChar, '/' }, StringSplitOptions.RemoveEmptyEntries);
-                        
-                        // Stitch child to parent
-                        string currentParentId = parent.id;
-                        for (int p = 0; p < parts.Length - 1; p++)
-                        {
-                            currentParentId = EnsureRootPathExists(connection, transaction, currentParentId, parts[p]).id;
-                        }
-
-                        // Finally, move the child base root under currentParentId
-                        // Safety: Cannot be its own parent
-                        if (currentParentId == child.id) continue;
-
-                        string lastSegment = parts.Last();
-
-                        // Check if an entry already exists at this path under the parent
-                        string? existingId = null;
-                        using (var checkCmd = connection.CreateCommand())
-                        {
-                            checkCmd.Transaction = transaction;
-                            checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name";
-                            checkCmd.Parameters.AddWithValue("$ParentId", currentParentId);
-                            checkCmd.Parameters.AddWithValue("$Name", lastSegment);
-                            existingId = checkCmd.ExecuteScalar() as string;
-                        }
-
-                        if (existingId != null && existingId != child.id)
-                        {
-                            MergeRoots(connection, transaction, child.id, existingId);
-                            continue;
-                        }
-
-                        using (var updateCmd = connection.CreateCommand())
-                        {
-                            updateCmd.Transaction = transaction;
-                            updateCmd.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.ParentId} = $ParentId, {Column.RootPaths.Name} = $Name WHERE {Column.RootPaths.Id} = $Id";
-                            updateCmd.Parameters.AddWithValue("$ParentId", currentParentId);
-                            updateCmd.Parameters.AddWithValue("$Name", lastSegment);
-                            updateCmd.Parameters.AddWithValue("$Id", child.id);
-                            updateCmd.ExecuteNonQuery();
-                        }
-                    }
-                }
-            }
-            transaction.Commit();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[DB] Root normalization failed");
-            transaction.Rollback();
-        }
-    }
-
-    private void MergeRoots(SqliteConnection connection, SqliteTransaction transaction, string oldId, string newId)
+    private void MergeRootsInternal(SqliteConnection connection, SqliteTransaction transaction, string oldId, string newId)
     {
         if (oldId == newId) return;
 
-        // 1. Move files. Handle potential file-level conflicts
+        // 1. Handle File Conflicts
         var filesInOld = new List<(string id, string name)>();
         using (var getFilesCmd = connection.CreateCommand())
         {
@@ -334,39 +329,29 @@ public class DatabaseManager : IDatabaseManager
 
             if (targetFileId != null)
             {
-                // File conflict! Merge metadata/picks/ratings from file.id to targetFileId
-                _logger.LogDebug("Merging duplicate file {FileName} during root merge.", file.name);
-                
-                // Move Metadata
-                using (var cmd = connection.CreateCommand())
-                {
+                // CONFLICT: Merge metadata and delete old entry
+                using (var cmd = connection.CreateCommand()) {
                     cmd.Transaction = transaction;
                     cmd.CommandText = $"UPDATE OR IGNORE {TableName.Metadata} SET {Column.Metadata.FileId} = $NewId WHERE {Column.Metadata.FileId} = $OldId";
                     cmd.Parameters.AddWithValue("$NewId", targetFileId);
                     cmd.Parameters.AddWithValue("$OldId", file.id);
                     cmd.ExecuteNonQuery();
                 }
-                // Move Pick
-                using (var cmd = connection.CreateCommand())
-                {
+                using (var cmd = connection.CreateCommand()) {
                     cmd.Transaction = transaction;
                     cmd.CommandText = $"UPDATE OR IGNORE {TableName.ImagesPicked} SET {Column.ImagesPicked.FileId} = $NewId WHERE {Column.ImagesPicked.FileId} = $OldId";
                     cmd.Parameters.AddWithValue("$NewId", targetFileId);
                     cmd.Parameters.AddWithValue("$OldId", file.id);
                     cmd.ExecuteNonQuery();
                 }
-                // Move Rating
-                using (var cmd = connection.CreateCommand())
-                {
+                using (var cmd = connection.CreateCommand()) {
                     cmd.Transaction = transaction;
                     cmd.CommandText = $"UPDATE OR IGNORE {TableName.ImageRatings} SET {Column.ImageRatings.FileId} = $NewId WHERE {Column.ImageRatings.FileId} = $OldId";
                     cmd.Parameters.AddWithValue("$NewId", targetFileId);
                     cmd.Parameters.AddWithValue("$OldId", file.id);
                     cmd.ExecuteNonQuery();
                 }
-                // Delete redundant file entry
-                using (var cmd = connection.CreateCommand())
-                {
+                using (var cmd = connection.CreateCommand()) {
                     cmd.Transaction = transaction;
                     cmd.CommandText = $"DELETE FROM {TableName.FileEntry} WHERE {Column.FileEntry.Id} = $Id";
                     cmd.Parameters.AddWithValue("$Id", file.id);
@@ -375,7 +360,7 @@ public class DatabaseManager : IDatabaseManager
             }
             else
             {
-                // No conflict, just move the file to the new root
+                // NO CONFLICT: Move file to new root
                 using (var moveFileCmd = connection.CreateCommand())
                 {
                     moveFileCmd.Transaction = transaction;
@@ -387,44 +372,49 @@ public class DatabaseManager : IDatabaseManager
             }
         }
 
-        // 2. Handle subfolders recursively
-        var childrenToMove = new List<(string id, string name)>();
+        // 2. Handle Folder Conflicts (Recursive Merge)
+        var childrenInOld = new List<(string id, string name)>();
         using (var getChildrenCmd = connection.CreateCommand())
         {
             getChildrenCmd.Transaction = transaction;
             getChildrenCmd.CommandText = $"SELECT {Column.RootPaths.Id}, {Column.RootPaths.Name} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $OldId";
             getChildrenCmd.Parameters.AddWithValue("$OldId", oldId);
             using var reader = getChildrenCmd.ExecuteReader();
-            while (reader.Read()) childrenToMove.Add((reader.GetString(0), reader.GetString(1)));
+            while (reader.Read()) childrenInOld.Add((reader.GetString(0), reader.GetString(1)));
         }
 
-        foreach (var child in childrenToMove)
+        foreach (var child in childrenInOld)
         {
             string? targetChildId = null;
-            using (var checkCmd = connection.CreateCommand())
+            using (var checkFolderCmd = connection.CreateCommand())
             {
-                checkCmd.Transaction = transaction;
-                checkCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name";
-                checkCmd.Parameters.AddWithValue("$ParentId", newId);
-                checkCmd.Parameters.AddWithValue("$Name", child.name);
-                targetChildId = checkCmd.ExecuteScalar() as string;
+                checkFolderCmd.Transaction = transaction;
+                checkFolderCmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId AND {Column.RootPaths.Name} = $Name";
+                checkFolderCmd.Parameters.AddWithValue("$ParentId", newId);
+                checkFolderCmd.Parameters.AddWithValue("$Name", child.name);
+                targetChildId = checkFolderCmd.ExecuteScalar() as string;
             }
 
-            if (targetChildId != null) MergeRoots(connection, transaction, child.id, targetChildId);
+            if (targetChildId != null)
+            {
+                // CONFLICT: Recursively merge sub-folders
+                MergeRootsInternal(connection, transaction, child.id, targetChildId);
+            }
             else
             {
-                using (var moveCmd = connection.CreateCommand())
+                // NO CONFLICT: Move sub-folder to new parent
+                using (var moveFolderCmd = connection.CreateCommand())
                 {
-                    moveCmd.Transaction = transaction;
-                    moveCmd.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.ParentId} = $NewId WHERE {Column.RootPaths.Id} = $Id";
-                    moveCmd.Parameters.AddWithValue("$NewId", newId);
-                    moveCmd.Parameters.AddWithValue("$Id", child.id);
-                    moveCmd.ExecuteNonQuery();
+                    moveFolderCmd.Transaction = transaction;
+                    moveFolderCmd.CommandText = $"UPDATE {TableName.RootPaths} SET {Column.RootPaths.ParentId} = $NewId WHERE {Column.RootPaths.Id} = $Id";
+                    moveFolderCmd.Parameters.AddWithValue("$NewId", newId);
+                    moveFolderCmd.Parameters.AddWithValue("$Id", child.id);
+                    moveFolderCmd.ExecuteNonQuery();
                 }
             }
         }
 
-        // 3. Finally delete the now-empty old root
+        // 3. Delete empty old root
         using (var deleteCmd = connection.CreateCommand())
         {
             deleteCmd.Transaction = transaction;
@@ -534,7 +524,15 @@ public class DatabaseManager : IDatabaseManager
         var whereClauses = new List<string>();
         if (pickedOnly) whereClauses.Add($"EXISTS (SELECT 1 FROM {TableName.ImagesPicked} p WHERE p.{Column.ImagesPicked.FileId} = f.{Column.FileEntry.Id})");
         if (rating > 0) whereClauses.Add($"EXISTS (SELECT 1 FROM {TableName.ImageRatings} r WHERE r.{Column.ImageRatings.FileId} = f.{Column.FileEntry.Id} AND r.{Column.ImageRatings.Rating} = $Rating)");
-        if (rootId != null) whereClauses.Add($"f.{Column.FileEntry.RootPathId} = $RootId");
+        
+        if (rootId != null) 
+        {
+            // Get all descendant IDs
+            var descendantIds = GetDescendantRootIds(rootId);
+            string idList = string.Join(",", descendantIds.Select(id => $"'{id}'"));
+            whereClauses.Add($"f.{Column.FileEntry.RootPathId} IN ({idList})");
+        }
+
         if (specificIds != null && specificIds.Length > 0) 
             whereClauses.Add($"f.{Column.FileEntry.Id} IN ({string.Join(",", specificIds.Select(id => $"'{id}'"))})");
 
@@ -557,7 +555,7 @@ public class DatabaseManager : IDatabaseManager
             command.Parameters.AddWithValue("$Limit", limit);
             command.Parameters.AddWithValue("$Offset", offset);
             if (rating > 0) command.Parameters.AddWithValue("$Rating", rating);
-            if (rootId != null) command.Parameters.AddWithValue("$RootId", rootId);
+            // RootId is handled via string interpolation for IN clause
 
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -850,6 +848,309 @@ public class DatabaseManager : IDatabaseManager
     }
 
     // --- Directory Logic ---
+    public HashSet<string> GetAllFilePathsForRoot(string rootId)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var subRootIds = GetDescendantRootIds(rootId);
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // 1. Build a map of ID -> Absolute Path for all involved roots
+        var pathMap = new Dictionary<string, string>();
+        foreach (var id in subRootIds)
+        {
+            string? abs = GetRootAbsolutePath(connection, id);
+            if (abs != null) pathMap[id] = abs;
+        }
+
+        // 2. Query all files under these roots
+        using var command = connection.CreateCommand();
+        string idList = string.Join(",", subRootIds.Select(id => $"'{id}'"));
+        command.CommandText = $@"
+            SELECT {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName} 
+            FROM {TableName.FileEntry} 
+            WHERE {Column.FileEntry.RootPathId} IN ({idList})";
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            string rId = reader.GetString(0);
+            string name = reader.GetString(1);
+            if (pathMap.TryGetValue(rId, out var rootPath))
+            {
+                result.Add(_pm.Normalize(Path.Combine(rootPath, name)));
+            }
+        }
+
+        return result;
+    }
+
+    public HashSet<string> GetAllIndexedDirectories()
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        var rootIds = new List<string>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths}";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rootIds.Add(reader.GetString(0));
+            }
+        }
+
+        foreach (var id in rootIds)
+        {
+            string? abs = GetRootAbsolutePath(connection, id);
+            if (abs != null) result.Add(_pm.Normalize(abs));
+        }
+
+        return result;
+    }
+
+    public string? FindClosestRoot(string absolutePath)
+    {
+        absolutePath = _pm.Normalize(absolutePath);
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        var allRoots = new List<(string id, string path)>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths}";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string id = reader.GetString(0);
+                string? path = GetRootAbsolutePath(connection, id);
+                if (path != null) allRoots.Add((id, path));
+            }
+        }
+
+        var matchingRoots = allRoots
+            .Where(r => absolutePath == r.path || absolutePath.StartsWith(r.path + Path.DirectorySeparatorChar) || absolutePath.StartsWith(r.path + "/"))
+            .OrderByDescending(r => r.path.Length)
+            .ToList();
+
+        return matchingRoots.FirstOrDefault().id;
+    }
+
+    public object? DebugFolder(string rootId)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        string? name = null;
+        string? parentId = null;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT {Column.RootPaths.Name}, {Column.RootPaths.ParentId} FROM {TableName.RootPaths} WHERE {Column.RootPaths.Id} = $Id";
+            cmd.Parameters.AddWithValue("$Id", rootId);
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                name = reader.GetString(0);
+                parentId = reader.IsDBNull(1) ? null : reader.GetString(1);
+            }
+        }
+
+        string? path = GetRootAbsolutePath(connection, rootId);
+        
+        int directFiles = 0;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} = $Id";
+            cmd.Parameters.AddWithValue("$Id", rootId);
+            directFiles = Convert.ToInt32(cmd.ExecuteScalar());
+        }
+
+        var children = new List<object>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"SELECT {Column.RootPaths.Id}, {Column.RootPaths.Name} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $Id";
+            cmd.Parameters.AddWithValue("$Id", rootId);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                children.Add(new { Id = reader.GetString(0), Name = reader.GetString(1) });
+            }
+        }
+
+        var descendantIds = GetDescendantRootIds(rootId);
+        int totalRecursiveFiles = 0;
+        if (descendantIds.Count > 0)
+        {
+            using (var cmd = connection.CreateCommand())
+            {
+                string idList = string.Join(",", descendantIds.Select(id => $"'{id}'"));
+                cmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} WHERE {Column.FileEntry.RootPathId} IN ({idList})";
+                totalRecursiveFiles = Convert.ToInt32(cmd.ExecuteScalar());
+            }
+        }
+
+        return new 
+        { 
+            Id = rootId, 
+            Name = name, 
+            ParentId = parentId, 
+            AbsolutePath = path,
+            DirectFiles = directFiles,
+            TotalRecursiveFiles = totalRecursiveFiles,
+            Children = children,
+            DescendantIdsCount = descendantIds.Count
+        };
+    }
+
+    public object? LocateFile(string fileName)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $@"
+            SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.RootPathId}, r.{Column.RootPaths.Name}, f.{Column.FileEntry.RecordTouched}
+            FROM {TableName.FileEntry} f
+            LEFT JOIN {TableName.RootPaths} r ON f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id}
+            WHERE f.{Column.FileEntry.FileName} = $FileName";
+        command.Parameters.AddWithValue("$FileName", fileName);
+
+        var results = new List<object>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            string id = reader.GetString(0);
+            string rootId = reader.GetString(1);
+            string rootName = reader.IsDBNull(2) ? "NULL" : reader.GetString(2);
+            int touched = reader.GetInt32(3);
+            string? path = GetRootAbsolutePath(connection, rootId);
+
+            results.Add(new { FileId = id, RootId = rootId, RootName = rootName, AbsoluteRootPath = path, RecordTouched = touched });
+        }
+        return results;
+    }
+
+    public int DeduplicateRoots()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // 1. Load all root paths and basic stats in one go
+        var allNodesRaw = new List<(string Id, string? ParentId, string Name, string? Ann, string? Col, int ImageCount)>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $@"
+                SELECT r.{Column.RootPaths.Id}, r.{Column.RootPaths.ParentId}, r.{Column.RootPaths.Name}, r.{Column.RootPaths.Annotation}, r.{Column.RootPaths.Color},
+                       (SELECT COUNT(*) FROM {TableName.FileEntry} f WHERE f.{Column.FileEntry.RootPathId} = r.{Column.RootPaths.Id})
+                FROM {TableName.RootPaths} r";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) allNodesRaw.Add((
+                reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt32(5)
+            ));
+        }
+
+        if (allNodesRaw.Count == 0) return 0;
+
+        // 2. Build lookups
+        var nodeMap = allNodesRaw.ToDictionary(n => n.Id);
+        
+        string ResolvePath(string id)
+        {
+            var parts = new List<string>();
+            string currentId = id;
+            var seen = new HashSet<string>();
+            while (nodeMap.TryGetValue(currentId, out var node))
+            {
+                if (!seen.Add(currentId)) break;
+                parts.Add(node.Name);
+                if (node.ParentId == null || !nodeMap.ContainsKey(node.ParentId)) break;
+                currentId = node.ParentId;
+            }
+            parts.Reverse();
+            if (parts.Count == 0) return string.Empty;
+            
+            string basePath = parts[0];
+            if (parts.Count == 1) return _pm.Normalize(basePath);
+            return _pm.Join(basePath, parts.Skip(1));
+        }
+
+        // 3. Map every ID to its final normalized physical path
+        var resolved = allNodesRaw.Select(n => new { 
+            Raw = n, 
+            NormPath = ResolvePath(n.Id) 
+        }).ToList();
+
+        // 4. Handle Merges (Same physical path)
+        var groups = resolved
+            .GroupBy(n => n.NormPath)
+            .Where(g => g.Count() > 1 && !string.IsNullOrEmpty(g.Key))
+            .ToList();
+
+        int totalMerged = 0;
+        foreach (var group in groups)
+        {
+            var winner = group
+                .OrderByDescending(n => !string.IsNullOrEmpty(n.Raw.Ann) || !string.IsNullOrEmpty(n.Raw.Col))
+                .ThenByDescending(n => n.Raw.ImageCount)
+                .ThenBy(n => n.Raw.Id)
+                .First();
+            
+            var losers = group.Where(n => n.Raw.Id != winner.Raw.Id).ToList();
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                foreach (var loser in losers)
+                {
+                    _logger.LogInformation("[Dedup] Merging duplicate {LoserId} -> {WinnerId} ({Path})", loser.Raw.Id, winner.Raw.Id, loser.NormPath);
+                    MergeRootsInternal(connection, transaction, loser.Raw.Id, winner.Raw.Id);
+                    totalMerged++;
+                }
+                transaction.Commit();
+            } catch (Exception ex) { _logger.LogError(ex, "Merge failed"); transaction.Rollback(); }
+        }
+
+        // 5. Handle Hierarchy Stitching (Adoption)
+        // If a base root (ParentId is NULL) is actually inside another root, make it a child.
+        var baseRoots = resolved.Where(n => n.Raw.ParentId == null).OrderBy(n => n.NormPath.Length).ToList();
+        for (int i = 0; i < baseRoots.Count; i++)
+        {
+            for (int j = 0; j < baseRoots.Count; j++)
+            {
+                if (i == j) continue;
+                var parent = baseRoots[i];
+                var child = baseRoots[j];
+
+                if (child.NormPath.StartsWith(parent.NormPath + Path.DirectorySeparatorChar) || child.NormPath.StartsWith(parent.NormPath + "/"))
+                {
+                    // Child is physically inside parent. Convert to child hierarchy.
+                    _logger.LogInformation("[Stitch] Adopting base root {ChildPath} into {ParentPath}", child.NormPath, parent.NormPath);
+                    
+                    using var transaction = connection.BeginTransaction();
+                    try {
+                        // Resolve the relative path to create intermediate folders if needed
+                        string expectedId = GetOrCreateHierarchy(connection, transaction, parent.Raw.Id, parent.NormPath, child.NormPath);
+                        
+                        // If the expectedId is NOT the child.Id, it means we need to merge the child root into the existing hierarchy record
+                        if (expectedId != child.Raw.Id) {
+                            MergeRootsInternal(connection, transaction, child.Raw.Id, expectedId);
+                        }
+                        transaction.Commit();
+                    } catch (Exception ex) { _logger.LogError(ex, "Stitching failed"); transaction.Rollback(); }
+                }
+            }
+        }
+
+        return totalMerged;
+    }
+
     public string GetOrCreateBaseRoot(string absolutePath)
     {
         string resultId = "";
@@ -861,7 +1162,7 @@ public class DatabaseManager : IDatabaseManager
 
     public string GetOrCreateBaseRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string absolutePath)
     {
-        absolutePath = PathUtils.ResolvePath(absolutePath);
+        absolutePath = _pm.Normalize(absolutePath);
         
         // 1. Try to find the deepest existing root that contains this path
         var allRoots = new List<(string id, string path)>();
@@ -894,13 +1195,12 @@ public class DatabaseManager : IDatabaseManager
             if (deepestMatch.path == absolutePath) return deepestMatch.id;
 
             // It's inside an existing root! Build down.
-            string relative = Path.GetRelativePath(deepestMatch.path, absolutePath);
-            string[] parts = relative.Split(new[] { Path.DirectorySeparatorChar, '/' }, StringSplitOptions.RemoveEmptyEntries);
+            var segments = _pm.GetRelativeSegments(deepestMatch.path, absolutePath);
             
             string currentId = deepestMatch.id;
-            foreach (var part in parts)
+            foreach (var segment in segments)
             {
-                currentId = GetOrCreateChildRootWithConnection(connection, transaction, currentId, part);
+                currentId = GetOrCreateChildRootWithConnection(connection, transaction, currentId, segment);
             }
             return currentId;
         }
@@ -925,6 +1225,23 @@ public class DatabaseManager : IDatabaseManager
         var result = EnsureRootPathExists(connection, transaction, parentId, name);
         if (result.created) _onFolderCreated?.Invoke(result.id, name);
         return result.id;
+    }
+
+    public string GetOrCreateHierarchy(SqliteConnection connection, SqliteTransaction transaction, string baseRootId, string baseRootPath, string targetDirPath)
+    {
+        baseRootPath = _pm.Normalize(baseRootPath);
+        targetDirPath = _pm.Normalize(targetDirPath);
+
+        if (baseRootPath == targetDirPath) return baseRootId;
+
+        var segments = _pm.GetRelativeSegments(baseRootPath, targetDirPath);
+        
+        string currentId = baseRootId;
+        foreach (var segment in segments)
+        {
+            currentId = GetOrCreateChildRootWithConnection(connection, transaction, currentId, segment);
+        }
+        return currentId;
     }
 
     private (string id, bool created) EnsureRootPathExists(SqliteConnection connection, SqliteTransaction? transaction, string? parentId, string name)
@@ -993,33 +1310,10 @@ public class DatabaseManager : IDatabaseManager
     public List<string> GetFileIdsUnderRoot(string rootId, bool recursive)
     {
         var ids = new List<string>();
-        var targetRootIds = new HashSet<string> { rootId };
-
-        _logger?.LogDebug("[DB] GetFileIdsUnderRoot: rootId={RootId}, recursive={Recursive}", rootId, recursive);
+        var targetRootIds = recursive ? GetDescendantRootIds(rootId) : new HashSet<string> { rootId };
 
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
-
-        if (recursive)
-        {
-            var queue = new Queue<string>();
-            queue.Enqueue(rootId);
-            while (queue.Count > 0)
-            {
-                var current = queue.Dequeue();
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
-                    cmd.Parameters.AddWithValue("$ParentId", current);
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                    {
-                        var childId = reader.GetString(0);
-                        if (targetRootIds.Add(childId)) queue.Enqueue(childId);
-                    }
-                }
-            }
-        }
 
         foreach (var rId in targetRootIds)
         {
@@ -1032,8 +1326,34 @@ public class DatabaseManager : IDatabaseManager
             }
         }
 
-        _logger?.LogDebug("[DB] GetFileIdsUnderRoot found {Count} files", ids.Count);
+        _logger?.LogDebug("[DB] GetFileIdsUnderRoot (recursive={Recursive}) found {Count} files", recursive, ids.Count);
         return ids;
+    }
+
+    public HashSet<string> GetDescendantRootIds(string rootId)
+    {
+        var targetRootIds = new HashSet<string> { rootId };
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        var queue = new Queue<string>();
+        queue.Enqueue(rootId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = $"SELECT {Column.RootPaths.Id} FROM {TableName.RootPaths} WHERE {Column.RootPaths.ParentId} = $ParentId";
+                cmd.Parameters.AddWithValue("$ParentId", current);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var childId = reader.GetString(0);
+                    if (targetRootIds.Add(childId)) queue.Enqueue(childId);
+                }
+            }
+        }
+        return targetRootIds;
     }
 
     public void UpsertFileEntry(FileEntry entry)
@@ -1055,26 +1375,22 @@ public class DatabaseManager : IDatabaseManager
         try
         {
             string baseName = Path.GetFileNameWithoutExtension(entry.FileName ?? "");
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
             using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
                 command.CommandText = $@"
-                    INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.Hash})
-                    VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt, $Hash)
+                    INSERT INTO {TableName.FileEntry} ({Column.FileEntry.Id}, {Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}, {Column.FileEntry.BaseName}, {Column.FileEntry.Size}, {Column.FileEntry.CreatedAt}, {Column.FileEntry.ModifiedAt}, {Column.FileEntry.Hash}, RecordTouched)
+                    VALUES ($Id, $RootPathId, $FileName, $BaseName, $Size, $CreatedAt, $ModifiedAt, $Hash, $Now)
                     ON CONFLICT({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName}) DO UPDATE SET 
                         {Column.FileEntry.Size} = excluded.{Column.FileEntry.Size}, 
                         {Column.FileEntry.CreatedAt} = excluded.{Column.FileEntry.CreatedAt}, 
                         {Column.FileEntry.ModifiedAt} = excluded.{Column.FileEntry.ModifiedAt}, 
                         {Column.FileEntry.BaseName} = excluded.{Column.FileEntry.BaseName}, 
-                        {Column.FileEntry.Hash} = excluded.{Column.FileEntry.Hash};
+                        {Column.FileEntry.Hash} = excluded.{Column.FileEntry.Hash},
+                        RecordTouched = $Now;
                 ";
-                
-                // Extra check: if unique constraint is violated by HASH, we might want to update RootPathId
-                // However, our UNIQUE constraint is on (RootPathId, FileName).
-                // If a file moves from Root A to Root B, the INSERT above will work fine (new row).
-                // If we want to support MOVING an existing record when the hash matches but path differs, 
-                // that's a different logic. For now, let's fix the basic Upsert.
 
                 command.Parameters.AddWithValue("$Id", entry.Id);
                 command.Parameters.AddWithValue("$RootPathId", entry.RootPathId ?? (object)DBNull.Value);
@@ -1084,9 +1400,11 @@ public class DatabaseManager : IDatabaseManager
                 command.Parameters.AddWithValue("$CreatedAt", entry.CreatedAt.ToString("o"));
                 command.Parameters.AddWithValue("$ModifiedAt", entry.ModifiedAt.ToString("o"));
                 command.Parameters.AddWithValue("$Hash", entry.Hash ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("$Now", now);
                 command.ExecuteNonQuery();
             }
 
+            // Retrieve the actual ID (in case the conflict resolution updated an existing row with a different ID)
             string? actualId = null;
             using (var getIdCmd = connection.CreateCommand())
             {
@@ -1253,6 +1571,14 @@ public class DatabaseManager : IDatabaseManager
         return GetFileIdWithConnection(connection, null, rootPathId, fileName);
     }
 
+    public string? GetFileIdByPath(string absolutePath)
+    {
+        var rootId = FindClosestRoot(absolutePath);
+        if (rootId == null) return null;
+        var fileName = Path.GetFileName(absolutePath);
+        return GetFileId(rootId, fileName);
+    }
+
     public string? GetFileIdWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string rootPathId, string fileName)
     {
         using (var command = connection.CreateCommand())
@@ -1287,7 +1613,13 @@ public class DatabaseManager : IDatabaseManager
     {
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
+        return FileExistsByHashWithConnection(connection, null, hash);
+    }
+
+    public bool FileExistsByHashWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string hash)
+    {
         using var command = connection.CreateCommand();
+        if (transaction != null) command.Transaction = transaction;
         command.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} WHERE {Column.FileEntry.Hash} = $Hash";
         command.Parameters.AddWithValue("$Hash", hash);
         return Convert.ToInt32(command.ExecuteScalar()) > 0;
@@ -1295,8 +1627,9 @@ public class DatabaseManager : IDatabaseManager
 
     public (bool exists, DateTime? lastModified) GetExistingFileStatus(string fullPath, SqliteConnection? existingConnection = null)
     {
+        fullPath = _pm.Normalize(fullPath);
         var fileName = Path.GetFileName(fullPath);
-        var dirPath = Path.GetDirectoryName(fullPath)?.TrimEnd(Path.DirectorySeparatorChar);
+        var dirPath = Path.GetDirectoryName(fullPath);
         if (dirPath == null) return (false, null);
 
         var connection = existingConnection;
@@ -1330,7 +1663,7 @@ public class DatabaseManager : IDatabaseManager
             foreach (var (rootPathId, modStr) in candidates)
             {
                 string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
-                if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) 
+                if (candidatePath != null && candidatePath == dirPath) 
                 {
                     if (DateTime.TryParse(modStr, out var mod)) return (true, mod);
                     return (true, null);
@@ -1346,8 +1679,9 @@ public class DatabaseManager : IDatabaseManager
 
     public bool FileExists(string fullPath, SqliteConnection? existingConnection = null)
     {
+        fullPath = _pm.Normalize(fullPath);
         var fileName = Path.GetFileName(fullPath);
-        var dirPath = Path.GetDirectoryName(fullPath)?.TrimEnd(Path.DirectorySeparatorChar);
+        var dirPath = Path.GetDirectoryName(fullPath);
         if (dirPath == null) return false;
 
         var connection = existingConnection;
@@ -1380,7 +1714,7 @@ public class DatabaseManager : IDatabaseManager
             {
                 // 2. Verify path matches for this candidate
                 string? candidatePath = GetRootAbsolutePath(connection, rootPathId);
-                if (candidatePath != null && candidatePath.TrimEnd(Path.DirectorySeparatorChar) == dirPath) return true;
+                if (candidatePath != null && candidatePath == dirPath) return true;
             }
             return false;
         }
@@ -1421,10 +1755,11 @@ public class DatabaseManager : IDatabaseManager
 
         if (parts.Count == 0) return null;
         parts.Reverse();
-        // Handle absolute paths starting with / on Linux
-        string combined = Path.Combine(parts.ToArray());
-        if (parts[0].StartsWith("/") && !combined.StartsWith("/")) combined = "/" + combined;
-        return combined;
+
+        string basePath = parts[0];
+        if (parts.Count == 1) return _pm.Normalize(basePath);
+
+        return _pm.Join(basePath, parts.Skip(1));
     }
 
     public void InsertMetadata(string fileId, IEnumerable<MetadataItem> metadata)

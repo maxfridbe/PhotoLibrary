@@ -38,6 +38,7 @@
 - REQ-SVC-00011: [Security] Secure path resolution logic to prevent unauthorized filesystem access or directory traversal.
 - REQ-SVC-00012: [Functionality] Advanced search engine supporting path segments, metadata tag existence/values, and numeric file size comparisons (>, <).
 - REQ-SVC-00013: [Functionality] Persistent storage for application settings, themes, and user preferences via a Settings table and local configuration files.
+- REQ-SVC-00014: [Performance] The system shall only perform file hashing during indexing if preview generation is enabled (needsThumbnails is true) or if a hash is explicitly provided, minimizing I/O for metadata-only scans.
 
 ## Web Front End (WFE) Requirements
 - REQ-WFE-00001: User should be able to browse massive libraries smoothly via a 60fps virtualized rendering engine.
@@ -72,4 +73,7 @@
 - REQ-INFRA-00004: The system shall provide a `run.sh` helper script to execute the locally built binary for testing purposes.
 - REQ-INFRA-00005: The system shall provide an `updateVersion.sh` utility to automate version incrementing while maintaining the 1.2.YY.MMDD format.
 - REQ-INFRA-00006: The system shall support building a self-contained Windows executable (`PhotoLibrary.exe`) via `build-windows.sh` and validating it via `test-windows.sh`.
+
+## LLM Specific Requirements (LLM)
+- REQ-LLM-00001: The agent shall not delete or suppress existing logging or telemetry logic unless explicitly requested by the user. If logging appears redundant or excessive, the agent must ask for confirmation before removal.
 

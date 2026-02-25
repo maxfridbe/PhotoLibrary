@@ -135,6 +135,10 @@ export async function api_library_forget_root(data: Req.ForgetRootRequest): Prom
     return await post('/api/library/forget-root', data);
 }
 
+export async function api_library_repair(): Promise<any> {
+    return await post('/api/library/repair');
+}
+
 export async function api_library_cancel_task(data: Req.TaskRequest): Promise<any> {
     return await post('/api/library/cancel-task', data);
 }

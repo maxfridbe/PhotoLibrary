@@ -2274,6 +2274,50 @@ class App {
                 });
         });
 
+        addItem('Ignore Folder', () => {
+            const node = this.findRootById(this.roots, rootId);
+            if (node) {
+                this.libraryManager.ignoreDirectory(node.path);
+            }
+        });
+
+        this.positionContextMenu(e, menu);
+    }
+
+    public showFsContextMenu(e: MouseEvent, path: string) {
+        const menu = document.getElementById('context-menu')!;
+        menu.innerHTML = '';
+        const addItem = (text: string, cb: () => void) => {
+            const el = document.createElement('div');
+            el.className = 'context-menu-item';
+            el.textContent = text;
+            el.onclick = (ev) => {
+                ev.stopPropagation();
+                cb();
+                menu.style.display = 'none';
+            };
+            menu.appendChild(el);
+        };
+
+        addItem('Ignore Directory', () => {
+            this.libraryManager.ignoreDirectory(path);
+        });
+
+        this.positionContextMenu(e, menu);
+    }
+
+    private findRootById(nodes: RootPath[], id: string): RootPath | null {
+        for (const node of nodes) {
+            if (node.directoryId === id) return node;
+            if (node.children) {
+                const found = this.findRootById(node.children, id);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    private positionContextMenu(e: MouseEvent, menu: HTMLElement) {
         menu.style.display = 'block';
         menu.style.left = e.pageX + 'px';
         menu.style.top = e.pageY + 'px';

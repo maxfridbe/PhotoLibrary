@@ -21,7 +21,8 @@ namespace PhotoLibrary.Backend;
 public class CommunicationLayer : ICommunicationLayer
 {
     private readonly IDatabaseManager _db;
-    private readonly IPreviewManager _pm;
+    private readonly IPreviewManager _previewManager;
+    private readonly PathManager _pathManager = new();
     private readonly ICameraManager _cm;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -70,7 +71,7 @@ public class CommunicationLayer : ICommunicationLayer
     {
         _logger = loggerFactory.CreateLogger<CommunicationLayer>();
         _db = db;
-        _pm = pm;
+        _previewManager = pm;
         _cm = cm;
         _loggerFactory = loggerFactory;
         _configPath = configPath;
@@ -96,12 +97,21 @@ public class CommunicationLayer : ICommunicationLayer
             {
                 await _queueSemaphore.WaitAsync();
                 QueuedImageRequest? item = null;
+                int remaining = 0;
                 lock (_queueLock)
                 {
                     _requestQueue.TryDequeue(out item, out _);
+                    remaining = _requestQueue.Count;
                 }
 
                 if (item == null) continue;
+                
+                if (remaining % 10 == 0 || remaining < 5)
+                {
+                    _logger?.LogDebug("[QUEUE] Dequeued request for {Id}. Remaining in queue: {Count}", 
+                        item.Request.fileEntryId, remaining);
+                }
+
                 if (item.Tcs.Task.IsCompleted) continue;
 
                 long dequeuedTime = Stopwatch.GetTimestamp();
@@ -153,8 +163,17 @@ public class CommunicationLayer : ICommunicationLayer
                                         Format = GetMagickFormat(sourcePath)
                                     };
                                     
+                                    _currentProcess.Refresh();
+                                    long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
+
                                     using var image = new MagickImage(tracker, settings);
                                     image.AutoOrient();
+                                    
+                                    _currentProcess.Refresh();
+                                    long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
+                                    _logger?.LogDebug("[MAGICK] Loaded {Id} (FullRes). Process Mem: {Before}MB -> {After}MB (+{Diff}MB). Active Tasks: {Active}", 
+                                        req.fileEntryId, memBefore, memAfter, memAfter - memBefore, _activeMagickTasks);
+
                                     image.Format = MagickFormat.WebP;
                                     image.Quality = 90;
                                     data = image.ToByteArray();
@@ -177,7 +196,7 @@ public class CommunicationLayer : ICommunicationLayer
                     else 
                     {
                         string? hash = _db.GetFileHash(req.fileEntryId);
-                        data = hash != null ? _pm.GetPreviewData(hash, req.size) : null;
+                        data = hash != null ? _previewManager.GetPreviewData(hash, req.size) : null;
                         
                         if (data == null)
                         {
@@ -205,7 +224,7 @@ public class CommunicationLayer : ICommunicationLayer
                                             _db.UpdateFileHash(req.fileEntryId, hash);
                                         }
 
-                                        data = _pm.GetPreviewData(hash, req.size);
+                                        data = _previewManager.GetPreviewData(hash, req.size);
                                         if (data != null) {
                                             item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds;
                                             item.Payload = data;
@@ -217,7 +236,7 @@ public class CommunicationLayer : ICommunicationLayer
                                         var fileLock = _fileLocks.GetOrAdd(hash!, _ => new SemaphoreSlim(1, 1));
                                         await fileLock.WaitAsync();
                                         
-                                        var existingData = _pm.GetPreviewData(hash!, req.size);
+                                        var existingData = _previewManager.GetPreviewData(hash!, req.size);
                                         if (existingData != null)
                                         {
                                             fileLock.Release();
@@ -252,7 +271,7 @@ public class CommunicationLayer : ICommunicationLayer
                                                 if (!isRaw && image.Width <= targetSize && image.Height <= targetSize)
                                                 {
                                                     var bytes = File.ReadAllBytes(sourcePath);
-                                                    _pm.SavePreview(hash, targetSize, bytes);
+                                                    _previewManager.SavePreview(hash, targetSize, bytes);
                                                     if (targetSize == req.size) data = bytes;
                                                     continue;
                                                 }
@@ -266,7 +285,7 @@ public class CommunicationLayer : ICommunicationLayer
                                                     clone.Quality = 80;
                                                     var generated = clone.ToByteArray();
                                                     
-                                                    _pm.SavePreview(hash, targetSize, generated);
+                                                    _previewManager.SavePreview(hash, targetSize, generated);
                                                     if (targetSize == req.size) data = generated;
                                                 }
                                             }
@@ -312,7 +331,7 @@ public class CommunicationLayer : ICommunicationLayer
     {
         long startTime = Stopwatch.GetTimestamp();
         string? hash = _db.GetFileHash(req.fileEntryId);
-        byte[]? immediateData = (hash != null && req.size > 0) ? _pm.GetPreviewData(hash, req.size) : null;
+        byte[]? immediateData = (hash != null && req.size > 0) ? _previewManager.GetPreviewData(hash, req.size) : null;
 
         if (immediateData != null)
         {
@@ -327,6 +346,11 @@ public class CommunicationLayer : ICommunicationLayer
         {
             var reqObj = new QueuedImageRequest(req, tcs, ct, startTime);
             _requestQueue.Enqueue(reqObj, -req.priority);
+            if (_requestQueue.Count % 10 == 0 || _requestQueue.Count < 5)
+            {
+                _logger?.LogDebug("[QUEUE] Enqueued request for {Id} (Size: {Size}). Total in queue: {Count}", 
+                    req.fileEntryId, req.size, _requestQueue.Count);
+            }
         }
         _queueSemaphore.Release();
         return await tcs.Task;
@@ -372,6 +396,199 @@ public class CommunicationLayer : ICommunicationLayer
         return _broadcast(message);
     }
 
+    public void RunRepairJob()
+    {
+        string taskId = "library-repair";
+        var cts = new CancellationTokenSource();
+        _activeTasks.AddOrUpdate(taskId, cts, (k, old) => { old.Cancel(); return cts; });
+
+        long runTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // PHASE 1: Deduplicate Roots
+                _logger.LogInformation("[Repair] Starting root deduplication (Timestamp: {Timestamp})...", runTimestamp);
+                int deduped = _db.DeduplicateRoots();
+                _logger.LogInformation("[Repair] Deduplication complete. Merged {Count} folders.", deduped);
+                
+                // Refresh UI immediately after folders are merged
+                _ = _broadcast(new { type = "library.updated" });
+
+                _logger.LogInformation("[Repair] Starting library structure verification (Producer-Consumer)...");
+                
+                // 1. Get ONLY top-level roots to avoid redundant recursive scans
+                var topLevelRoots = _db.GetDirectoryTree().ToList();
+
+                int totalProcessed = 0;
+                int totalMoved = 0;
+                var repairPathCache = new Dictionary<string, string>();
+
+                // Shared channel for files to check
+                var fileChannel = System.Threading.Channels.Channel.CreateBounded<(FileInfo Info, string RootId, string RootPath)>(new System.Threading.Channels.BoundedChannelOptions(1000) {
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait
+                });
+
+                // PRODUCER: Scans disk
+                var producer = Task.Run(async () => {
+                    try
+                    {
+                        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+                        foreach (var root in topLevelRoots)
+                        {
+                            if (cts.Token.IsCancellationRequested) break;
+                            string rootPath = _pathManager.Normalize(root.Path);
+                            if (!Directory.Exists(rootPath)) continue;
+
+                            _logger.LogInformation("[Repair-Producer] Starting recursive scan of base root: {Path}", rootPath);
+                            
+                            foreach (var physPath in Directory.EnumerateFiles(rootPath, "*", options))
+                            {
+                                if (cts.Token.IsCancellationRequested) break;
+                                if (!TableConstants.SupportedExtensions.Contains(Path.GetExtension(physPath))) continue;
+                                
+                                await fileChannel.Writer.WriteAsync((new FileInfo(physPath), root.DirectoryId, rootPath), cts.Token);
+                            }
+                        }
+                    }
+                    catch (Exception ex) { _logger.LogError(ex, "[Repair-Producer] Error during disk scan"); }
+                    finally { fileChannel.Writer.TryComplete(); }
+                });
+
+                // CONSUMER: Checks DB and Repairs
+                _logger.LogInformation("[Repair-Consumer] Pre-loading file fingerprints from database...");
+                var globalDbFiles = new Dictionary<(string name, long size, string date), List<string>>(); // Key -> List<FileEntryId>
+                
+                using (var preloadConn = new SqliteConnection($"Data Source={_db.DbPath}"))
+                {
+                    await preloadConn.OpenAsync();
+                    using var cmd = preloadConn.CreateCommand();
+                    cmd.CommandText = $"SELECT {TableConstants.Column.FileEntry.Id}, {TableConstants.Column.FileEntry.FileName}, {TableConstants.Column.FileEntry.Size}, {TableConstants.Column.FileEntry.CreatedAt}, {TableConstants.Column.FileEntry.RootPathId} FROM {TableConstants.TableName.FileEntry}";
+                    using var reader = await cmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        string id = reader.GetString(0);
+                        string name = reader.GetString(1).ToLowerInvariant();
+                        long size = reader.GetInt64(2);
+                        string date = reader.GetString(3);
+                        
+                        var key = (name, size, date);
+                        if (!globalDbFiles.TryGetValue(key, out var list))
+                        {
+                            list = new List<string>();
+                            globalDbFiles[key] = list;
+                        }
+                        list.Add(id);
+                    }
+                }
+                _logger.LogInformation("[Repair-Consumer] Loaded {Count} fingerprints.", globalDbFiles.Count);
+
+                var pendingBatch = new List<(FileInfo Info, string RootId, string RootPath, List<string> FileIds)>();
+
+                async Task ProcessBatch()
+                {
+                    if (pendingBatch.Count == 0) return;
+
+                    await _db.ExecuteWriteAsync(async (connection, transaction) =>
+                    {
+                        foreach (var item in pendingBatch)
+                        {
+                            foreach (var fileId in item.FileIds)
+                            {
+                                string? currentRootId = null;
+                                using (var checkCmd = connection.CreateCommand())
+                                {
+                                    checkCmd.Transaction = transaction;
+                                    checkCmd.CommandText = $"SELECT {TableConstants.Column.FileEntry.RootPathId} FROM {TableConstants.TableName.FileEntry} WHERE {TableConstants.Column.FileEntry.Id} = $Id";
+                                    checkCmd.Parameters.AddWithValue("$Id", fileId);
+                                    currentRootId = checkCmd.ExecuteScalar() as string;
+                                }
+
+                                if (currentRootId == null) continue;
+
+                                string physDir = _pathManager.Normalize(Path.GetDirectoryName(item.Info.FullName)!);
+                                string expectedRootId = "";
+                                bool moved = false;
+
+                                try
+                                {
+                                    if (!repairPathCache.TryGetValue(physDir, out expectedRootId!))
+                                    {
+                                        expectedRootId = _db.GetOrCreateHierarchy(connection, transaction, item.RootId, item.RootPath, physDir);
+                                        repairPathCache[physDir] = expectedRootId;
+                                    }
+                                    
+                                    if (currentRootId != expectedRootId)
+                                    {
+                                        _logger.LogInformation("[Repair] FIXED: {Name} (Moved {Old} -> {New})", item.Info.Name, currentRootId, expectedRootId);
+                                        _db.TouchFileWithRoot((SqliteConnection)connection, (SqliteTransaction)transaction!, fileId, expectedRootId, runTimestamp);
+                                        Interlocked.Increment(ref totalMoved);
+                                        moved = true;
+                                    }
+                                    else
+                                    {
+                                        _db.TouchFile((SqliteConnection)connection, (SqliteTransaction)transaction!, fileId, runTimestamp);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "[Repair] Failed to process file {Id}", fileId);
+                                }
+
+                                int processed = Interlocked.Increment(ref totalProcessed);
+                                if (processed % 100 == 0 || moved)
+                                {
+                                    _ = _broadcast(new { type = "repair.progress", repair_proc = processed, repair_mov = totalMoved });
+                                }
+
+                                if (processed % 1000 == 0)
+                                {
+                                    _ = _broadcast(new { type = "library.updated" });
+                                }
+                            }
+                        }
+                    });
+                    pendingBatch.Clear();
+                }
+
+                await foreach (var item in fileChannel.Reader.ReadAllAsync(cts.Token))
+                {
+                    var info = item.Info;
+                    var key = (info.Name.ToLowerInvariant(), info.Length, info.CreationTime.ToString("o"));
+
+                    if (globalDbFiles.TryGetValue(key, out var ids))
+                    {
+                        pendingBatch.Add((item.Info, item.RootId, item.RootPath, ids));
+                        if (pendingBatch.Count >= 100) // Small batches to keep UI responsive
+                        {
+                            await ProcessBatch();
+                        }
+                    }
+                }
+
+                await ProcessBatch(); // Final batch
+
+                await producer; 
+
+                _logger.LogInformation("[Repair] Job finished. Processed: {Processed}, Relocated: {Moved}", totalProcessed, totalMoved);
+                
+                _ = _broadcast(new { type = "repair.finished", repair_proc = totalProcessed, repair_mov = totalMoved });
+                _ = _broadcast(new { type = "ui.notification", message = $"Repair finished: {deduped} folders merged, {totalMoved} files relocated.", status = "success" });
+                _ = _broadcast(new { type = "library.updated" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Repair] Job failed");
+                _ = _broadcast(new { type = "ui.notification", message = "Repair job failed.", status = "error" });
+            }
+            finally
+            {
+                _activeTasks.TryRemove(taskId, out _);
+            }
+        });
+    }
+
     public ApplicationSettingsResponse GetApplicationSettings()
     {
         var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "Unknown";
@@ -414,11 +631,11 @@ public class CommunicationLayer : ICommunicationLayer
 
     public LibraryInfoResponse GetLibraryInfo()
     {
-        var info = _db.GetLibraryInfo(_pm.DbPath, _configPath);
+        var info = _db.GetLibraryInfo(_previewManager.DbPath, _configPath);
         info.IsIndexing = ImageIndexer.IsIndexing;
         info.IndexedCount = ImageIndexer.IndexedCount;
         info.TotalToIndex = ImageIndexer.TotalToIndex;
-        info.TotalThumbnailedImages = _pm.GetTotalUniqueHashes();
+        info.TotalThumbnailedImages = _previewManager.GetTotalUniqueHashes();
 
         try
         {
@@ -466,7 +683,7 @@ public class CommunicationLayer : ICommunicationLayer
             }
 
             AddFile(_db.DbPath, "cameras.db");
-            AddFile(_pm.DbPath, "previews.db");
+            AddFile(_previewManager.DbPath, "previews.db");
 
             return new RpcResult<string>(fullPath);
         }
@@ -561,7 +778,7 @@ public class CommunicationLayer : ICommunicationLayer
             }
             else
             {
-                string abs = PathUtils.ResolvePath(path);
+                string abs = _pathManager.Normalize(path);
                 if (!Directory.Exists(abs)) return new List<DirectoryResponse>();
                 dirs = Directory.GetDirectories(abs).Where(d => 
                 {
@@ -606,7 +823,7 @@ public class CommunicationLayer : ICommunicationLayer
 
         try
         {
-            string absPath = PathUtils.ResolvePath(path);
+            string absPath = _pathManager.Normalize(path);
             _logger.LogInformation("[FSFind] Scanning path: {AbsPath} (Limit: {Limit}, Skip: {SkipCount})", absPath, limit, skipFiles.Count);
             
             if (!Directory.Exists(absPath)) return new List<ScanFileResult>();
@@ -618,7 +835,7 @@ public class CommunicationLayer : ICommunicationLayer
                 var targetNode = FindNodeRecursive(tree, targetRootId);
                 if (targetNode != null && !string.IsNullOrEmpty(targetNode.Path))
                 {
-                    absTargetRoot = PathUtils.ResolvePath(targetNode.Path);
+                    absTargetRoot = _pathManager.Normalize(targetNode.Path);
                 }
             }
 
@@ -626,10 +843,20 @@ public class CommunicationLayer : ICommunicationLayer
             var stack = new Stack<string>();
             stack.Push(absPath);
 
+            var ignoredDirs = GetIgnoredDirectories();
+
             while (stack.Count > 0 && foundFiles.Count < limit)
             {
                 if (cts.Token.IsCancellationRequested) break;
                 string currentDir = stack.Pop();
+
+                // Skip ignored directories
+                if (ignoredDirs.Any(ignored => currentDir.StartsWith(ignored, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogDebug("[FSFind] Skipping ignored directory: {Dir}", currentDir);
+                    continue;
+                }
+
                 try
                 {
                     foreach (string dir in Directory.EnumerateDirectories(currentDir))
@@ -644,7 +871,7 @@ public class CommunicationLayer : ICommunicationLayer
                         if (cts.Token.IsCancellationRequested) break;
                         if (TableConstants.SupportedExtensions.Contains(Path.GetExtension(file)))
                         {
-                            var relPath = Path.GetRelativePath(absPath, file);
+                            var relPath = _pathManager.GetRelativePath(absPath, file);
                             
                             // Optimization: Skip files we already have
                             if (skipFiles.Contains(relPath)) continue;
@@ -697,7 +924,7 @@ public class CommunicationLayer : ICommunicationLayer
         }
     }
 
-    public List<string> FindNewFiles(NameRequest req)
+    public async Task<List<string>> FindNewFiles(NameRequest req)
     {
         if (string.IsNullOrEmpty(req.name)) return new List<string>();
 
@@ -716,7 +943,7 @@ public class CommunicationLayer : ICommunicationLayer
 
         try
         {
-            string absPath = PathUtils.ResolvePath(path);
+            string absPath = _pathManager.Normalize(path);
             _logger.LogInformation("[FindNew] Scanning path: {Path} (Resolved: {AbsPath})", path, absPath);
 
             if (!Directory.Exists(absPath)) 
@@ -725,41 +952,51 @@ public class CommunicationLayer : ICommunicationLayer
                 return new List<string>();
             }
             
-            // Use specific EnumerationOptions to ignore inaccessible files if possible (Available in .NET 6+)
+            // Use optimized recursive enumeration
             var options = new EnumerationOptions { 
                 IgnoreInaccessible = true, 
                 RecurseSubdirectories = true,
                 AttributesToSkip = FileAttributes.Hidden | FileAttributes.System 
             };
 
-            var enumerator = Directory.EnumerateFiles(absPath, "*", options)
-                .Where(f => TableConstants.SupportedExtensions.Contains(Path.GetExtension(f)));
-
             var newFiles = new List<string>();
+            var ignoredDirs = GetIgnoredDirectories();
+            
+            // Open shared connection for global existence check
             using var connection = new SqliteConnection($"Data Source={_db.DbPath}");
-            connection.Open();
+            await connection.OpenAsync();
 
             int checkedCount = 0;
-            foreach (var file in enumerator)
+            // Single recursive stream is much faster on SMB than manual BFS
+            foreach (var file in Directory.EnumerateFiles(absPath, "*", options))
             {
                 if (cts.Token.IsCancellationRequested) break;
+                if (!TableConstants.SupportedExtensions.Contains(Path.GetExtension(file))) continue;
+
+                // Check if file is in an ignored directory
+                if (ignoredDirs.Any(ignored => file.StartsWith(ignored, StringComparison.OrdinalIgnoreCase))) continue;
+
                 checkedCount++;
-                var fullFile = Path.GetFullPath(file);
+                var fullFile = _pathManager.Normalize(file);
+                
+                // Use global check to handle cases where file might be indexed under a different root branch
                 if (!_db.FileExists(fullFile, connection))
                 {
-                    string relPath = Path.GetRelativePath(absPath, fullFile);
+                    string relPath = _pathManager.GetRelativePath(absPath, fullFile);
                     newFiles.Add(relPath);
                     _ = _broadcast(new { type = "find-new.file-found", path = relPath });
                 }
+                
                 if (newFiles.Count >= limit) break;
+                if (checkedCount % 1000 == 0) _logger.LogDebug("[FindNew] Checked {Count} files...", checkedCount);
             }
-            
-            _logger.LogInformation("[FindNew] Scanned {Checked} files, found {New} new.", checkedCount, newFiles.Count);
+
+            _logger.LogInformation("[FindNew] Finished. Checked {Checked} files, found {New} new.", checkedCount, newFiles.Count);
             return newFiles;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[FindNew] Error scanning {Path}", path);
+            _logger.LogError(ex, "[FindNew] Error scanning directory: {Path}", path);
             return new List<string>();
         }
         finally
@@ -797,7 +1034,7 @@ public class CommunicationLayer : ICommunicationLayer
              return new ValidateImportResponse();
         }
 
-        string absRoot = PathUtils.ResolvePath(root.Path);
+        string absRoot = _pathManager.Normalize(root.Path);
         Console.WriteLine($"[Validate] Checking {req.items.Count} items in {absRoot}");
         
         var existing = new HashSet<string>(); 
@@ -919,14 +1156,15 @@ public class CommunicationLayer : ICommunicationLayer
                 if (req.generateLow) sizes.Add(300);
                 if (req.generateMedium) sizes.Add(1024);
 
-                IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
+                IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_previewManager, sizes.ToArray());
                 indexer.RegisterFileProcessedHandler((id, path) => 
                 {
+                    _logger?.LogDebug("[BATCH] Broadcast file.imported for {Path}", path);
                     string? fileRootId = _db.GetFileRootId(id);
                     _ = _broadcast(new { type = "file.imported", fileEntryId = id, path, rootId = fileRootId });
                 });
                 
-                string absRoot = PathUtils.ResolvePath(req.rootPath);
+                string absRoot = _pathManager.Normalize(req.rootPath);
                 _logger?.LogInformation("[BATCH] Resolved Root: {AbsRoot}", absRoot);
                 
                 int count = 0;
@@ -991,12 +1229,12 @@ public class CommunicationLayer : ICommunicationLayer
                 var targetRoot = FindNodeRecursive(tree, req.targetRootId);
                 if (targetRoot == null) { _logger?.LogError("[IMPORT] Target root not found: {Id}", req.targetRootId); return; }
 
-                string absTargetRoot = PathUtils.ResolvePath(targetRoot.Path!);
-                string absSourceRoot = PathUtils.ResolvePath(req.sourceRoot);
+                string absTargetRoot = _pathManager.Normalize(targetRoot.Path!);
+                string absSourceRoot = _pathManager.Normalize(req.sourceRoot);
                 var sizes = new List<int>();
                 if (req.generatePreview) { sizes.Add(300); sizes.Add(1024); }
 
-                IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_pm, sizes.ToArray());
+                IImageIndexer indexer = new ImageIndexer((DatabaseManager)_db, _loggerFactory.CreateLogger<ImageIndexer>(), (PreviewManager)_previewManager, sizes.ToArray());
                 var filesToCleanup = new ConcurrentBag<string>();
 
                 // Channel for items ready to be processed and then committed
@@ -1004,7 +1242,11 @@ public class CommunicationLayer : ICommunicationLayer
                     FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait
                 });
 
-                // STAGE 1: Producer (Hash, Metadata, Previews) - RUNS WITHOUT DB LOCK
+                // Open a shared connection for hierarchy resolution to avoid repeated overhead
+                using var sharedConn = new SqliteConnection($"Data Source={_db.DbPath}");
+                await sharedConn.OpenAsync(token);
+
+                // STAGE 1: Producer (Hierarchy, Hash, Metadata, Previews) - RUNS WITHOUT DB LOCK
                 var processingTask = Task.Run(async () => {
                     try {
                         foreach (var sourceFile in req.sourceFiles)
@@ -1034,12 +1276,18 @@ public class CommunicationLayer : ICommunicationLayer
                                     continue;
                                 }
 
+                                // 1. Ensure the hierarchy exists in the database first so we get the correct RootPathId
+                                string targetDirPath = _pathManager.GetDirectoryPath(targetPath);
+                                using var trans = sharedConn.BeginTransaction();
+                                string actualRootId = _db.GetOrCreateHierarchy(sharedConn, trans, req.targetRootId, absTargetRoot, targetDirPath);
+                                trans.Commit();
+
                                 _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = sourceFile, status = "thumbnailing", percent = 10 });
                                 
-                                // ALL HEAVY WORK HAPPENS HERE (No lock held)
-                                var fileData = indexer.PrepareFileData(new FileInfo(absSource), targetPath, req.targetRootId);
+                                // 2. ALL HEAVY WORK HAPPENS HERE (No lock held)
+                                var fileData = indexer.PrepareFileData(new FileInfo(absSource), targetPath, actualRootId, null, req.preventDuplicateHash);
 
-                                if (req.preventDuplicateHash && _db.FileExistsByHash(fileData.Entry.Hash!)) {
+                                if (req.preventDuplicateHash && _db.FileExistsByHashWithConnection(sharedConn, null, fileData.Entry.Hash!)) {
                                     _ = _broadcast(new { type = "import.file.finished", taskId, sourcePath = sourceFile, success = false, error = "Skipped (Duplicate Hash)" });
                                     continue;
                                 }
@@ -1077,6 +1325,8 @@ public class CommunicationLayer : ICommunicationLayer
                         try {
                             await _db.ExecuteWriteAsync(async (dbConn, transaction) => {
                                 _ = _broadcast(new { type = "import.file.progress", taskId, sourcePath = rel, status = "indexing", percent = 50 });
+                                
+                                // Hierarchy was already resolved in Stage 1, but we pass it anyway to ensure consistency
                                 indexer.CommitFileDataWithConnection(dbConn, transaction, fileData, dst, absTargetRoot, req.targetRootId);
                                 await Task.CompletedTask;
                             });
@@ -1213,7 +1463,7 @@ public class CommunicationLayer : ICommunicationLayer
                     processed++;
                     
                     string? hash = _db.GetFileHash(fId);
-                    bool alreadyExists = hash != null && _pm.HasPreview(hash, 300) && _pm.HasPreview(hash, 1024);
+                    bool alreadyExists = hash != null && _previewManager.HasPreview(hash, 300) && _previewManager.HasPreview(hash, 1024);
 
                     if (alreadyExists && !req.force)
                     {
@@ -1223,7 +1473,7 @@ public class CommunicationLayer : ICommunicationLayer
                     {
                         if (req.force && hash != null)
                         {
-                            _pm.DeletePreviewsByHash(hash);
+                            _previewManager.DeletePreviewsByHash(hash);
                         }
                         enqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
                         enqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001 }, cts.Token);
@@ -1258,7 +1508,7 @@ public class CommunicationLayer : ICommunicationLayer
         string? hash = _db.GetFileHash(req.fileEntryId);
         if (hash != null)
         {
-            _pm.DeletePreviewsByHash(hash);
+            _previewManager.DeletePreviewsByHash(hash);
         }
         
         enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
@@ -1277,7 +1527,7 @@ public class CommunicationLayer : ICommunicationLayer
                 _logger?.LogInformation("Deleting previews for {Count} unique hashes in root {RootId}", hashes.Count, req.rootId);
                 foreach (var hash in hashes)
                 {
-                    _pm.DeletePreviewsByHash(hash);
+                    _previewManager.DeletePreviewsByHash(hash);
                 }
             }
 
@@ -1384,6 +1634,18 @@ public class CommunicationLayer : ICommunicationLayer
         string? fullPath = _db.GetFullFilePath(fileEntryId);
         if (fullPath == null || !File.Exists(fullPath)) return null;
         return new PhysicalFileResult(fullPath, Path.GetFileName(fullPath));
+    }
+
+    private HashSet<string> GetIgnoredDirectories()
+    {
+        var ignoredJson = _db.GetSetting("ignored-directories");
+        if (string.IsNullOrEmpty(ignoredJson)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<string>>(ignoredJson);
+            return new HashSet<string>(list ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
     }
 
     private static MagickFormat GetMagickFormat(string path)

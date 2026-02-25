@@ -21,6 +21,7 @@ export interface LibraryImportProps {
     fsRoots: FSNode[];
     onFsToggle: (node: FSNode) => void;
     onSelect: (path: string) => void;
+    onFsContextMenu: (e: MouseEvent, path: string) => void;
     onScanPathChange: (path: string) => void;
     currentScanPath: string;
     scanLimit: number;
@@ -54,7 +55,7 @@ export interface LibraryImportProps {
 
 export function LibraryImport(props: LibraryImportProps): VNode {
     const { 
-        fsRoots, onFsToggle, onSelect, onScanPathChange, currentScanPath, scanLimit, onScanLimitChange, onFindLocal, onCancelScan, isScanning, isValidating, 
+        fsRoots, onFsToggle, onSelect, onFsContextMenu, onScanPathChange, currentScanPath, scanLimit, onScanLimitChange, onFindLocal, onCancelScan, isScanning, isValidating, 
         scanResults, selectedFiles, existingFiles, onToggleFile, onSelectAll, onClear, hideDuplicates, onHideDuplicatesChange,
         settings, onSettingsChange, 
         importLocationsExpanded, onToggleImportLocation, registeredRoots,
@@ -131,6 +132,7 @@ export function LibraryImport(props: LibraryImportProps): VNode {
                             roots={fsRoots}
                             onToggle={onFsToggle}
                             onSelect={onSelect}
+                            onContextMenu={onFsContextMenu}
                             selectedPath={currentScanPath}
                         />
                     </div>

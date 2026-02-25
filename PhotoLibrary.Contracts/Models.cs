@@ -12,6 +12,7 @@ public class FileEntry
     public DateTime CreatedAt { get; set; }
     public DateTime ModifiedAt { get; set; }
     public string? Hash { get; set; }
+    public int RecordTouched { get; set; }
 }
 
 public class MetadataItem

@@ -105,7 +105,9 @@ public class IndexerTests : TestBase
         // Arrange
         var db = new DatabaseManager(DbPath, LoggerFactory.CreateLogger<DatabaseManager>());
         db.Initialize();
-        var indexer = new ImageIndexer(db, LoggerFactory.CreateLogger<ImageIndexer>());
+        var pm = new PreviewManager(PreviewDbPath, LoggerFactory.CreateLogger<PreviewManager>());
+        pm.Initialize();
+        var indexer = new ImageIndexer(db, LoggerFactory.CreateLogger<ImageIndexer>(), pm, new[] { 300 });
         
         string content = "fake image data content";
         

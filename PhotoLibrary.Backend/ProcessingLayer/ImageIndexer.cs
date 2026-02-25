@@ -18,6 +18,7 @@ public class ImageIndexer : IImageIndexer
     public static int TotalToIndex { get; private set; }
 
     private readonly DatabaseManager _db;
+    private readonly PathManager _pm = new();
     private readonly PreviewManager? _previewManager;
     private readonly int[] _longEdges;
     private readonly ILogger<ImageIndexer> _logger;
@@ -195,47 +196,44 @@ public class ImageIndexer : IImageIndexer
 
         string? dirPath = Path.GetDirectoryName(targetPath);
         if (dirPath == null) return false;
-        dirPath = Path.GetFullPath(dirPath);
+        dirPath = _pm.Normalize(dirPath);
+        string normalizedScanRoot = _pm.Normalize(scanRootPath);
 
         var (exists, lastIndexedModified) = _db.GetExistingFileStatus(targetPath, _sharedConnection);
         if (exists && lastIndexedModified.HasValue && Math.Abs((sourceFile.LastWriteTime - lastIndexedModified.Value).TotalSeconds) < 1)
         {
+            // Already up to date, but we still need to notify the UI so it can turn green
+            var fileId = _db.GetFileIdByPath(targetPath);
+            if (fileId != null) {
+                _onFileProcessed?.Invoke(fileId, targetPath);
+            }
             return false; 
         }
 
         string rootPathId;
-        if (dirPath == scanRootPath)
+        if (!_pathCache.TryGetValue(dirPath, out rootPathId!))
         {
-            rootPathId = scanRootId;
-        }
-        else
-        {
-            if (!_pathCache.TryGetValue(dirPath, out rootPathId!))
+            bool ownTransaction = false;
+            if (_sharedTransaction == null)
             {
-                if (dirPath.StartsWith(scanRootPath))
-                {
-                    string relative = Path.GetRelativePath(scanRootPath, dirPath);
-                    string[] parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-                    
-                    string currentId = scanRootId;
-                    string currentPath = scanRootPath;
+                _sharedTransaction = _sharedConnection!.BeginTransaction();
+                ownTransaction = true;
+            }
 
-                    foreach (var part in parts)
-                    {
-                        currentPath = Path.Combine(currentPath, part);
-                        if (_pathCache.TryGetValue(currentPath, out string? cachedId))
-                        {
-                            currentId = cachedId;
-                        }
-                        else
-                        {
-                            currentId = _db.GetOrCreateChildRootWithConnection(_sharedConnection!, _sharedTransaction, currentId, part);
-                            _pathCache[currentPath] = currentId;
-                        }
-                    }
-                    rootPathId = currentId;
-                }
-                else return false; 
+            try
+            {
+                rootPathId = _db.GetOrCreateHierarchy(_sharedConnection!, _sharedTransaction!, scanRootId, normalizedScanRoot, dirPath);
+                _pathCache[dirPath] = rootPathId;
+                if (ownTransaction) _sharedTransaction.Commit();
+            }
+            catch
+            {
+                if (ownTransaction) _sharedTransaction.Rollback();
+                throw;
+            }
+            finally
+            {
+                if (ownTransaction) _sharedTransaction = null;
             }
         }
 
@@ -245,6 +243,7 @@ public class ImageIndexer : IImageIndexer
             CommitFileDataWithConnection(_sharedConnection!, _sharedTransaction, data, targetPath, scanRootPath, scanRootId);
             
             // Notify UI only after everything is ready (DB + Previews)
+            _logger.LogDebug("[INDEXER] Invoking _onFileProcessed for {Path}. Handler null? {IsNull}", targetPath, _onFileProcessed == null);
             _onFileProcessed?.Invoke(data.Entry.Id, targetPath);
 
             _processedSinceCleanup++;
@@ -263,7 +262,7 @@ public class ImageIndexer : IImageIndexer
         }
     }
 
-    public ProcessedFileData PrepareFileData(FileInfo sourceFile, string targetPath, string targetRootId, string? providedHash = null)
+    public ProcessedFileData PrepareFileData(FileInfo sourceFile, string targetPath, string targetRootId, string? providedHash = null, bool forceHash = false)
     {
         using var fs = sourceFile.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
         using var stream = new ReadTrackingStream(fs, b => RuntimeStatistics.Instance.RecordBytesReceived(b));
@@ -278,9 +277,9 @@ public class ImageIndexer : IImageIndexer
 
         bool needsThumbnails = _previewManager != null && _longEdges.Length > 0;
 
-        if (hash == null && needsThumbnails)
+        if (hash == null && (needsThumbnails || forceHash))
         {
-            // If we need thumbnails, we MUST have a hash for the preview database key.
+            // If we need thumbnails or force hash, we MUST have a hash.
             stream.Position = 0;
             hash = CalculateHash(stream);
         }
@@ -306,7 +305,8 @@ public class ImageIndexer : IImageIndexer
 
     public void CommitFileDataWithConnection(System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction, ProcessedFileData data, string targetPath, string scanRootPath, string scanRootId)
     {
-        string actualRootId = GetOrCreatePathHierarchy(targetPath, scanRootPath, scanRootId, connection, transaction);
+        string targetDirPath = _pm.GetDirectoryPath(targetPath);
+        string actualRootId = _db.GetOrCreateHierarchy((SqliteConnection)connection, (SqliteTransaction)transaction!, scanRootId, scanRootPath, targetDirPath);
         data.Entry.RootPathId = actualRootId;
 
         _db.UpsertFileEntryWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, data.Entry);
@@ -337,44 +337,6 @@ public class ImageIndexer : IImageIndexer
             }
             _processedSinceCleanup = 0;
         }
-    }
-
-    private string GetOrCreatePathHierarchy(string targetPath, string scanRootPath, string scanRootId, System.Data.Common.DbConnection connection, System.Data.Common.DbTransaction? transaction)
-    {
-        string? dirPath = Path.GetDirectoryName(targetPath);
-        if (dirPath == null) return scanRootId;
-        dirPath = Path.GetFullPath(dirPath);
-        string fullScanPath = Path.GetFullPath(scanRootPath);
-
-        if (dirPath == fullScanPath) return scanRootId;
-
-        if (_pathCache.TryGetValue(dirPath, out string? cachedId)) return cachedId;
-
-        if (dirPath.StartsWith(fullScanPath))
-        {
-            string relative = Path.GetRelativePath(fullScanPath, dirPath);
-            string[] parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-            
-            string currentId = scanRootId;
-            string currentPath = fullScanPath;
-
-            foreach (var part in parts)
-            {
-                currentPath = Path.Combine(currentPath, part);
-                if (_pathCache.TryGetValue(currentPath, out string? stepCachedId))
-                {
-                    currentId = stepCachedId;
-                }
-                else
-                {
-                    currentId = _db.GetOrCreateChildRootWithConnection((SqliteConnection)connection, (SqliteTransaction?)transaction, currentId, part);
-                    _pathCache[currentPath] = currentId;
-                }
-            }
-            return currentId;
-        }
-
-        return scanRootId;
     }
 
     private string CalculateHash(Stream stream)
@@ -489,7 +451,8 @@ public class ImageIndexer : IImageIndexer
         try
         {
             _currentProcess.Refresh();
-            _logger.LogDebug("[MAGICK] Indexer Loading {FileName}. Process Mem: {Memory}MB", fileName, _currentProcess.WorkingSet64 / 1024 / 1024);
+            long memBefore = _currentProcess.WorkingSet64 / 1024 / 1024;
+            _logger.LogDebug("[MAGICK] Indexer Loading {FileName}. Process Mem: {Memory}MB", fileName, memBefore);
             
             var settings = new MagickReadSettings {
                 Format = format
@@ -497,7 +460,11 @@ public class ImageIndexer : IImageIndexer
 
             using (var image = new MagickImage(sourceStream, settings))
             {
-                _logger.LogDebug("Loaded {FileName}. Size: {W}x{H} (Format: {Format})", fileName, image.Width, image.Height, settings.Format);
+                _currentProcess.Refresh();
+                long memAfter = _currentProcess.WorkingSet64 / 1024 / 1024;
+                _logger.LogDebug("[MAGICK] Loaded {FileName}. Size: {W}x{H} (Format: {Format}). Process Mem: {Before}MB -> {After}MB (+{Diff}MB)", 
+                    fileName, image.Width, image.Height, settings.Format, memBefore, memAfter, memAfter - memBefore);
+                
                 image.AutoOrient();
                 foreach (var size in _longEdges)
                 {

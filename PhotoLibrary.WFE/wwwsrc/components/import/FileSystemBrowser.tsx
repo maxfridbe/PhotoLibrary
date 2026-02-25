@@ -13,6 +13,7 @@ export interface FileSystemBrowserProps {
     roots: FSNode[];
     onToggle: (node: FSNode) => void;
     onSelect: (path: string) => void;
+    onContextMenu: (e: MouseEvent, path: string) => void;
     selectedPath: string;
 }
 
@@ -37,7 +38,8 @@ export function FileSystemBrowser(props: FileSystemBrowserProps): VNode {
                         color: isSelected ? 'var(--text-bright)' : 'var(--text-main)'
                     }}
                     on={{ 
-                        click: (e: MouseEvent) => { e.stopPropagation(); props.onSelect(node.path); }
+                        click: (e: MouseEvent) => { e.stopPropagation(); props.onSelect(node.path); },
+                        contextmenu: (e: MouseEvent) => { e.preventDefault(); props.onContextMenu(e, node.path); }
                     }}
                 >
                     <span 

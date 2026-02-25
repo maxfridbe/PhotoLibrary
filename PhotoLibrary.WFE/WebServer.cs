@@ -29,7 +29,7 @@ public static class WebServer
 
     public static async Task StartAsync(int port, IDatabaseManager dbManager, IPreviewManager previewManager, ICameraManager cameraManager, ILoggerFactory loggerFactory, string bindAddr = "localhost", string configPath = "", string runtimeMode = "WebHost", string mapTilesPath = "")
     {
-        _logger = loggerFactory.CreateLogger("WebServer");
+        _logger = loggerFactory.CreateLogger("PhotoLibrary.WebServer");
 
         _logger.LogInformation("ImageMagick Resource Limits: Memory={Mem}MB, Area={Area}MB", 
             ResourceLimits.Memory / 1024 / 1024,
@@ -141,7 +141,7 @@ public static class WebServer
 
         app.MapPost("/api/fs/find-files", (FindFilesRequest req) => Results.Ok(_commLayer?.FindFiles(req)));
 
-        app.MapPost("/api/library/find-new-files", (NameRequest req) => Results.Ok(_commLayer?.FindNewFiles(req)));
+        app.MapPost("/api/library/find-new-files", async (NameRequest req) => Results.Ok(await _commLayer?.FindNewFiles(req)!));
 
         app.MapPost("/api/library/validate-import", (ValidateImportRequest req) => Results.Ok(_commLayer?.ValidateImport(req)));
 
@@ -172,6 +172,11 @@ public static class WebServer
 
         app.MapPost("/api/library/forget-root", (ForgetRootRequest req) => {
             _commLayer?.ForgetRoot(req);
+            return Results.Ok();
+        });
+
+        app.MapPost("/api/library/repair", () => {
+            _commLayer?.RunRepairJob();
             return Results.Ok();
         });
 

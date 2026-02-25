@@ -41,6 +41,7 @@ export interface EventMap {
     [ps.IMPORT_VALIDATION_RESULT]: { path: string, exists: boolean };
     [ps.CONNECTION_CHANGED]: { connected: boolean, connecting: boolean };
     [ps.RUNTIME_STATS]: { memoryBytes: number, sentBytesPerSec: number, recvBytesPerSec: number };
+    [ps.FS_CONTEXT_MENU]: { event: MouseEvent, path: string };
 }
 
 type Callback<T> = (data: T) => void;

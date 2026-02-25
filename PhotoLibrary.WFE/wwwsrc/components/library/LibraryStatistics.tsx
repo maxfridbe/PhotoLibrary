@@ -2,18 +2,34 @@
 import { jsx, VNode } from '../../snabbdom-setup.js';
 import * as Res from '../../Responses.generated.js';
 
-export function LibraryStatistics(info: Res.LibraryInfoResponse | null, isBackingUp: boolean = false, onBackup?: () => void): VNode {
+export function LibraryStatistics(
+    info: Res.LibraryInfoResponse | null, 
+    isBackingUp: boolean = false, 
+    onBackup?: () => void,
+    isRepairing: boolean = false,
+    repairProcessed: number = 0,
+    repairMoved: number = 0,
+    onRepair?: () => void
+): VNode {
     return (
         <div 
             class={{ 'lib-pane': true }}
             style={{ display: 'flex', flexDirection: 'column', gap: '1.5em', overflowY: 'overlay' as any, boxSizing: 'border-box', height: '100%', padding: '1em' }}
         >
-            {info ? renderStats(info, isBackingUp, onBackup) : <div>Loading statistics...</div>}
+            {info ? renderStats(info, isBackingUp, onBackup, isRepairing, repairProcessed, repairMoved, onRepair) : <div>Loading statistics...</div>}
         </div>
     );
 }
 
-function renderStats(info: Res.LibraryInfoResponse, isBackingUp: boolean, onBackup?: () => void) {
+function renderStats(
+    info: Res.LibraryInfoResponse, 
+    isBackingUp: boolean, 
+    onBackup?: () => void,
+    isRepairing: boolean = false,
+    repairProcessed: number = 0,
+    repairMoved: number = 0,
+    onRepair?: () => void
+) {
     const item = (label: string, val: string | number, sub?: string) => (
         <div style={{ marginBottom: '1.2em' }}>
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85em', fontWeight: 'bold', marginBottom: '0.3em' }}>{label}</div>
@@ -70,6 +86,27 @@ function renderStats(info: Res.LibraryInfoResponse, isBackingUp: boolean, onBack
                         on={{ click: onBackup || (() => {}) }}
                     >
                         Backup Databases
+                    </button>
+                )}
+            </div>
+
+            <div style={{ marginTop: '1em' }}>
+                {isRepairing ? (
+                    <div>
+                        <div style={{ marginBottom: '0.5em', fontSize: '0.85em', color: 'var(--text-muted)' }}>
+                            Relocated: {repairMoved} | Processed: {repairProcessed}
+                        </div>
+                        <div style={{ width: '100%', height: '1.5em', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-light)', position: 'relative' }}>
+                            <div class={{ 'barber-pole': true }} style={{ width: '100%', height: '100%', backgroundColor: 'var(--accent)' }} />
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        style={{ width: '100%', padding: '0.65em', cursor: 'pointer', background: 'var(--bg-panel-alt)', color: 'var(--text-bright)', border: '1px solid var(--border-light)', borderRadius: '4px', fontWeight: '600' }}
+                        on={{ click: onRepair || (() => {}) }}
+                        attrs={{ title: 'Scans disk to fix folders for files that were imported incorrectly' }}
+                    >
+                        Repair Folder Structure
                     </button>
                 )}
             </div>
