@@ -177,7 +177,7 @@ public class DatabaseTests : TestBase
         var metadata = db.GetMetadata(fileId).ToList();
         var item = metadata.FirstOrDefault(m => m.Tag == "LongTag");
         Assert.NotNull(item);
-        Assert.Equal(100, item.Value!.Length);
+        Assert.Equal(150, item.Value!.Length);
     }
 
     [Fact]

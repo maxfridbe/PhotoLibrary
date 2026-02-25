@@ -65,9 +65,7 @@ public static class TableConstants
         public static class Metadata
         {
             public const string FileId = "FileId";
-            public const string Directory = "Directory";
-            public const string Tag = "Tag";
-            public const string Value = "Value";
+            public const string Data = "Data";
         }
 
         public static class ImagesPicked

@@ -6,6 +6,7 @@ using System.IO.Hashing;
 using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using static PhotoLibrary.Backend.TableConstants;
 
 namespace PhotoLibrary.Backend;
@@ -130,10 +131,8 @@ public class DatabaseManager : IDatabaseManager
                 UNIQUE({Column.FileEntry.RootPathId}, {Column.FileEntry.FileName})
             );",
             $@"CREATE TABLE IF NOT EXISTS {TableName.Metadata} (
-                {Column.Metadata.FileId} TEXT,
-                {Column.Metadata.Directory} TEXT,
-                {Column.Metadata.Tag} TEXT,
-                {Column.Metadata.Value} TEXT,
+                {Column.Metadata.FileId} TEXT PRIMARY KEY,
+                {Column.Metadata.Data} TEXT,
                 FOREIGN KEY({Column.Metadata.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
             );",
             $@"CREATE TABLE IF NOT EXISTS {TableName.ImagesPicked} (
@@ -161,7 +160,6 @@ public class DatabaseManager : IDatabaseManager
                 {Column.Settings.Key} TEXT PRIMARY KEY,
                 {Column.Settings.Value} TEXT
             );",
-            $@"CREATE INDEX IF NOT EXISTS IDX_Metadata_FileId ON {TableName.Metadata}({Column.Metadata.FileId});",
             $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_CreatedAt ON {TableName.FileEntry}({Column.FileEntry.CreatedAt});",
             $@"CREATE INDEX IF NOT EXISTS IDX_FileEntry_RootPathId ON {TableName.FileEntry}({Column.FileEntry.RootPathId});"
         };
@@ -174,6 +172,137 @@ public class DatabaseManager : IDatabaseManager
                 command.ExecuteNonQuery();
             }
         }
+
+        // --- Migration: Row-based Metadata to JSON-based ---
+        try
+        {
+            bool needsMigration = false;
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.CommandText = "PRAGMA table_info(Metadata);";
+                using var reader = checkCmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    if (reader.GetString(1) == "Directory") { needsMigration = true; break; }
+                }
+            }
+
+            if (needsMigration)
+            {
+                _logger?.LogInformation("[DB] Migrating Metadata table to JSON format (this may take a while)...");
+                
+                // 1. Rename old table
+                using (var renameCmd = connection.CreateCommand())
+                {
+                    renameCmd.CommandText = "ALTER TABLE Metadata RENAME TO Metadata_Old;";
+                    renameCmd.ExecuteNonQuery();
+                }
+
+                // 2. Create new table (already handled by 'schema' loop above if we did it right, but let's be explicit)
+                using (var createCmd = connection.CreateCommand())
+                {
+                    createCmd.CommandText = $@"CREATE TABLE Metadata (
+                        {Column.Metadata.FileId} TEXT PRIMARY KEY,
+                        {Column.Metadata.Data} TEXT,
+                        FOREIGN KEY({Column.Metadata.FileId}) REFERENCES {TableName.FileEntry}({Column.FileEntry.Id})
+                    );";
+                    createCmd.ExecuteNonQuery();
+                }
+
+                // 3. Perform Migration in batches to avoid locking issues
+                var fileIds = new List<string>();
+                using (var getIds = connection.CreateCommand())
+                {
+                    getIds.CommandText = "SELECT DISTINCT FileId FROM Metadata_Old;";
+                    using var reader = getIds.ExecuteReader();
+                    while (reader.Read()) fileIds.Add(reader.GetString(0));
+                }
+
+                _logger?.LogInformation("[DB] Processing {Count} files for metadata migration...", fileIds.Count);
+                int count = 0;
+                var batchSize = 1000;
+                for (int i = 0; i < fileIds.Count; i += batchSize)
+                {
+                    var batch = fileIds.Skip(i).Take(batchSize).ToList();
+                    using var transaction = connection.BeginTransaction();
+                    try
+                    {
+                        foreach (var fId in batch)
+                        {
+                            var data = new Dictionary<string, Dictionary<string, string>>();
+                            using (var getRows = connection.CreateCommand())
+                            {
+                                getRows.Transaction = transaction;
+                                getRows.CommandText = "SELECT Directory, Tag, Value FROM Metadata_Old WHERE FileId = $Id;";
+                                getRows.Parameters.AddWithValue("$Id", fId);
+                                using var reader = getRows.ExecuteReader();
+                                while (reader.Read())
+                                {
+                                    string dir = reader.GetString(0);
+                                    string tag = reader.GetString(1);
+                                    string val = reader.GetString(2);
+                                    if (!data.ContainsKey(dir)) data[dir] = new Dictionary<string, string>();
+                                    data[dir][tag] = val;
+                                }
+                            }
+
+                            using (var insert = connection.CreateCommand())
+                            {
+                                insert.Transaction = transaction;
+                                insert.CommandText = "INSERT INTO Metadata (FileId, Data) VALUES ($Id, $Data);";
+                                insert.Parameters.AddWithValue("$Id", fId);
+                                insert.Parameters.AddWithValue("$Data", JsonSerializer.Serialize(data));
+                                insert.ExecuteNonQuery();
+                            }
+                            count++;
+                        }
+                        transaction.Commit();
+                        _logger?.LogInformation("[DB] Migrated {Count} / {Total} files...", count, fileIds.Count);
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+
+                // 4. Drop old table
+                using (var dropCmd = connection.CreateCommand())
+                {
+                    dropCmd.CommandText = "DROP TABLE Metadata_Old;";
+                    dropCmd.ExecuteNonQuery();
+                }
+                
+                _logger?.LogInformation("[DB] Metadata migration complete. Reclaiming space (VACUUM)...");
+                using (var vacuumCmd = connection.CreateCommand())
+                {
+                    vacuumCmd.CommandText = "VACUUM;";
+                    vacuumCmd.ExecuteNonQuery();
+                }
+                _logger?.LogInformation("[DB] Database optimized.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Metadata migration failed.");
+        }
+
+        // Add Expression Indexes for performance on common fields
+        try
+        {
+            string[] expressIdxs = {
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_Model ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif IFD0\".Model'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_Make ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif IFD0\".Make'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_DateOriginal ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"Date/Time Original\"'));"
+            };
+            foreach (var sql in expressIdxs)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        catch { /* Optional optimization */ }
 
         // Ensure BaseName column exists (Migration for older databases)
         try
@@ -596,7 +725,7 @@ public class DatabaseManager : IDatabaseManager
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
 
-        string where = $@"WHERE EXISTS (SELECT 1 FROM {TableName.Metadata} m WHERE m.{Column.Metadata.FileId} = f.{Column.FileEntry.Id} AND m.{Column.Metadata.Directory} = '{MetadataTag.GpsDirectory}' AND m.{Column.Metadata.Tag} = '{MetadataTag.GpsLatitude}')";
+        string where = $@"WHERE EXISTS (SELECT 1 FROM {TableName.Metadata} m WHERE m.{Column.Metadata.FileId} = f.{Column.FileEntry.Id} AND json_extract(m.{Column.Metadata.Data}, '$.{MetadataTag.GpsDirectory}.""{MetadataTag.GpsLatitude}""') IS NOT NULL)";
 
         using (var command = connection.CreateCommand())
         {
@@ -767,61 +896,43 @@ public class DatabaseManager : IDatabaseManager
         // Query for photos that have GPS metadata
         command.CommandText = $@"
             SELECT f.{Column.FileEntry.Id}, f.{Column.FileEntry.FileName}, f.{Column.FileEntry.CreatedAt},
-                   m.{Column.Metadata.Tag}, m.{Column.Metadata.Value}
+                   json_extract(m.{Column.Metadata.Data}, '$.{MetadataTag.GpsDirectory}.""{MetadataTag.GpsLatitude}""') as Lat,
+                   json_extract(m.{Column.Metadata.Data}, '$.{MetadataTag.GpsDirectory}.""{MetadataTag.GpsLatitudeRef}""') as LatRef,
+                   json_extract(m.{Column.Metadata.Data}, '$.{MetadataTag.GpsDirectory}.""{MetadataTag.GpsLongitude}""') as Lng,
+                   json_extract(m.{Column.Metadata.Data}, '$.{MetadataTag.GpsDirectory}.""{MetadataTag.GpsLongitudeRef}""') as LngRef
             FROM {TableName.FileEntry} f
             JOIN {TableName.Metadata} m ON f.{Column.FileEntry.Id} = m.{Column.Metadata.FileId}
-            WHERE m.{Column.Metadata.Directory} = '{MetadataTag.GpsDirectory}' 
-              AND m.{Column.Metadata.Tag} IN ('{MetadataTag.GpsLatitude}', '{MetadataTag.GpsLongitude}', '{MetadataTag.GpsLatitudeRef}', '{MetadataTag.GpsLongitudeRef}')
+            WHERE Lat IS NOT NULL AND Lng IS NOT NULL
             ORDER BY f.{Column.FileEntry.CreatedAt} DESC";
 
         using var reader = command.ExecuteReader();
-        var temp = new Dictionary<string, (string FileName, DateTime CreatedAt, string Lat, string LatRef, string Lng, string LngRef)>();
-
-        int rawRowCount = 0;
         while (reader.Read())
         {
-            rawRowCount++;
             string id = reader.GetString(0);
             string fileName = reader.GetString(1);
             DateTime createdAt = DateTime.Parse(reader.GetString(2));
-            string tag = reader.GetString(3);
-            string val = reader.GetString(4);
+            string latStr = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            string latRef = reader.IsDBNull(4) ? "" : reader.GetString(4);
+            string lngStr = reader.IsDBNull(5) ? "" : reader.GetString(5);
+            string lngRef = reader.IsDBNull(6) ? "" : reader.GetString(6);
 
-            if (!temp.TryGetValue(id, out var data))
-            {
-                data = (fileName, createdAt, "", "", "", "");
-            }
-
-            if (tag == MetadataTag.GpsLatitude) data.Lat = val;
-            else if (tag == MetadataTag.GpsLatitudeRef) data.LatRef = val;
-            else if (tag == MetadataTag.GpsLongitude) data.Lng = val;
-            else if (tag == MetadataTag.GpsLongitudeRef) data.LngRef = val;
-
-            temp[id] = data;
-        }
-
-        foreach (var kvp in temp)
-        {
-            var d = kvp.Value;
-            if (string.IsNullOrEmpty(d.Lat) || string.IsNullOrEmpty(d.Lng)) continue;
-
-            double? lat = ParseGps(d.Lat, d.LatRef);
-            double? lng = ParseGps(d.Lng, d.LngRef);
+            double? lat = ParseGps(latStr, latRef);
+            double? lng = ParseGps(lngStr, lngRef);
 
             if (lat.HasValue && lng.HasValue)
             {
                 photos.Add(new MapPhotoResponse
                 {
-                    FileEntryId = kvp.Key,
-                    FileName = d.FileName,
+                    FileEntryId = id,
+                    FileName = fileName,
                     Latitude = lat.Value,
                     Longitude = lng.Value,
-                    CreatedAt = d.CreatedAt
+                    CreatedAt = createdAt
                 });
             }
         }
 
-        _logger?.LogInformation("[DB] GetMapPhotos: Found {RawRows} metadata rows, processed into {PhotoCount} photos with valid GPS coordinates.", rawRowCount, photos.Count);
+        _logger?.LogInformation("[DB] GetMapPhotos: Processed {PhotoCount} photos with valid GPS coordinates.", photos.Count);
 
         return new PagedMapPhotoResponse { Photos = photos, Total = photos.Count };
     }
@@ -1780,21 +1891,30 @@ public class DatabaseManager : IDatabaseManager
 
         try
         {
+            var dict = new Dictionary<string, Dictionary<string, string>>();
             foreach (var item in metadata)
             {
-                using (var command = connection.CreateCommand())
-                {
-                    command.Transaction = transaction;
-                    command.CommandText = $@"INSERT INTO {TableName.Metadata} ({Column.Metadata.FileId}, {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value}) VALUES ($FileId, $Directory, $Tag, $Value)";
-                    command.Parameters.AddWithValue("$FileId", fileId);
-                    command.Parameters.AddWithValue("$Directory", item.Directory ?? "");
-                    command.Parameters.AddWithValue("$Tag", item.Tag ?? "");
-                    string val = item.Value ?? "";
-                    if (val.Length > 100) val = val.Substring(0, 100);
-                    command.Parameters.AddWithValue("$Value", val);
-                    command.ExecuteNonQuery();
-                }
+                string dir = item.Directory ?? "General";
+                string tag = item.Tag ?? "Unknown";
+                string val = item.Value ?? "";
+                if (val.Length > 150) val = val.Substring(0, 150);
+
+                if (!dict.ContainsKey(dir)) dict[dir] = new Dictionary<string, string>();
+                dict[dir][tag] = val;
             }
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $@"
+                    INSERT INTO {TableName.Metadata} ({Column.Metadata.FileId}, {Column.Metadata.Data}) 
+                    VALUES ($FileId, $Data)
+                    ON CONFLICT({Column.Metadata.FileId}) DO UPDATE SET {Column.Metadata.Data} = excluded.{Column.Metadata.Data};";
+                command.Parameters.AddWithValue("$FileId", fileId);
+                command.Parameters.AddWithValue("$Data", JsonSerializer.Serialize(dict));
+                command.ExecuteNonQuery();
+            }
+
             if (ownTransaction) transaction.Commit();
         }
         catch
@@ -1925,10 +2045,31 @@ public class DatabaseManager : IDatabaseManager
         connection.Open();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT {Column.Metadata.Directory}, {Column.Metadata.Tag}, {Column.Metadata.Value} FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
+            command.CommandText = $"SELECT {Column.Metadata.Data} FROM {TableName.Metadata} WHERE {Column.Metadata.FileId} = $FileId";
             command.Parameters.AddWithValue("$FileId", fileId);
-            using var reader = command.ExecuteReader();
-            while (reader.Read()) items.Add(new MetadataItemResponse { Directory = reader.IsDBNull(0) ? null : reader.GetString(0), Tag = reader.IsDBNull(1) ? null : reader.GetString(1), Value = reader.IsDBNull(2) ? null : reader.GetString(2) });
+            
+            string? json = command.ExecuteScalar() as string;
+            if (string.IsNullOrEmpty(json)) return items;
+
+            try
+            {
+                var dict = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json);
+                if (dict != null)
+                {
+                    foreach (var dirKvp in dict)
+                    {
+                        foreach (var tagKvp in dirKvp.Value)
+                        {
+                            items.Add(new MetadataItemResponse {
+                                Directory = dirKvp.Key,
+                                Tag = tagKvp.Key,
+                                Value = tagKvp.Value
+                            });
+                        }
+                    }
+                }
+            }
+            catch { /* Corrupt JSON? */ }
         }
 
         // Append view preferences if available
@@ -2049,13 +2190,19 @@ public class DatabaseManager : IDatabaseManager
                     if (sub.Contains("="))
                     {
                         string[] parts = sub.Split('=', 2);
-                        command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} LIKE $Tag AND {Column.Metadata.Value} LIKE $Value";
+                        command.CommandText = $@"
+                            SELECT DISTINCT {Column.Metadata.FileId} 
+                            FROM {TableName.Metadata}, json_each({TableName.Metadata}.{Column.Metadata.Data}) as d, json_each(d.value) as t 
+                            WHERE t.key LIKE $Tag AND t.value LIKE $Value";
                         command.Parameters.AddWithValue("$Tag", "%" + parts[0].Trim() + "%");
                         command.Parameters.AddWithValue("$Value", "%" + parts[1].Trim() + "%");
                     }
                     else
                     {
-                        command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} LIKE $Tag";
+                        command.CommandText = $@"
+                            SELECT DISTINCT {Column.Metadata.FileId} 
+                            FROM {TableName.Metadata}, json_each({TableName.Metadata}.{Column.Metadata.Data}) as d, json_each(d.value) as t 
+                            WHERE t.key LIKE $Tag";
                         command.Parameters.AddWithValue("$Tag", "%" + sub + "%");
                     }
                 }
@@ -2080,13 +2227,16 @@ public class DatabaseManager : IDatabaseManager
                         LEFT JOIN {TableName.Metadata} m ON f.{Column.FileEntry.Id} = m.{Column.Metadata.FileId}
                         WHERE f.{Column.FileEntry.FileName} LIKE $Query 
                            OR r.{Column.RootPaths.Name} LIKE $Query
-                           OR m.{Column.Metadata.Value} LIKE $Query";
+                           OR EXISTS (SELECT 1 FROM json_tree(m.{Column.Metadata.Data}) WHERE value LIKE $Query)";
                     command.Parameters.AddWithValue("$Query", "%" + q + "%");
                 }
             }
             else if (!string.IsNullOrEmpty(req.tag))
             {
-                command.CommandText = $"SELECT DISTINCT {Column.Metadata.FileId} FROM {TableName.Metadata} WHERE {Column.Metadata.Tag} = $Tag AND {Column.Metadata.Value} = $Value";
+                command.CommandText = $@"
+                    SELECT DISTINCT {Column.Metadata.FileId} 
+                    FROM {TableName.Metadata}, json_each({TableName.Metadata}.{Column.Metadata.Data}) as d, json_each(d.value) as t 
+                    WHERE t.key = $Tag AND t.value = $Value";
                 command.Parameters.AddWithValue("$Tag", req.tag);
                 command.Parameters.AddWithValue("$Value", req.value ?? "");
             }
