@@ -15,17 +15,37 @@ namespace TypeGen
         {
             var mappings = new List<(string From, string To)>();
             
+            // 1. Build a map of CommLayer methods -> Return Types
+            var commLayerMethods = ParseCommLayer("PhotoLibrary.Contracts/ICommunicationLayer.cs");
+
             if (GenerateTypes("PhotoLibrary.Contracts/Requests.cs", "PhotoLibrary.WFE/wwwsrc/Requests.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Requests.cs", "PhotoLibrary.WFE/wwwsrc/Requests.generated.ts"));
             if (GenerateTypes("PhotoLibrary.Contracts/Responses.cs", "PhotoLibrary.WFE/wwwsrc/Responses.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Responses.cs", "PhotoLibrary.WFE/wwwsrc/Responses.generated.ts"));
             if (GenerateTypes("PhotoLibrary.Contracts/Results/Results.cs", "PhotoLibrary.WFE/wwwsrc/Results.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Results/Results.cs", "PhotoLibrary.WFE/wwwsrc/Results.generated.ts"));
             if (GenerateTypes("PhotoLibrary.Contracts/Models.cs", "PhotoLibrary.WFE/wwwsrc/Models.generated.ts")) mappings.Add(("PhotoLibrary.Contracts/Models.cs", "PhotoLibrary.WFE/wwwsrc/Models.generated.ts"));
             
-            if (GenerateFunctions("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts")) mappings.Add(("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts"));
+            if (GenerateFunctions("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts", commLayerMethods)) mappings.Add(("PhotoLibrary.WFE/WebServer.cs", "PhotoLibrary.WFE/wwwsrc/Functions.generated.ts"));
             
             foreach (var mapping in mappings)
             {
                 Console.WriteLine($"Generated: {mapping.From} -> {mapping.To}");
             }
+        }
+
+        private static Dictionary<string, string> ParseCommLayer(string file)
+        {
+            var methods = new Dictionary<string, string>();
+            if (!File.Exists(file)) return methods;
+
+            string code = File.ReadAllText(file);
+            SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
+            var root = tree.GetCompilationUnitRoot();
+
+            foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            {
+                methods[method.Identifier.Text] = method.ReturnType.ToString();
+            }
+
+            return methods;
         }
 
         private static bool GenerateTypes(string inputFile, string outputFile)
@@ -104,7 +124,7 @@ namespace TypeGen
             return true;
         }
 
-        private static bool GenerateFunctions(string inputFile, string outputFile)
+        private static bool GenerateFunctions(string inputFile, string outputFile, Dictionary<string, string> commMethods)
         {
             if (!File.Exists(inputFile)) return false;
             string code = File.ReadAllText(inputFile);
@@ -115,6 +135,7 @@ namespace TypeGen
             sb.AppendLine($"// Generated from {inputFile} via Roslyn");
             sb.AppendLine("import * as Req from './Requests.generated.js';");
             sb.AppendLine("import * as Res from './Responses.generated.js';");
+            sb.AppendLine("import * as Rpc from './Results.generated.js';");
             sb.AppendLine();
             sb.AppendLine("async function post<T>(url: string, data: any = {}): Promise<T> {");
             sb.AppendLine("    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });");
@@ -130,10 +151,10 @@ namespace TypeGen
             sb.AppendLine("}");
             sb.AppendLine();
 
-            var mapPosts = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Where(i => i.Expression.ToString().Contains("MapPost"));
+            var apiCalls = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Where(i => i.Expression.ToString().Contains("MapPost") || i.Expression.ToString().Contains("MapGet"));
 
-            foreach (var inv in mapPosts)
+            foreach (var inv in apiCalls)
             {
                 var args = inv.ArgumentList.Arguments;
                 if (args.Count < 2) continue;
@@ -168,26 +189,74 @@ namespace TypeGen
                     reqType = "";
                 }
 
-                bool isBlob = route.Contains("thumbnail") || route.Contains("download");
-                string postFunc = isBlob ? "postBlob" : "post";
-
-                if (route.Contains("get-application-settings")) resType = "Res.ApplicationSettingsResponse";
-                else if (route.Contains("map/photos")) resType = "Res.PagedMapPhotoResponse";
-                else if (route.Contains("photos/geotagged")) resType = "Res.PagedPhotosResponse";
-                else if (route.Contains("photos")) resType = "Res.PagedPhotosResponse";
-                else if (route.Contains("metadata")) resType = "Res.MetadataGroupResponse[]";
-                else if (route.Contains("directories")) resType = "Res.DirectoryNodeResponse[]";
-                else if (route.Contains("library/info")) resType = "Res.LibraryInfoResponse";
-                else if (route.Contains("collections/list")) resType = "Res.CollectionResponse[]";
-                else if (route.Contains("stats")) resType = "Res.StatsResponse";
-                else if (route.Contains("fs/list")) resType = "Res.DirectoryResponse[]";
-                else if (route.Contains("validate-import")) resType = "Res.ValidateImportResponse";
-                else if (route.Contains("picked/ids") || route.Contains("get-files") || route.Contains("search")) resType = "string[]";
-                else if (route.Contains("prepare")) resType = "{ token: string }";
-                else if (route.Contains("settings/get")) resType = "{ value: string | null }";
-                else if (route.Contains("cancel-task")) resType = "{ success: boolean }";
+                // Resolve Return Type dynamically
+                string lambdaBody = lambda.ToString();
+                bool isBlob = lambdaBody.Contains("Results.Bytes") || lambdaBody.Contains("Results.File") || lambdaBody.Contains("postBlob") || route.Contains("thumbnail") || route.Contains("download");
                 
-                if (isBlob) resType = "Blob";
+                if (isBlob)
+                {
+                    resType = "Blob";
+                }
+                else
+                {
+                    // Find all possible method calls to _commLayer in the lambda body
+                    var allCalls = lambda.DescendantNodes();
+                    foreach (var node in allCalls)
+                    {
+                        string? methodName = null;
+                        if (node is InvocationExpressionSyntax invCall)
+                        {
+                            string expr = invCall.Expression.ToString();
+                            if (expr.Contains("_commLayer?.")) methodName = expr.Split("?.")[1];
+                            else if (expr.Contains("_commLayer.")) methodName = expr.Split(".")[1];
+                        }
+                        else if (node is MemberBindingExpressionSyntax binding)
+                        {
+                            // This handles the .MethodName part of _commLayer?.MethodName
+                            methodName = binding.Name.Identifier.Text;
+                        }
+
+                        if (methodName != null && commMethods.TryGetValue(methodName, out var csRetType))
+                        {
+                            resType = MapType(csRetType);
+                            // Ensure contract types are prefixed
+                            var knownContractTypes = new[] { 
+                                "Response", "StatsResponse", "ScanFileResult", "DirectoryResponse", "CollectionCreatedResponse" 
+                            };
+                            
+                            if (!resType.StartsWith("Res.") && !resType.StartsWith("Rpc.") && !resType.Contains("[]") && !resType.Contains("<"))
+                            {
+                                if (knownContractTypes.Any(kt => resType.EndsWith(kt))) resType = "Res." + resType;
+                            }
+                            else if (resType.Contains("[]"))
+                            {
+                                string baseType = resType.Replace("[]", "");
+                                if (knownContractTypes.Any(kt => baseType.EndsWith(kt)) && !baseType.StartsWith("Res."))
+                                    resType = "Res." + baseType + "[]";
+                            }
+
+                            if (resType.StartsWith("RpcResult")) resType = "Rpc." + resType;
+                            break;
+                        }
+                    }
+
+                    // Special case: Results.Json(new { ... })
+                    if (resType == "any" && lambdaBody.Contains("Results.Json(new {"))
+                    {
+                        // Try to extract keys
+                        var anon = lambda.DescendantNodes().OfType<AnonymousObjectCreationExpressionSyntax>().FirstOrDefault();
+                        if (anon != null)
+                        {
+                            resType = "{ " + string.Join(", ", anon.Initializers.Select(i => {
+                                string name = i.NameEquals?.Name.Identifier.Text ?? "unknown";
+                                return $"{name}: any";
+                            })) + " }";
+                        }
+                    }
+                }
+
+                string postFunc = isBlob ? "postBlob" : "post";
+                if (resType == "Task") resType = "void"; // Map naked Task to void
 
                 if (string.IsNullOrEmpty(reqType))
                 {
@@ -231,6 +300,14 @@ namespace TypeGen
                 wrapper = t.Substring(0, start);
                 int end = t.LastIndexOf(">");
                 t = t.Substring(start + 1, end - start - 1);
+                
+                // Special case for nested generics like Task<List<string>>
+                if (t.Contains("<"))
+                {
+                    string innerMapped = MapType(t);
+                    if (wrapper == "Task") return innerMapped;
+                    return $"{wrapper}<{innerMapped}>";
+                }
             }
             else t = t.Replace("[]", "");
 
@@ -238,11 +315,20 @@ namespace TypeGen
             if (new[] { "string", "DateTime", "Guid" }.Contains(t)) result = "string";
             else if (new[] { "int", "long", "float", "double", "decimal", "byte" }.Contains(t)) result = "number";
             else if (t == "bool") result = "boolean";
+            else if (t == "void" || t == "Task") result = "void";
             else result = t;
 
-            if (isArray) return result + "[]";
-            if (wrapper != null && wrapper != "RpcResult") return $"{wrapper}<{result}>";
-            if (wrapper == "RpcResult") return $"Rpc.RpcResult<{result}>";
+            if (isArray) result += "[]";
+            
+            if (wrapper != null)
+            {
+                if (wrapper == "RpcResult") return $"Rpc.RpcResult<{result}>";
+                if (wrapper == "Task") return result; // Unwrap Task<T>
+                // List<T> or IEnumerable<T> already handled by isArray if they were identified as such
+                if (isArray && (wrapper == "List" || wrapper == "IEnumerable" || wrapper == "ICollection")) return result;
+                
+                return $"{wrapper}<{result}>";
+            }
 
             return result;
         }

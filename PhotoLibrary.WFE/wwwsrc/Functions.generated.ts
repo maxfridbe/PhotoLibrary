@@ -1,6 +1,7 @@
 // Generated from PhotoLibrary.WFE/WebServer.cs via Roslyn
 import * as Req from './Requests.generated.js';
 import * as Res from './Responses.generated.js';
+import * as Rpc from './Results.generated.js';
 
 async function post<T>(url: string, data: any = {}): Promise<T> {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -39,15 +40,15 @@ export async function api_library_info(): Promise<Res.LibraryInfoResponse> {
     return await post('/api/library/info');
 }
 
-export async function api_library_backup(): Promise<any> {
+export async function api_library_backup(): Promise<Rpc.RpcResult<string>> {
     return await post('/api/library/backup');
 }
 
-export async function api_pick(data: Req.PickRequest): Promise<any> {
+export async function api_pick(data: Req.PickRequest): Promise<void> {
     return await post('/api/pick', data);
 }
 
-export async function api_rate(data: Req.RateRequest): Promise<any> {
+export async function api_rate(data: Req.RateRequest): Promise<void> {
     return await post('/api/rate', data);
 }
 
@@ -59,15 +60,15 @@ export async function api_collections_list(): Promise<Res.CollectionResponse[]> 
     return await post('/api/collections/list');
 }
 
-export async function api_collections_create(data: Req.NameRequest): Promise<any> {
+export async function api_collections_create(data: Req.NameRequest): Promise<Res.CollectionCreatedResponse> {
     return await post('/api/collections/create', data);
 }
 
-export async function api_collections_delete(data: Req.CollectionIdRequest): Promise<any> {
+export async function api_collections_delete(data: Req.CollectionIdRequest): Promise<void> {
     return await post('/api/collections/delete', data);
 }
 
-export async function api_collections_add_files(data: Req.CollectionAddRequest): Promise<any> {
+export async function api_collections_add_files(data: Req.CollectionAddRequest): Promise<void> {
     return await post('/api/collections/add-files', data);
 }
 
@@ -75,7 +76,7 @@ export async function api_collections_get_files(data: Req.CollectionIdRequest): 
     return await post('/api/collections/get-files', data);
 }
 
-export async function api_picked_clear(): Promise<any> {
+export async function api_picked_clear(): Promise<void> {
     return await post('/api/picked/clear');
 }
 
@@ -99,11 +100,11 @@ export async function api_fs_list(data: Req.NameRequest): Promise<Res.DirectoryR
     return await post('/api/fs/list', data);
 }
 
-export async function api_fs_find_files(data: Req.FindFilesRequest): Promise<any> {
+export async function api_fs_find_files(data: Req.FindFilesRequest): Promise<Res.ScanFileResult[]> {
     return await post('/api/fs/find-files', data);
 }
 
-export async function api_library_find_new_files(data: Req.NameRequest): Promise<any> {
+export async function api_library_find_new_files(data: Req.NameRequest): Promise<string[]> {
     return await post('/api/library/find-new-files', data);
 }
 
@@ -111,11 +112,11 @@ export async function api_library_validate_import(data: Req.ValidateImportReques
     return await post('/api/library/validate-import', data);
 }
 
-export async function api_library_import_batch(data: Req.ImportBatchRequest): Promise<any> {
+export async function api_library_import_batch(data: Req.ImportBatchRequest): Promise<void> {
     return await post('/api/library/import-batch', data);
 }
 
-export async function api_library_import_local(data: Req.ImportLocalRequest): Promise<any> {
+export async function api_library_import_local(data: Req.ImportLocalRequest): Promise<string> {
     return await post('/api/library/import-local', data);
 }
 
@@ -123,35 +124,59 @@ export async function api_library_generate_thumbnails(data: Req.GenerateThumbnai
     return await postBlob('/api/library/generate-thumbnails', data);
 }
 
-export async function api_library_set_annotation(data: Req.FolderAnnotationRequest): Promise<any> {
+export async function api_library_set_annotation(data: Req.FolderAnnotationRequest): Promise<void> {
     return await post('/api/library/set-annotation', data);
 }
 
-export async function api_library_force_update_preview(data: Req.ForceUpdatePreviewRequest): Promise<any> {
+export async function api_library_force_update_preview(data: Req.ForceUpdatePreviewRequest): Promise<void> {
     return await post('/api/library/force-update-preview', data);
 }
 
-export async function api_library_forget_root(data: Req.ForgetRootRequest): Promise<any> {
+export async function api_library_forget_root(data: Req.ForgetRootRequest): Promise<void> {
     return await post('/api/library/forget-root', data);
 }
 
-export async function api_library_repair(): Promise<any> {
+export async function api_library_repair(): Promise<void> {
     return await post('/api/library/repair');
 }
 
-export async function api_library_cancel_task(data: Req.TaskRequest): Promise<{ success: boolean }> {
+export async function api_library_cancel_task(data: Req.TaskRequest): Promise<boolean> {
     return await post('/api/library/cancel-task', data);
 }
 
-export async function api_settings_get(data: Req.NameRequest): Promise<{ value: string | null }> {
+export async function api_settings_get(data: Req.NameRequest): Promise<string> {
     return await post('/api/settings/get', data);
 }
 
-export async function api_settings_set(data: Req.SettingRequest): Promise<any> {
+export async function api_settings_set(data: Req.SettingRequest): Promise<void> {
     return await post('/api/settings/set', data);
 }
 
-export async function api_export_prepare(data: Req.ZipRequest): Promise<{ token: string }> {
+export async function api_export_prepare(data: Req.ZipRequest): Promise<string> {
     return await post('/api/export/prepare', data);
+}
+
+export async function api_export_download(data: string): Promise<Blob> {
+    return await postBlob('/api/export/download', data);
+}
+
+export async function api_download(data: string): Promise<Blob> {
+    return await postBlob('/api/download/{fileEntryId}', data);
+}
+
+export async function api__tiles(data: any): Promise<Blob> {
+    return await postBlob('/tiles/{z}/{x}/{y}.pbf', data);
+}
+
+export async function api__(): Promise<any> {
+    return await post('/');
+}
+
+export async function api_(data: string): Promise<any> {
+    return await post('/{*path}', data);
+}
+
+export async function api__ws(data: any): Promise<any> {
+    return await post('/ws', data);
 }
 
