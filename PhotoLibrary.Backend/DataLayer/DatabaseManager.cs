@@ -293,7 +293,13 @@ public class DatabaseManager : IDatabaseManager
             string[] expressIdxs = {
                 $"CREATE INDEX IF NOT EXISTS IDX_Metadata_Model ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif IFD0\".Model'));",
                 $"CREATE INDEX IF NOT EXISTS IDX_Metadata_Make ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif IFD0\".Make'));",
-                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_DateOriginal ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"Date/Time Original\"'));"
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_DateOriginal ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"Date/Time Original\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_FNumber ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"F-Number\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_ISO ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"ISO Speed Ratings\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_FocalLength ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"Focal Length\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_LensModel ON Metadata(json_extract({Column.Metadata.Data}, '$.\"Exif SubIFD\".\"Lens Model\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_GPSLat ON Metadata(json_extract({Column.Metadata.Data}, '$.GPS.\"GPS Latitude\"'));",
+                $"CREATE INDEX IF NOT EXISTS IDX_Metadata_GPSLng ON Metadata(json_extract({Column.Metadata.Data}, '$.GPS.\"GPS Longitude\"'));"
             };
             foreach (var sql in expressIdxs)
             {
