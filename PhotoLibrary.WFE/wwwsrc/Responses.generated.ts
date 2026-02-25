@@ -1,6 +1,7 @@
 // Generated from PhotoLibrary.Contracts/Responses.cs via Roslyn
 import * as Req from './Requests.generated.js';
-import * as Res from './Responses.generated.js';
+import * as Rpc from './Results.generated.js';
+import * as Mod from './Models.generated.js';
 
 export interface PhotoResponse {
     fileEntryId: string;

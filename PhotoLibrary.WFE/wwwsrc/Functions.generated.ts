@@ -15,7 +15,7 @@ async function postBlob(url: string, data: any = {}): Promise<Blob> {
     return await res.blob();
 }
 
-export async function api_get_application_settings(): Promise<any> {
+export async function api_get_application_settings(): Promise<Res.ApplicationSettingsResponse> {
     return await post('/api/get-application-settings');
 }
 
@@ -35,7 +35,7 @@ export async function api_directories(): Promise<Res.DirectoryNodeResponse[]> {
     return await post('/api/directories');
 }
 
-export async function api_library_info(): Promise<any> {
+export async function api_library_info(): Promise<Res.LibraryInfoResponse> {
     return await post('/api/library/info');
 }
 
@@ -95,7 +95,7 @@ export async function api_stats(): Promise<Res.StatsResponse> {
     return await post('/api/stats');
 }
 
-export async function api_fs_list(data: Req.NameRequest): Promise<any> {
+export async function api_fs_list(data: Req.NameRequest): Promise<Res.DirectoryResponse[]> {
     return await post('/api/fs/list', data);
 }
 
@@ -107,7 +107,7 @@ export async function api_library_find_new_files(data: Req.NameRequest): Promise
     return await post('/api/library/find-new-files', data);
 }
 
-export async function api_library_validate_import(data: Req.ValidateImportRequest): Promise<any> {
+export async function api_library_validate_import(data: Req.ValidateImportRequest): Promise<Res.ValidateImportResponse> {
     return await post('/api/library/validate-import', data);
 }
 
@@ -139,11 +139,11 @@ export async function api_library_repair(): Promise<any> {
     return await post('/api/library/repair');
 }
 
-export async function api_library_cancel_task(data: Req.TaskRequest): Promise<any> {
+export async function api_library_cancel_task(data: Req.TaskRequest): Promise<{ success: boolean }> {
     return await post('/api/library/cancel-task', data);
 }
 
-export async function api_settings_get(data: Req.NameRequest): Promise<any> {
+export async function api_settings_get(data: Req.NameRequest): Promise<{ value: string | null }> {
     return await post('/api/settings/get', data);
 }
 
@@ -151,7 +151,7 @@ export async function api_settings_set(data: Req.SettingRequest): Promise<any> {
     return await post('/api/settings/set', data);
 }
 
-export async function api_export_prepare(data: Req.ZipRequest): Promise<any> {
+export async function api_export_prepare(data: Req.ZipRequest): Promise<{ token: string }> {
     return await post('/api/export/prepare', data);
 }
 
