@@ -119,7 +119,6 @@ public class PreviewManager : IPreviewManager
             command.Parameters.AddWithValue("$LongEdge", longEdge);
 
             var res = command.ExecuteScalar() as byte[];
-            if (res == null) _logger.LogDebug("Preview miss for hash {Hash} size {Size}", hash, longEdge);
             return res;
         }
     }
