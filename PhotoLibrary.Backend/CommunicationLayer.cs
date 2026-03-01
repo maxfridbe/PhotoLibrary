@@ -307,44 +307,6 @@ public class CommunicationLayer : ICommunicationLayer
                                             }
                                         }
                                         item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
-                                        
-                                        string? fileRootId = _db.GetFileRootId(req.fileEntryId);
-                                        int? jobThumbnailed = null;
-                                        int? jobTotal = null;
-                                        bool isFinished = false;
-
-                                        if (req.contextId != null && _jobProgress.TryGetValue(req.contextId, out var status))
-                                        {
-                                            lock (status)
-                                            {
-                                                status.Thumbnailed++;
-                                                jobThumbnailed = status.Thumbnailed / 2;
-                                                jobTotal = status.Total / 2;
-                                                if (!status.IsEnqueuing && status.Thumbnailed >= status.Total)
-                                                {
-                                                    isFinished = true;
-                                                }
-                                            }
-                                        }
-
-                                        var msgMap = new Dictionary<string, object?> {
-                                            { "type", "preview.generated" },
-                                            { "fileEntryId", req.fileEntryId },
-                                            { "rootId", req.contextId ?? fileRootId }
-                                        };
-                                        if (jobThumbnailed.HasValue) msgMap["thumbnailed"] = jobThumbnailed.Value;
-                                        if (jobTotal.HasValue) msgMap["total"] = jobTotal.Value;
-
-                                        _ = _broadcast(msgMap);
-
-                                        if (isFinished && req.contextId != null)
-                                        {
-                                            _ = Task.Run(async () => {
-                                                await Task.Delay(500);
-                                                _jobProgress.TryRemove(req.contextId, out _);
-                                                await _broadcast(new { type = "folder.finished", rootId = req.contextId });
-                                            });
-                                        }
                                     }
                                 }
                                 catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
@@ -372,6 +334,50 @@ public class CommunicationLayer : ICommunicationLayer
                 catch (Exception ex)
                 {
                     item.Tcs.TrySetException(ex);
+                }
+                finally
+                {
+                    if (item?.Request != null)
+                    {
+                        var req = item.Request;
+                        string? fileRootId = _db.GetFileRootId(req.fileEntryId);
+                        int? jobThumbnailed = null;
+                        int? jobTotal = null;
+                        bool isFinished = false;
+
+                        if (req.contextId != null && _jobProgress.TryGetValue(req.contextId, out var status))
+                        {
+                            lock (status)
+                            {
+                                status.Thumbnailed++;
+                                jobThumbnailed = status.Thumbnailed / 2;
+                                jobTotal = status.Total / 2;
+                                if (!status.IsEnqueuing && status.Thumbnailed >= status.Total)
+                                {
+                                    isFinished = true;
+                                }
+                            }
+                        }
+
+                        var msgMap = new Dictionary<string, object?> {
+                            { "type", "preview.generated" },
+                            { "fileEntryId", req.fileEntryId },
+                            { "rootId", req.contextId ?? fileRootId }
+                        };
+                        if (jobThumbnailed.HasValue) msgMap["thumbnailed"] = jobThumbnailed.Value;
+                        if (jobTotal.HasValue) msgMap["total"] = jobTotal.Value;
+
+                        _ = _broadcast(msgMap);
+
+                        if (isFinished && req.contextId != null)
+                        {
+                            _ = Task.Run(async () => {
+                                await Task.Delay(500);
+                                _jobProgress.TryRemove(req.contextId, out _);
+                                await _broadcast(new { type = "folder.finished", rootId = req.contextId });
+                            });
+                        }
+                    }
                 }
             }
         });

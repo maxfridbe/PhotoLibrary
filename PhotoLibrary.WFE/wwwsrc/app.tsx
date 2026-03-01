@@ -767,7 +767,7 @@ class App {
                         prog.thumbnailed = data.thumbnailed;
                         prog.total = data.total;
                         prog.active = true;
-                    } else {
+                    } else if (!prog.active) {
                         prog.thumbnailed = (prog.thumbnailed || 0) + 1;
                     }
                     prog.processed = Math.max(prog.processed, prog.thumbnailed || 0); // Keep processed in sync for fallback
