@@ -314,8 +314,14 @@ public class CommunicationLayer : ICommunicationLayer
 
                     // Final diagnostic logging
                     string shortId = req.fileEntryId.Length > 12 ? $"{req.fileEntryId.Substring(0, 4)}...{req.fileEntryId.Substring(req.fileEntryId.Length - 4)}" : req.fileEntryId;
-                    _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | Q: {Queue,8:F1}ms | Ret: {Ret,8:F1}ms | Gen: {Gen,8:F1}ms",
-                        shortId, req.priority, Stopwatch.GetElapsedTime(item.StartTime).TotalMilliseconds, item.QueueMs, item.RetrievalMs, item.GeneratingMs);
+                    double totMs = Stopwatch.GetElapsedTime(item.StartTime).TotalMilliseconds;
+                    if (req.priority <= -1000) {
+                        _logger?.LogInformation("[THUMB] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | Q: {Queue,8:F1}ms | Ret: {Ret,8:F1}ms | Gen: {Gen,8:F1}ms",
+                            shortId, req.priority, totMs, item.QueueMs, item.RetrievalMs, item.GeneratingMs);
+                    } else {
+                        _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | Q: {Queue,8:F1}ms | Ret: {Ret,8:F1}ms | Gen: {Gen,8:F1}ms",
+                            shortId, req.priority, totMs, item.QueueMs, item.RetrievalMs, item.GeneratingMs);
+                    }
 
                     item.Tcs.TrySetResult(finalData);
                 }
@@ -336,8 +342,14 @@ public class CommunicationLayer : ICommunicationLayer
         if (immediateData != null)
         {
             string shortId = req.fileEntryId.Length > 12 ? $"{req.fileEntryId.Substring(0, 4)}...{req.fileEntryId.Substring(req.fileEntryId.Length - 4)}" : req.fileEntryId;
-            _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | FASTPATH",
-                shortId, req.priority, Stopwatch.GetElapsedTime(startTime).TotalMilliseconds);
+            double totMs = Stopwatch.GetElapsedTime(startTime).TotalMilliseconds;
+            if (req.priority <= -1000) {
+                _logger?.LogInformation("[THUMB] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | FASTPATH",
+                    shortId, req.priority, totMs);
+            } else {
+                _logger?.LogDebug("[FETCH] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | FASTPATH",
+                    shortId, req.priority, totMs);
+            }
             return immediateData;
         }
 
@@ -1470,6 +1482,9 @@ public class CommunicationLayer : ICommunicationLayer
                     if (alreadyExists && !req.force)
                     {
                         thumbnailed++;
+                        string shortId = fId.Length > 12 ? $"{fId.Substring(0, 4)}...{fId.Substring(fId.Length - 4)}" : fId;
+                        _logger?.LogInformation("[THUMB] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | SKIPPED (Exists)",
+                            shortId, -1000.0, 0.0);
                     }
                     else
                     {
