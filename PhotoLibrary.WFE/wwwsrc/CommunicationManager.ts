@@ -96,7 +96,7 @@ export class CommunicationManager {
                     } else if (msg.type === sk.FIND_LOCAL_FILE_FOUND) {
                         hub.pub(ps.FIND_LOCAL_FILE_FOUND, { path: msg.path, dateTaken: msg.dateTaken, exists: msg.exists });
                     } else if (msg.type === sk.PREVIEW_GENERATED) {
-                        hub.pub(ps.PREVIEW_GENERATED, { fileEntryId: msg.fileEntryId, rootId: msg.rootId });
+                        hub.pub(ps.PREVIEW_GENERATED, { fileEntryId: msg.fileEntryId, rootId: msg.rootId, thumbnailed: msg.thumbnailed, total: msg.total });
                     } else if (msg.type === sk.PREVIEW_GENERATING) {
                         hub.pub(ps.PREVIEW_GENERATING, { fileEntryId: msg.fileEntryId });
                     } else if (msg.type === sk.PREVIEW_DELETED) {

@@ -24,7 +24,7 @@ export interface EventMap {
     [ps.FOLDER_FINISHED]: { rootId: string };
     [ps.FIND_NEW_FILE_FOUND]: { path: string };
     [ps.FIND_LOCAL_FILE_FOUND]: { path: string, dateTaken?: string, exists?: boolean };
-    [ps.PREVIEW_GENERATED]: { fileEntryId: string, rootId: string };
+    [ps.PREVIEW_GENERATED]: { fileEntryId: string, rootId: string, thumbnailed?: number, total?: number };
     [ps.PREVIEW_GENERATING]: { fileEntryId: string };
     [ps.PREVIEW_DELETED]: { fileEntryId: string };
     [ps.SEARCH_TRIGGERED]: { tag?: string, value?: string, query?: string };
