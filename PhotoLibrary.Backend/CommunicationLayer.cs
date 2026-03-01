@@ -1524,7 +1524,10 @@ public class CommunicationLayer : ICommunicationLayer
                 _logger?.LogInformation("Finished enqueuing background tasks for root {RootId}.", req.rootId);
             }
             catch (Exception ex) { _logger?.LogError(ex, "[WS] Background thumbnail enqueue error"); }
-            finally { _activeTasks.TryRemove(taskId, out _); }
+            finally { 
+                _activeTasks.TryRemove(taskId, out _);
+                _ = _broadcast(new { type = "folder.finished", rootId = req.rootId });
+            }
         });
     }
 
@@ -1580,6 +1583,14 @@ public class CommunicationLayer : ICommunicationLayer
             cts.Cancel();
             // Don't dispose immediately, let the Task catch the cancellation and finish gracefully
             _ = Task.Delay(2000).ContinueWith(_ => cts.Dispose());
+            _logger.LogInformation("Cancelled task {TaskId}", req.taskId);
+
+            if (req.taskId.StartsWith("thumbnails-"))
+            {
+                string rootId = req.taskId.Replace("thumbnails-", "");
+                _ = _broadcast(new { type = "folder.finished", rootId });
+            }
+
             return true;
         }
         return false;
