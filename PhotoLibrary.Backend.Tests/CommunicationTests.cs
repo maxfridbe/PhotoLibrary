@@ -291,8 +291,8 @@ public class CommunicationTests : TestBase
         CreateTestImage("EnqTest/p2.jpg");
         
         string rootId = db.GetOrCreateBaseRoot(rootPath);
-        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p1.jpg", Hash = "h1" });
-        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p2.jpg", Hash = "h2" });
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p1.jpg", Hash = "h1", BaseName = "p1" });
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "p2.jpg", Hash = "h2", BaseName = "p2" });
 
         var enqueued = new ConcurrentBag<ImageRequest>();
 
@@ -310,6 +310,41 @@ public class CommunicationTests : TestBase
         var f1 = db.GetFileId(rootId, "p1.jpg");
         Assert.Contains(enqueued, r => r.fileEntryId == f1 && r.size == 300);
         Assert.Contains(enqueued, r => r.fileEntryId == f1 && r.size == 1024);
+    }
+
+    [Fact]
+    public void GenerateThumbnails_StackedJpgOnly_ShouldFilterCorrectly()
+    {
+        // Arrange
+        var (db, pm, cl) = CreateStack();
+        string rootPath = Path.Combine(TestTempDir, "FilterTest");
+        Directory.CreateDirectory(rootPath);
+        CreateTestImage("FilterTest/s1.jpg");
+        CreateTestImage("FilterTest/s1.ARW");
+        CreateTestImage("FilterTest/u1.jpg");
+        
+        string rootId = db.GetOrCreateBaseRoot(rootPath);
+        // Stacked (s1.jpg and s1.ARW)
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "s1.jpg", Hash = "h1", BaseName = "s1" });
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "s1.ARW", Hash = "h2", BaseName = "s1" });
+        // Unstacked
+        db.UpsertFileEntry(new FileEntry { RootPathId = rootId, FileName = "u1.jpg", Hash = "h3", BaseName = "u1" });
+
+        var enqueued = new ConcurrentBag<ImageRequest>();
+
+        // Act - Request Stacked JPG Only
+        cl.GenerateThumbnails(new GenerateThumbnailsRequest(rootId, false, false, true, ".jpg"), (req, ct) => {
+            enqueued.Add(req);
+        });
+
+        // Wait for background scan/enqueue
+        int attempts = 0;
+        while (attempts++ < 50 && enqueued.Count < 2) Thread.Sleep(100);
+
+        // Assert
+        Assert.Equal(2, enqueued.Count); // Only s1.jpg (300 and 1024)
+        var s1Id = db.GetFileId(rootId, "s1.jpg");
+        Assert.All(enqueued, r => Assert.Equal(s1Id, r.fileEntryId));
     }
 
     [Fact]

@@ -2231,7 +2231,7 @@ class App {
         };
 
         addItem('Generate Thumbnails (This Folder)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false })
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false, stackedOnly: false, extensionFilter: null })
                 .catch(err => {
                     console.error('Failed to start thumbnail generation', err);
                     this.showNotification('Failed to start thumbnail generation', 'error');
@@ -2239,16 +2239,32 @@ class App {
             this.showNotification('Thumbnail generation started', 'info');
         });
         addItem('Generate Thumbnails (Recursive)', () => {
-            Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false })
+            Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false, stackedOnly: false, extensionFilter: null })
                 .catch(err => {
                     console.error('Failed to start recursive thumbnail generation', err);
                     this.showNotification('Failed to start recursive thumbnail generation', 'error');
                 });
             this.showNotification('Recursive thumbnail generation started', 'info');
         });
+        addItem('Generate Thumbnails (Stacked JPG Only)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: false, stackedOnly: true, extensionFilter: ".jpg" })
+                .catch(err => {
+                    console.error('Failed to start stacked JPG thumbnail generation', err);
+                    this.showNotification('Failed to start stacked JPG thumbnail generation', 'error');
+                });
+            this.showNotification('Stacked JPG thumbnail generation started', 'info');
+        });
+        addItem('Generate Thumbnails (Recursive, Stacked JPG Only)', () => {
+            Api.api_library_generate_thumbnails({ rootId, recursive: true, force: false, stackedOnly: true, extensionFilter: ".jpg" })
+                .catch(err => {
+                    console.error('Failed to start recursive stacked JPG thumbnail generation', err);
+                    this.showNotification('Failed to start recursive stacked JPG thumbnail generation', 'error');
+                });
+            this.showNotification('Recursive stacked JPG thumbnail generation started', 'info');
+        });
         addItem('Generate Thumbnails (Force)', () => {
             if (!confirm('Are you sure you want to force regenerate thumbnails for this folder? This will delete existing thumbnails and regenerate them.')) return;
-            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: true })
+            Api.api_library_generate_thumbnails({ rootId, recursive: false, force: true, stackedOnly: false, extensionFilter: null })
                 .catch(err => {
                     console.error('Failed to start forced thumbnail generation', err);
                     this.showNotification('Failed to start forced thumbnail generation', 'error');

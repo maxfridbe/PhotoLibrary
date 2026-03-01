@@ -47,6 +47,7 @@ public interface IDatabaseManager
     string GetOrCreateChildRootWithConnection(SqliteConnection connection, SqliteTransaction? transaction, string parentId, string name);
     string GetOrCreateHierarchy(SqliteConnection connection, SqliteTransaction transaction, string baseRootId, string baseRootPath, string targetDirPath);
     List<string> GetFileIdsUnderRoot(string rootId, bool recursive);
+    List<string> GetStackedFileIdsUnderRoot(string rootId, bool recursive);
     HashSet<string> GetDescendantRootIds(string rootId);
     void UpsertFileEntry(FileEntry entry);
     void UpsertFileEntryWithConnection(SqliteConnection connection, SqliteTransaction? transaction, FileEntry entry);

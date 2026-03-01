@@ -1447,6 +1447,40 @@ public class DatabaseManager : IDatabaseManager
         return ids;
     }
 
+    public List<string> GetStackedFileIdsUnderRoot(string rootId, bool recursive)
+    {
+        var ids = new List<string>();
+        var targetRootIds = recursive ? GetDescendantRootIds(rootId) : new HashSet<string> { rootId };
+        if (targetRootIds.Count == 0) return ids;
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        string idList = string.Join(",", targetRootIds.Select(id => $"'{id}'"));
+        
+        using (var cmd = connection.CreateCommand())
+        {
+            // Select IDs that share a BaseName with at least one other file in the same set of roots
+            cmd.CommandText = $@"
+                SELECT {Column.FileEntry.Id} 
+                FROM {TableName.FileEntry} 
+                WHERE {Column.FileEntry.RootPathId} IN ({idList})
+                AND {Column.FileEntry.BaseName} IN (
+                    SELECT {Column.FileEntry.BaseName}
+                    FROM {TableName.FileEntry}
+                    WHERE {Column.FileEntry.RootPathId} IN ({idList})
+                    GROUP BY {Column.FileEntry.BaseName}
+                    HAVING COUNT(*) > 1
+                )";
+            
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) ids.Add(reader.GetString(0));
+        }
+
+        _logger?.LogDebug("[DB] GetStackedFileIdsUnderRoot (recursive={Recursive}) found {Count} files", recursive, ids.Count);
+        return ids;
+    }
+
     public HashSet<string> GetDescendantRootIds(string rootId)
     {
         var targetRootIds = new HashSet<string> { rootId };

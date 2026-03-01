@@ -20,7 +20,7 @@ public record ImportLocalRequest(string sourceRoot, string[] sourceFiles, string
 
 public record ValidateImportRequest(string targetRootId, Dictionary<string, string> items);
 
-public record GenerateThumbnailsRequest(string rootId, bool recursive, bool force);
+public record GenerateThumbnailsRequest(string rootId, bool recursive, bool force, bool stackedOnly = false, string? extensionFilter = null);
 public record FolderAnnotationRequest(string folderId, string annotation, string? color);
 public record ForceUpdatePreviewRequest(string fileEntryId);
 public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? pickedOnly, int? rating, string[]? specificFileEntryIds, bool? stacked);

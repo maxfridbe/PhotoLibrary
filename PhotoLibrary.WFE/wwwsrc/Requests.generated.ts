@@ -85,6 +85,8 @@ export interface GenerateThumbnailsRequest {
     rootId: string;
     recursive: boolean;
     force: boolean;
+    stackedOnly: boolean;
+    extensionFilter?: string | null;
 }
 
 export interface FolderAnnotationRequest {

@@ -1443,7 +1443,8 @@ public class CommunicationLayer : ICommunicationLayer
 
     public void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken>? enqueue = null)
     {
-        _logger.LogInformation("[API] Generate Thumbnails requested for root {RootId} (Recursive: {Recursive}, Force: {Force})", req.rootId, req.recursive, req.force);
+        _logger.LogInformation("[API] Generate Thumbnails requested for root {RootId} (Recursive: {Recursive}, Force: {Force}, StackedOnly: {StackedOnly}, ExtensionFilter: {ExtensionFilter})", 
+            req.rootId, req.recursive, req.force, req.stackedOnly, req.extensionFilter);
 
         var finalEnqueue = enqueue ?? ((r, ct) => _ = GetImageAsync(r, ct));
 
@@ -1463,11 +1464,14 @@ public class CommunicationLayer : ICommunicationLayer
         {
             try
             {
-                var fileIds = _db.GetFileIdsUnderRoot(req.rootId, req.recursive);
+                var fileIds = req.stackedOnly 
+                    ? _db.GetStackedFileIdsUnderRoot(req.rootId, req.recursive)
+                    : _db.GetFileIdsUnderRoot(req.rootId, req.recursive);
+
                 int total = fileIds.Count;
                 int processed = 0;
                 int thumbnailed = 0;
-                _logger?.LogInformation("Enqueuing background thumbnail generation for {Total} files in root {RootId}", total, req.rootId);
+                _logger?.LogInformation("Enqueuing background thumbnail generation for {Total} candidate files in root {RootId}", total, req.rootId);
 
                 _ = _broadcast(new { type = "folder.progress", rootId = req.rootId, processed = 0, total, thumbnailed = 0 });
 
@@ -1475,6 +1479,15 @@ public class CommunicationLayer : ICommunicationLayer
                 {
                     if (cts.Token.IsCancellationRequested) break;
                     processed++;
+
+                    if (!string.IsNullOrEmpty(req.extensionFilter))
+                    {
+                        string? path = _db.GetFullFilePath(fId);
+                        if (path == null || !path.EndsWith(req.extensionFilter, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                    }
                     
                     string? hash = _db.GetFileHash(fId);
                     bool alreadyExists = hash != null && _previewManager.HasPreview(hash, 300) && _previewManager.HasPreview(hash, 1024);
