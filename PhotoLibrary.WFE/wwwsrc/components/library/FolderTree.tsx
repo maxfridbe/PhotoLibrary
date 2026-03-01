@@ -33,13 +33,13 @@ export function FolderTree(props: FolderTreeProps): VNode {
 
         const renderCountOrProgress = () => {
             const prog = folderProgress.get(node.directoryId);
-            let total = node.imageCount;
-            let thumbnailed = node.thumbnailedCount;
+            let total = node.imageCount ?? 0;
+            let thumbnailed = node.thumbnailedCount ?? 0;
             let isActiveTask = false;
 
             if (prog) {
-                total = prog.total;
-                thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
+                total = prog.total ?? total;
+                thumbnailed = (prog.thumbnailed !== undefined && prog.thumbnailed !== null) ? prog.thumbnailed : (prog.processed ?? 0);
                 isActiveTask = prog.active;
             }
             

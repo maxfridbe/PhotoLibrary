@@ -124,5 +124,6 @@ export interface ImageRequest {
     fileEntryId: string;
     size: number;
     priority: number;
+    contextId?: string | null;
 }
 

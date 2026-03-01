@@ -38,7 +38,7 @@ public interface ICommunicationLayer
     void SetAnnotation(FolderAnnotationRequest req);
     void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken>? enqueue = null);
     void ForgetRoot(ForgetRootRequest req);
-    bool CancelTask(TaskRequest req);
+    Task<bool> CancelTask(TaskRequest req);
     string? GetSetting(string key);
     void SetSetting(SettingRequest req);
     string PrepareExport(ZipRequest req);

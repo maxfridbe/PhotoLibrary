@@ -763,8 +763,14 @@ class App {
                     }
                 }
                 if (prog) {
-                    prog.thumbnailed = (prog.thumbnailed || 0) + 1;
-                    prog.processed = Math.max(prog.processed, prog.thumbnailed); // Keep processed in sync for fallback
+                    if (data.thumbnailed !== undefined && data.total !== undefined) {
+                        prog.thumbnailed = data.thumbnailed;
+                        prog.total = data.total;
+                        prog.active = true;
+                    } else {
+                        prog.thumbnailed = (prog.thumbnailed || 0) + 1;
+                    }
+                    prog.processed = Math.max(prog.processed, prog.thumbnailed || 0); // Keep processed in sync for fallback
                     this.folderProgress.set(data.rootId, prog);
                     this.renderLibrary();
                 }

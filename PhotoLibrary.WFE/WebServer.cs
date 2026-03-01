@@ -21,7 +21,8 @@ namespace PhotoLibrary.Backend;
 public static class WebServer
 {
     private static readonly string _assemblyName = typeof(WebServer).Assembly.GetName().Name!;
-    private static readonly ConcurrentBag<(WebSocket socket, SemaphoreSlim lockobj, string clientId)> _activeSockets = new();
+    private static readonly ConcurrentDictionary<string, (WebSocket socket, SemaphoreSlim lockobj)> _activeSockets = new();
+    private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks = new();
     private static ILogger? _logger;
     private static readonly Process _currentProcess = Process.GetCurrentProcess();
@@ -180,8 +181,8 @@ public static class WebServer
             return Results.Ok();
         });
 
-        app.MapPost("/api/library/cancel-task", (TaskRequest req) => {
-            bool success = _commLayer?.CancelTask(req) ?? false;
+        app.MapPost("/api/library/cancel-task", async (TaskRequest req) => {
+            bool success = await _commLayer?.CancelTask(req)!;
             return success ? Results.Ok(new { success = true }) : Results.NotFound();
         });
 
@@ -236,12 +237,16 @@ public static class WebServer
                 string clientId = context.Request.Query["clientId"].ToString() ?? "unknown";
                 var ws = await context.WebSockets.AcceptWebSocketAsync();
                 var lockobj = new SemaphoreSlim(1, 1);
-                var entry = (ws, lockobj, clientId);
-                _activeSockets.Add(entry);
+                var entry = (ws, lockobj);
+                
+                _activeSockets.AddOrUpdate(clientId, entry, (_, __) => entry);
+                _logger?.LogInformation("[WS] Client {ClientId} connected. Total active: {Count}", clientId, _activeSockets.Count);
+
                 try {
-                    await HandleWebSocket((ws, lockobj), db, pm, lifetime.ApplicationStopping);
+                    await HandleWebSocket(entry, db, pm, lifetime.ApplicationStopping);
                 } finally {
-                    // socket closed
+                    _activeSockets.TryRemove(clientId, out _);
+                    _logger?.LogInformation("[WS] Client {ClientId} disconnected. Total active: {Count}", clientId, _activeSockets.Count);
                 }
             }
             else context.Response.StatusCode = 400;
@@ -296,12 +301,15 @@ public static class WebServer
 
     private static async Task Broadcast(object message, string? targetClientId = null)
     {
-        var json = JsonSerializer.Serialize(message);
+        var json = JsonSerializer.Serialize(message, _jsonOptions);
         var buffer = Encoding.UTF8.GetBytes(json);
-        
+
         var tasks = new List<Task>();
-        foreach (var (socket, lockobj, clientId) in _activeSockets)
+        foreach (var kvp in _activeSockets)
         {
+            var clientId = kvp.Key;
+            var (socket, lockobj) = kvp.Value;
+
             if (socket.State == WebSocketState.Open)
             {
                 if (targetClientId != null && clientId != targetClientId) continue;
@@ -318,7 +326,6 @@ public static class WebServer
         }
         await Task.WhenAll(tasks);
     }
-
     private static IResult ServeEmbeddedFile(string resourceName, string contentType)
     {
         var assembly = Assembly.GetExecutingAssembly();

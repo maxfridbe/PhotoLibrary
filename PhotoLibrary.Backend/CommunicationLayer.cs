@@ -327,13 +327,15 @@ public class CommunicationLayer : ICommunicationLayer
                                             }
                                         }
 
-                                        _ = _broadcast(new { 
-                                            type = "preview.generated", 
-                                            fileEntryId = req.fileEntryId, 
-                                            rootId = req.contextId ?? fileRootId,
-                                            thumbnailed = jobThumbnailed,
-                                            total = jobTotal
-                                        });
+                                        var msgMap = new Dictionary<string, object?> {
+                                            { "type", "preview.generated" },
+                                            { "fileEntryId", req.fileEntryId },
+                                            { "rootId", req.contextId ?? fileRootId }
+                                        };
+                                        if (jobThumbnailed.HasValue) msgMap["thumbnailed"] = jobThumbnailed.Value;
+                                        if (jobTotal.HasValue) msgMap["total"] = jobTotal.Value;
+
+                                        _ = _broadcast(msgMap);
 
                                         if (isFinished && req.contextId != null)
                                         {
