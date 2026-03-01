@@ -1429,9 +1429,11 @@ public class CommunicationLayer : ICommunicationLayer
         } catch { return DateTime.Now; }
     }
 
-    public void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue)
+    public void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken>? enqueue = null)
     {
         _logger.LogInformation("[API] Generate Thumbnails requested for root {RootId} (Recursive: {Recursive}, Force: {Force})", req.rootId, req.recursive, req.force);
+
+        var finalEnqueue = enqueue ?? ((r, ct) => _ = GetImageAsync(r, ct));
 
         string taskId = $"thumbnails-{req.rootId}";
         var cts = new CancellationTokenSource();
@@ -1475,8 +1477,8 @@ public class CommunicationLayer : ICommunicationLayer
                         {
                             _previewManager.DeletePreviewsByHash(hash);
                         }
-                        enqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
-                        enqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001 }, cts.Token);
+                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
+                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001 }, cts.Token);
                     }
 
                     if (processed % 50 == 0 || processed == total)
@@ -1503,16 +1505,18 @@ public class CommunicationLayer : ICommunicationLayer
         _db.SetFolderAnnotation(req.folderId, req.annotation, req.color);
     }
 
-    public void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue)
+    public void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken>? enqueue = null)
     {
         string? hash = _db.GetFileHash(req.fileEntryId);
         if (hash != null)
         {
             _previewManager.DeletePreviewsByHash(hash);
         }
+
+        var finalEnqueue = enqueue ?? ((r, ct) => _ = GetImageAsync(r, ct));
         
-        enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
-        enqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 1024, requestId = -1, priority = 90 }, CancellationToken.None);
+        finalEnqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 300, requestId = -1, priority = 100 }, CancellationToken.None);
+        finalEnqueue(new ImageRequest { fileEntryId = req.fileEntryId, size = 1024, requestId = -1, priority = 90 }, CancellationToken.None);
     }
 
     public void ForgetRoot(ForgetRootRequest req)

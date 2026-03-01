@@ -156,7 +156,7 @@ public static class WebServer
         });
 
         app.MapPost("/api/library/generate-thumbnails", (GenerateThumbnailsRequest req) => {
-            _commLayer?.GenerateThumbnails(req, (r, ct) => { /* Queuing now handled inside CommLayer */ });
+            _commLayer?.GenerateThumbnails(req);
             return Results.Ok();
         });
 
@@ -166,7 +166,7 @@ public static class WebServer
         });
 
         app.MapPost("/api/library/force-update-preview", (ForceUpdatePreviewRequest req) => {
-            _commLayer?.ForceUpdatePreview(req, (r, ct) => { /* Queuing now handled inside CommLayer */ });
+            _commLayer?.ForceUpdatePreview(req);
             return Results.Ok();
         });
 

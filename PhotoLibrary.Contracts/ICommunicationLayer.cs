@@ -34,9 +34,9 @@ public interface ICommunicationLayer
     ValidateImportResponse ValidateImport(ValidateImportRequest req);
     void ImportBatch(ImportBatchRequest req);
     string ImportLocal(ImportLocalRequest req);
-    void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken> enqueue);
+    void GenerateThumbnails(GenerateThumbnailsRequest req, Action<ImageRequest, CancellationToken>? enqueue = null);
     void SetAnnotation(FolderAnnotationRequest req);
-    void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken> enqueue);
+    void ForceUpdatePreview(ForceUpdatePreviewRequest req, Action<ImageRequest, CancellationToken>? enqueue = null);
     void ForgetRoot(ForgetRootRequest req);
     bool CancelTask(TaskRequest req);
     string? GetSetting(string key);
