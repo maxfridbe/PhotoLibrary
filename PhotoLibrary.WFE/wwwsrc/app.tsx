@@ -803,16 +803,27 @@ class App {
         this.syncUrl();
     }
 
-    public async toggleHide(id: string) {
+    public async toggleHide(ids: string | string[]) {
         if (!this.selectedRootId) return; // Only allow hiding in folder view for now
 
-        const photo = this.photoMap.get(id);
-        if (!photo) return;
+        const idArray = Array.isArray(ids) ? ids : [ids];
+        const allTargetIds = new Set<string>();
 
-        const targetIds = photo.stackFileIds && photo.stackFileIds.length > 0 ? photo.stackFileIds : [id];
+        idArray.forEach(id => {
+            const photo = this.photoMap.get(id);
+            if (photo) {
+                if (photo.stackFileIds && photo.stackFileIds.length > 0) {
+                    photo.stackFileIds.forEach(sid => allTargetIds.add(sid));
+                } else {
+                    allTargetIds.add(id);
+                }
+            }
+        });
+
+        if (allTargetIds.size === 0) return;
+
         let changed = false;
-
-        targetIds.forEach(tid => {
+        allTargetIds.forEach(tid => {
             if (this.hiddenIds.has(tid)) {
                 this.hiddenIds.delete(tid);
                 changed = true;
@@ -3253,7 +3264,7 @@ class App {
         }
         if (key === 'h') {
             const targets = this.selectedIds.size > 0 ? Array.from(this.selectedIds) : (this.selectedId ? [this.selectedId] : []);
-            targets.forEach(id => this.toggleHide(id));
+            this.toggleHide(targets);
         }
         if (key === 'm') {
             e.preventDefault();
