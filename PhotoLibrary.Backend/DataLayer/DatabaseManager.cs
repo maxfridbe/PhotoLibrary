@@ -355,6 +355,50 @@ public class DatabaseManager : IDatabaseManager
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 1) { /* Already exists */ }
 
+        // Populate BaseName if missing (Migration)
+        try
+        {
+            using (var checkCmd = connection.CreateCommand())
+            {
+                checkCmd.CommandText = $"SELECT COUNT(*) FROM {TableName.FileEntry} WHERE {Column.FileEntry.BaseName} IS NULL;";
+                long nullCount = Convert.ToInt64(checkCmd.ExecuteScalar());
+                if (nullCount > 0)
+                {
+                    _logger?.LogInformation("[DB] Populating BaseName for {Count} entries...", nullCount);
+                    var entries = new List<(string Id, string FileName)>();
+                    using (var getCmd = connection.CreateCommand())
+                    {
+                        getCmd.CommandText = $"SELECT {Column.FileEntry.Id}, {Column.FileEntry.FileName} FROM {TableName.FileEntry} WHERE {Column.FileEntry.BaseName} IS NULL;";
+                        using var reader = getCmd.ExecuteReader();
+                        while (reader.Read()) entries.Add((reader.GetString(0), reader.GetString(1)));
+                    }
+
+                    int processed = 0;
+                    for (int i = 0; i < entries.Count; i += 1000)
+                    {
+                        var batch = entries.Skip(i).Take(1000).ToList();
+                        using var transaction = connection.BeginTransaction();
+                        foreach (var entry in batch)
+                        {
+                            using var updateCmd = connection.CreateCommand();
+                            updateCmd.Transaction = transaction;
+                            updateCmd.CommandText = $"UPDATE {TableName.FileEntry} SET {Column.FileEntry.BaseName} = $BaseName WHERE {Column.FileEntry.Id} = $Id;";
+                            updateCmd.Parameters.AddWithValue("$BaseName", Path.GetFileNameWithoutExtension(entry.FileName));
+                            updateCmd.Parameters.AddWithValue("$Id", entry.Id);
+                            updateCmd.ExecuteNonQuery();
+                        }
+                        transaction.Commit();
+                        processed += batch.Count;
+                        _logger?.LogInformation("[DB] Populated BaseName for {Count} / {Total} entries...", processed, entries.Count);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "BaseName population failed.");
+        }
+
         NormalizeRoots();
     }
 
@@ -1465,10 +1509,12 @@ public class DatabaseManager : IDatabaseManager
                 SELECT {Column.FileEntry.Id} 
                 FROM {TableName.FileEntry} 
                 WHERE {Column.FileEntry.RootPathId} IN ({idList})
+                AND {Column.FileEntry.BaseName} IS NOT NULL
                 AND {Column.FileEntry.BaseName} IN (
                     SELECT {Column.FileEntry.BaseName}
                     FROM {TableName.FileEntry}
                     WHERE {Column.FileEntry.RootPathId} IN ({idList})
+                    AND {Column.FileEntry.BaseName} IS NOT NULL
                     GROUP BY {Column.FileEntry.BaseName}
                     HAVING COUNT(*) > 1
                 )";
