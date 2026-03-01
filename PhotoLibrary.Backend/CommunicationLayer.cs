@@ -31,6 +31,14 @@ public class CommunicationLayer : ICommunicationLayer
     private readonly string _mapTilesPath;
     private readonly Func<object, Task> _broadcast;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTasks;
+    private class JobStatus
+    {
+        public int Thumbnailed;
+        public int Total;
+        public bool IsEnqueuing = true;
+    }
+
+    private readonly ConcurrentDictionary<string, JobStatus> _jobProgress = new();
     private readonly ConcurrentDictionary<string, ZipRequest> _exportCache = new();
     private readonly Process _currentProcess = Process.GetCurrentProcess();
 
@@ -301,7 +309,40 @@ public class CommunicationLayer : ICommunicationLayer
                                         item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                                         
                                         string? fileRootId = _db.GetFileRootId(req.fileEntryId);
-                                        _ = _broadcast(new { type = "preview.generated", fileEntryId = req.fileEntryId, rootId = req.contextId ?? fileRootId });
+                                        int? jobThumbnailed = null;
+                                        int? jobTotal = null;
+                                        bool isFinished = false;
+
+                                        if (req.contextId != null && _jobProgress.TryGetValue(req.contextId, out var status))
+                                        {
+                                            lock (status)
+                                            {
+                                                status.Thumbnailed++;
+                                                jobThumbnailed = status.Thumbnailed / 2;
+                                                jobTotal = status.Total / 2;
+                                                if (!status.IsEnqueuing && status.Thumbnailed >= status.Total)
+                                                {
+                                                    isFinished = true;
+                                                }
+                                            }
+                                        }
+
+                                        _ = _broadcast(new { 
+                                            type = "preview.generated", 
+                                            fileEntryId = req.fileEntryId, 
+                                            rootId = req.contextId ?? fileRootId,
+                                            thumbnailed = jobThumbnailed,
+                                            total = jobTotal
+                                        });
+
+                                        if (isFinished && req.contextId != null)
+                                        {
+                                            _ = Task.Run(async () => {
+                                                await Task.Delay(500);
+                                                _jobProgress.TryRemove(req.contextId, out _);
+                                                await _broadcast(new { type = "folder.finished", rootId = req.contextId });
+                                            });
+                                        }
                                     }
                                 }
                                 catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
@@ -1461,7 +1502,7 @@ public class CommunicationLayer : ICommunicationLayer
             _activeTasks.TryAdd(taskId, cts);
         }
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             try
             {
@@ -1469,12 +1510,17 @@ public class CommunicationLayer : ICommunicationLayer
                     ? _db.GetStackedFileIdsUnderRoot(req.rootId, req.recursive)
                     : _db.GetFileIdsUnderRoot(req.rootId, req.recursive);
 
-                int total = fileIds.Count;
+                int totalCandidates = fileIds.Count;
                 int processed = 0;
                 int thumbnailed = 0;
-                _logger?.LogInformation("Enqueuing background thumbnail generation for {Total} candidate files in root {RootId}", total, req.rootId);
+                _logger?.LogInformation("Enqueuing background thumbnail generation for {Total} candidate files in root {RootId}", totalCandidates, req.rootId);
 
-                _ = _broadcast(new { type = "folder.progress", rootId = req.rootId, processed = 0, total, thumbnailed = 0 });
+                var status = new JobStatus { Total = totalCandidates * 2 };
+                _jobProgress[req.rootId] = status;
+
+                // Small delay to ensure UI has received the trigger response before getting progress
+                await Task.Delay(100);
+                await _broadcast(new { type = "folder.progress", rootId = req.rootId, processed = 0, total = totalCandidates, thumbnailed = 0 });
 
                 foreach (var fId in fileIds)
                 {
@@ -1486,16 +1532,26 @@ public class CommunicationLayer : ICommunicationLayer
                         string? path = _db.GetFullFilePath(fId);
                         if (path == null || !path.EndsWith(req.extensionFilter, StringComparison.OrdinalIgnoreCase))
                         {
+                            lock (status)
+                            {
+                                status.Thumbnailed += 2;
+                                thumbnailed = status.Thumbnailed / 2;
+                            }
                             continue;
                         }
                     }
-                    
+
                     string? hash = _db.GetFileHash(fId);
                     bool alreadyExists = hash != null && _previewManager.HasPreview(hash, 300) && _previewManager.HasPreview(hash, 1024);
 
                     if (alreadyExists && !req.force)
                     {
-                        thumbnailed++;
+                        lock (status)
+                        {
+                            status.Thumbnailed += 2;
+                            thumbnailed = status.Thumbnailed / 2;
+                        }
+
                         string shortId = fId.Length > 12 ? $"{fId.Substring(0, 4)}...{fId.Substring(fId.Length - 4)}" : fId;
                         _logger?.LogInformation("[THUMB] {Id,-11} | Priority: {Priority,12:F4} | Tot: {Total,9:F1}ms | SKIPPED (Exists)",
                             shortId, -1000.0, 0.0);
@@ -1510,26 +1566,38 @@ public class CommunicationLayer : ICommunicationLayer
                         finalEnqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001, contextId = req.rootId }, cts.Token);
                         }
 
-                    if (processed % 50 == 0 || processed == total)
+                    if (processed % 50 == 0 || processed == totalCandidates)
                     {
-                        _ = _broadcast(new { 
-                            type = "folder.progress", 
-                            rootId = req.rootId, 
-                            processed, 
-                            total,
-                            thumbnailed 
+                        await _broadcast(new {
+                            type = "folder.progress",
+                            rootId = req.rootId,
+                            processed,
+                            total = totalCandidates,
+                            thumbnailed
                         });
                     }
                 }
-                
+
+                bool finishedImmediately = false;
+                lock (status)
+                {
+                    status.IsEnqueuing = false;
+                    if (status.Thumbnailed >= status.Total) finishedImmediately = true;
+                }
+
+                if (finishedImmediately)
+                {
+                    await Task.Delay(500);
+                    _jobProgress.TryRemove(req.rootId, out _);
+                    await _broadcast(new { type = "folder.finished", rootId = req.rootId });
+                }
+
                 _logger?.LogInformation("Finished enqueuing background tasks for root {RootId}.", req.rootId);
-            }
-            catch (Exception ex) { _logger?.LogError(ex, "[WS] Background thumbnail enqueue error"); }
-            finally { 
+                }
+                catch (Exception ex) { _logger?.LogError(ex, "[WS] Background thumbnail enqueue error"); }
+                finally {
                 _activeTasks.TryRemove(taskId, out _);
-                _ = _broadcast(new { type = "folder.finished", rootId = req.rootId });
-            }
-        });
+                }        });
     }
 
     public void SetAnnotation(FolderAnnotationRequest req)
@@ -1577,7 +1645,7 @@ public class CommunicationLayer : ICommunicationLayer
         }
     }
 
-    public bool CancelTask(TaskRequest req)
+    public async Task<bool> CancelTask(TaskRequest req)
     {
         if (_activeTasks.TryRemove(req.taskId, out var cts))
         {
@@ -1589,7 +1657,8 @@ public class CommunicationLayer : ICommunicationLayer
             if (req.taskId.StartsWith("thumbnails-"))
             {
                 string rootId = req.taskId.Replace("thumbnails-", "");
-                _ = _broadcast(new { type = "folder.finished", rootId });
+                _jobProgress.TryRemove(rootId, out _);
+                await _broadcast(new { type = "folder.finished", rootId });
             }
 
             return true;
