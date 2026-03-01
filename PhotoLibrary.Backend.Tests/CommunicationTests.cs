@@ -339,12 +339,14 @@ public class CommunicationTests : TestBase
 
         // Wait for background scan/enqueue
         int attempts = 0;
-        while (attempts++ < 50 && enqueued.Count < 2) Thread.Sleep(100);
+        while (attempts++ < 50 && enqueued.Count < 4) Thread.Sleep(100);
 
         // Assert
-        Assert.Equal(2, enqueued.Count); // Only s1.jpg (300 and 1024)
+        Assert.Equal(4, enqueued.Count); // s1.jpg (2 sizes) AND u1.jpg (2 sizes)
         var s1Id = db.GetFileId(rootId, "s1.jpg");
-        Assert.All(enqueued, r => Assert.Equal(s1Id, r.fileEntryId));
+        var u1Id = db.GetFileId(rootId, "u1.jpg");
+        Assert.Contains(enqueued, r => r.fileEntryId == s1Id);
+        Assert.Contains(enqueued, r => r.fileEntryId == u1Id);
     }
 
     [Fact]

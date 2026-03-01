@@ -1504,26 +1504,29 @@ public class DatabaseManager : IDatabaseManager
         
         using (var cmd = connection.CreateCommand())
         {
-            // Select IDs that share a BaseName with at least one other file in the same set of roots
+            // Select the 'representative' file for each stack (prioritizing JPG over RAW)
+            // This includes solitary files. Solitary RAWs will be filtered out by the 
+            // extension filter in the CommunicationLayer.
             cmd.CommandText = $@"
-                SELECT {Column.FileEntry.Id} 
-                FROM {TableName.FileEntry} 
-                WHERE {Column.FileEntry.RootPathId} IN ({idList})
-                AND {Column.FileEntry.BaseName} IS NOT NULL
-                AND {Column.FileEntry.BaseName} IN (
-                    SELECT {Column.FileEntry.BaseName}
-                    FROM {TableName.FileEntry}
+                SELECT Id FROM (
+                    SELECT {Column.FileEntry.Id} as Id, {Column.FileEntry.FileName} as FileName,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY {Column.FileEntry.BaseName} 
+                               ORDER BY 
+                                   CASE WHEN {Column.FileEntry.FileName} LIKE '%.jpg' OR {Column.FileEntry.FileName} LIKE '%.jpeg' THEN 0 ELSE 1 END,
+                                   {Column.FileEntry.FileName} ASC
+                           ) as rn
+                    FROM {TableName.FileEntry} 
                     WHERE {Column.FileEntry.RootPathId} IN ({idList})
                     AND {Column.FileEntry.BaseName} IS NOT NULL
-                    GROUP BY {Column.FileEntry.BaseName}
-                    HAVING COUNT(*) > 1
-                )";
+                )
+                WHERE rn = 1";
             
             using var reader = cmd.ExecuteReader();
             while (reader.Read()) ids.Add(reader.GetString(0));
         }
 
-        _logger?.LogDebug("[DB] GetStackedFileIdsUnderRoot (recursive={Recursive}) found {Count} files", recursive, ids.Count);
+        _logger?.LogDebug("[DB] GetStackedFileIdsUnderRoot (recursive={Recursive}) found {Count} representatives", recursive, ids.Count);
         return ids;
     }
 
