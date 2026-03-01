@@ -49,6 +49,8 @@ export class TimelineView {
     private visibleGroups: { groupIndex: number, startRow: number, endRow: number }[] = [];
     private lastGroupLayouts: { offset: number, height?: number, rows?: number, width?: number, cols?: number }[] = [];
     private isNavigating = false;
+    private isScrolling = false;
+    private scrollingTimer: any = null;
 
     constructor(imageUrlCache: Map<string, string>, rotationMap: Map<string, number>, priorityProvider: (id: string) => number) {
         this.imageUrlCache = imageUrlCache;
@@ -178,10 +180,20 @@ export class TimelineView {
         }, 50);
     }
 
-    public update(force: boolean = false) {
+    public update(force: boolean = false, isFromScroll: boolean = false) {
         if (!this.$viewEl) return;
         const container = this.$viewEl.parentElement as HTMLElement;
         if (!container) return;
+
+        if (isFromScroll) {
+            this.isScrolling = true;
+            if (this.scrollingTimer) clearTimeout(this.scrollingTimer);
+            this.scrollingTimer = setTimeout(() => {
+                this.isScrolling = false;
+                this.update(true); // Force re-render to trigger lazy loading
+                this.scrollingTimer = null;
+            }, 150);
+        }
 
         if (this.orientation === 'horizontal') {
             this.updateHorizontal(container, force);
@@ -235,7 +247,7 @@ export class TimelineView {
                 vg.groupIndex !== this.visibleGroups[i]?.groupIndex ||
                 vg.startRow !== this.visibleGroups[i]?.startRow ||
                 vg.endRow !== this.visibleGroups[i]?.endRow
-            );
+            ) || (this.isScrolling && !force);
 
         if (isChanged) {
             this.visibleGroups = newVisibleGroups;
@@ -261,6 +273,7 @@ export class TimelineView {
                         photo={photo}
                         isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        isScrolling={this.isScrolling}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
                         imageUrlCache={this.imageUrlCache}
@@ -467,7 +480,7 @@ export class TimelineView {
                 vg.groupIndex !== this.visibleGroups[i]?.groupIndex ||
                 vg.startRow !== this.visibleGroups[i]?.startRow ||
                 vg.endRow !== this.visibleGroups[i]?.endRow
-            );
+            ) || (this.isScrolling && !force);
 
         if (isChanged) {
             this.visibleGroups = newVisibleGroups;
@@ -493,6 +506,7 @@ export class TimelineView {
                         photo={photo}
                         isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        isScrolling={this.isScrolling}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
                         imageUrlCache={this.imageUrlCache}

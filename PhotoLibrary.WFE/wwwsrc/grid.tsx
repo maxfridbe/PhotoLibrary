@@ -48,6 +48,8 @@ export class GridView {
     private selectedIds: Set<string> = new Set();
     private generatingIds = new Set<string>();
     private priorityProvider: (id: string) => number;
+    private isScrolling = false;
+    private scrollingTimer: any = null;
 
     constructor(imageUrlCache: Map<string, string>, rotationMap: Map<string, number>, priorityProvider: (id: string) => number) {
         this.imageUrlCache = imageUrlCache;
@@ -124,10 +126,20 @@ export class GridView {
         }, 50);
     }
 
-    public update(force: boolean = false) {
+    public update(force: boolean = false, isFromScroll: boolean = false) {
         if (!this.$gridViewEl) return;
         const gridContainer = this.$gridViewEl.parentElement as HTMLElement;
         if (!gridContainer) return;
+
+        if (isFromScroll) {
+            this.isScrolling = true;
+            if (this.scrollingTimer) clearTimeout(this.scrollingTimer);
+            this.scrollingTimer = setTimeout(() => {
+                this.isScrolling = false;
+                this.update(true); // Force re-render to trigger lazy loading
+                this.scrollingTimer = null;
+            }, 150); // Slightly longer debounce for smoother experience
+        }
 
         const containerWidth = gridContainer.clientWidth - 20;
         this.cols = Math.max(1, Math.floor(containerWidth / this.minCardWidth));
@@ -145,7 +157,7 @@ export class GridView {
         const startIndex = startRow * this.cols;
         const endIndex = Math.min(this.photos.length, endRow * this.cols);
         
-        if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end) {
+        if (force || startIndex !== this.visibleRange.start || endIndex !== this.visibleRange.end || (this.isScrolling && !force)) {
             this.visibleRange = { start: startIndex, end: endIndex };
             this.render();
         }
@@ -169,6 +181,7 @@ export class GridView {
                         photo={photo}
                         isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        isScrolling={this.isScrolling}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="grid"
                         imageUrlCache={this.imageUrlCache}
@@ -222,6 +235,7 @@ export class GridView {
                         photo={photo}
                         isSelected={this.selectedIds.has(photo.fileEntryId) || (!!photo.stackFileIds && photo.stackFileIds.some(sid => this.selectedIds.has(sid)))}
                         isGenerating={this.generatingIds.has(photo.fileEntryId)}
+                        isScrolling={this.isScrolling}
                         rotation={this.rotationMap.get(photo.fileEntryId) || 0}
                         mode="filmstrip"
                         imageUrlCache={this.imageUrlCache}

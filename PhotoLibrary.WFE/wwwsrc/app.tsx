@@ -1782,7 +1782,7 @@ class App {
             self.timelineViewManager.update(true);
 
             timelineCont.onscroll = () => {
-                self.timelineViewManager.updateDebounced();
+                self.timelineViewManager.update(false, true);
                 self.syncUrlDebounced();
             };
             timelineCont.onwheel = (e) => {
@@ -1975,8 +1975,7 @@ class App {
             self.$workspaceEl.appendChild(gridContainer);
 
             self.$gridContainer = gridContainer;
-            gridContainer.onscroll = () => self.gridViewManager.updateDebounced();
-            console.log('[App] Assigning gridViewEl to manager');
+            gridContainer.onscroll = () => self.gridViewManager.update(false, true);            console.log('[App] Assigning gridViewEl to manager');
             self.gridViewManager.$gridViewEl = $gridView;
             self.gridViewManager.$scrollSentinel = sentinel;
             self.gridViewManager.update(true);
@@ -2011,7 +2010,7 @@ class App {
             self.$filmstrip = $filmstrip;
             self.gridViewManager.$filmstripEl = $filmstrip;
 
-            gridContainer.onscroll = () => self.gridViewManager.updateDebounced();
+            gridContainer.onscroll = () => self.gridViewManager.update(false, true);
 
             // Filmstrip Resizer Logic
             let isResizing = false;

@@ -6,6 +6,7 @@ export interface PhotoCardProps {
     photo: Res.PhotoResponse;
     isSelected: boolean;
     isGenerating: boolean;
+    isScrolling: boolean;
     rotation: number;
     mode: 'grid' | 'filmstrip';
     imageUrlCache: Map<string, string>;
@@ -18,7 +19,7 @@ export interface PhotoCardProps {
 }
 
 export function PhotoCard(props: PhotoCardProps): VNode {
-    const { photo, isSelected, isGenerating, rotation, mode, imageUrlCache } = props;
+    const { photo, isSelected, isGenerating, isScrolling, rotation, mode, imageUrlCache } = props;
 
     const rotStyle = rotation ? { transform: `rotate(${rotation}deg)` } : {};
     const isPortrait = rotation % 180 !== 0;
@@ -64,7 +65,7 @@ export function PhotoCard(props: PhotoCardProps): VNode {
                     props={{ src: cachedUrl || '' }}
                     hook={{
                         insert: (vnode) => {
-                            if (!cachedUrl) {
+                            if (!cachedUrl && !isScrolling) {
                                 const app = (window as any).app;
                                 const manager = app.isTimelineMode ? app.timelineViewManager : (app.isMapMode ? app.mapViewManager : app.gridViewManager);
                                 if (manager && typeof manager.lazyLoadImage === 'function') {
@@ -75,7 +76,7 @@ export function PhotoCard(props: PhotoCardProps): VNode {
                         update: (oldVnode, vnode) => {
                             const oldId = (oldVnode.elm?.parentElement as HTMLElement)?.dataset?.id;
                             const isSelected = props.isSelected;
-                            if ((photo.fileEntryId !== oldId || isSelected) && !cachedUrl) {
+                            if ((photo.fileEntryId !== oldId || isSelected) && !cachedUrl && !isScrolling) {
                                 const app = (window as any).app;
                                 const manager = app.isTimelineMode ? app.timelineViewManager : (app.isMapMode ? app.mapViewManager : app.gridViewManager);
                                 if (manager && typeof manager.lazyLoadImage === 'function') {
