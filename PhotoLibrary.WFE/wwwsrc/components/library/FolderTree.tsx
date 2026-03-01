@@ -7,7 +7,7 @@ export interface FolderTreeProps {
     roots: Res.DirectoryNodeResponse[];
     selectedRootId: string | null;
     expandedFolders: Set<string>;
-    folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }>;
+    folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number, active: boolean }>;
     onFolderClick: (rootId: string) => void;
     onFolderToggle: (rootId: string, expanded: boolean) => void;
     onFolderContextMenu: (e: MouseEvent, rootId: string) => void;
@@ -35,17 +35,17 @@ export function FolderTree(props: FolderTreeProps): VNode {
             const prog = folderProgress.get(node.directoryId);
             let total = node.imageCount;
             let thumbnailed = node.thumbnailedCount;
-            let isActive = false;
+            let isActiveTask = false;
 
             if (prog) {
                 total = prog.total;
                 thumbnailed = prog.thumbnailed !== undefined ? prog.thumbnailed : prog.processed;
-                isActive = thumbnailed < total;
+                isActiveTask = prog.active;
             }
             
-            if (total <= 0) return <span class={{ count: true }} style={{ marginLeft: 'auto' }} />;
+            if (total <= 0 && !isActiveTask) return <span class={{ count: true }} style={{ marginLeft: 'auto' }} />;
 
-            if (thumbnailed >= total) {
+            if (thumbnailed >= total && !isActiveTask) {
                 return (
                     <span 
                         class={{ count: true }} 
@@ -61,7 +61,7 @@ export function FolderTree(props: FolderTreeProps): VNode {
             
             return (
                 <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>
-                    {isActive ? (
+                    {isActiveTask ? (
                         <span 
                             class={{ 'cancel-task': true }}
                             style={{ cursor: 'pointer', padding: '0 4px', color: 'var(--text-muted)', fontSize: '1.2em', lineHeight: '1', marginRight: '4px' }}

@@ -7,7 +7,7 @@ namespace PhotoLibrary.Backend;
 public static class TableConstants
 {
     public static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase) {
-        ".jpg", ".jpeg", ".png", ".webp", ".arw", ".nef", ".cr2", ".cr3", ".dng", ".orf", ".raf"
+        ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".arw", ".nef", ".cr2", ".cr3", ".dng", ".orf", ".raf"
     };
 
     public static readonly HashSet<string> RawExtensions = new(StringComparer.OrdinalIgnoreCase) {

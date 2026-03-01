@@ -27,4 +27,4 @@ public record PagedPhotosRequest(int? limit, int? offset, string? rootId, bool? 
 public record PagedMapPhotosRequest(int? limit, int? offset);
 public record ForgetRootRequest(string rootId, bool keepPreviews);
 
-public record ImageRequest { public int requestId { get; init; } public string fileEntryId { get; init; } = ""; public int size { get; init; } public double priority { get; init; } }
+public record ImageRequest { public int requestId { get; init; } public string fileEntryId { get; init; } = ""; public int size { get; init; } public double priority { get; init; } public string? contextId { get; init; } }

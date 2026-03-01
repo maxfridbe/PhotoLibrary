@@ -301,9 +301,10 @@ public class CommunicationLayer : ICommunicationLayer
                                         item.GeneratingMs = Stopwatch.GetElapsedTime(genStart).TotalMilliseconds;
                                         
                                         string? fileRootId = _db.GetFileRootId(req.fileEntryId);
-                                        _ = _broadcast(new { type = "preview.generated", fileEntryId = req.fileEntryId, rootId = fileRootId });
+                                        _ = _broadcast(new { type = "preview.generated", fileEntryId = req.fileEntryId, rootId = req.contextId ?? fileRootId });
                                     }
-                                } catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
+                                }
+                                catch (Exception ex) { _logger?.LogError(ex, "Live Gen Failed for {Id}", req.fileEntryId); }
                             }
                         }
                         item.RetrievalMs = Stopwatch.GetElapsedTime(retrievalStart).TotalMilliseconds - item.GeneratingMs;
@@ -1505,9 +1506,9 @@ public class CommunicationLayer : ICommunicationLayer
                         {
                             _previewManager.DeletePreviewsByHash(hash);
                         }
-                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000 }, cts.Token);
-                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001 }, cts.Token);
-                    }
+                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 300, requestId = -1, priority = -1000, contextId = req.rootId }, cts.Token);
+                        finalEnqueue(new ImageRequest { fileEntryId = fId, size = 1024, requestId = -1, priority = -1001, contextId = req.rootId }, cts.Token);
+                        }
 
                     if (processed % 50 == 0 || processed == total)
                     {
@@ -1707,6 +1708,8 @@ public class CommunicationLayer : ICommunicationLayer
             ".jpg" or ".jpeg" => MagickFormat.Jpg,
             ".png" => MagickFormat.Png,
             ".webp" => MagickFormat.WebP,
+            ".heic" => MagickFormat.Heic,
+            ".heif" => MagickFormat.Heif,
             _ => MagickFormat.Unknown
         };
     }
@@ -1728,6 +1731,8 @@ public class CommunicationLayer : ICommunicationLayer
             ".png" => "image/png",
             ".jpg" or ".jpeg" => "image/jpeg",
             ".webp" => "image/webp",
+            ".heic" => "image/heic",
+            ".heif" => "image/heif",
             ".svg" => "image/svg+xml",
             ".ico" => "image/x-icon",
             _ => "application/octet-stream",

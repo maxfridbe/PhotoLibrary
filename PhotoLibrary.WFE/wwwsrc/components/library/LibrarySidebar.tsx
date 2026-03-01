@@ -22,7 +22,7 @@ export interface LibrarySidebarProps {
     searchResultCount: number;
     
     expandedFolders: Set<string>;
-    folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }>;
+    folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number, active: boolean }>;
     showQueryBuilder: boolean;
     isSearchPinned: boolean;
 

@@ -255,7 +255,7 @@ class App {
     private directoryRefreshTimer: any = null;
     private importedQueue: { fileEntryId: string, path: string, rootId?: string }[] = [];
     private importProcessTimer: any = null;
-    private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number }> = new Map();
+    private folderProgress: Map<string, { processed: number, total: number, thumbnailed?: number, active: boolean }> = new Map();
     private loadStartTime: number = Date.now();
     private syncUrlTimer: any = null;
 
@@ -297,10 +297,11 @@ class App {
         hub.sub(ps.FOLDER_PROGRESS, (data) => {
             let prog = this.folderProgress.get(data.rootId);
             if (!prog) {
-                prog = { processed: data.processed, total: data.total, thumbnailed: data.thumbnailed };
+                prog = { processed: data.processed, total: data.total, thumbnailed: data.thumbnailed, active: true };
             } else {
                 prog.processed = data.processed;
                 prog.total = data.total;
+                prog.active = true;
                 if (data.thumbnailed !== undefined) prog.thumbnailed = data.thumbnailed;
             }
             this.folderProgress.set(data.rootId, prog);
@@ -758,7 +759,7 @@ class App {
                 if (!prog) {
                     const root = this.roots.find(r => r.directoryId === data.rootId);
                     if (root) {
-                        prog = { processed: root.thumbnailedCount, total: root.imageCount, thumbnailed: root.thumbnailedCount };
+                        prog = { processed: root.thumbnailedCount, total: root.imageCount, thumbnailed: root.thumbnailedCount, active: false };
                     }
                 }
                 if (prog) {
@@ -1509,7 +1510,7 @@ class App {
             if (!this.folderProgress.has(r.directoryId)) {
                 // Only show initial bar if significant work is missing (> 5%)
                 if (r.thumbnailedCount < r.imageCount * 0.95) {
-                    this.folderProgress.set(r.directoryId, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount });
+                    this.folderProgress.set(r.directoryId, { processed: r.thumbnailedCount, total: r.imageCount, thumbnailed: r.thumbnailedCount, active: false });
                 }
             }
         });
